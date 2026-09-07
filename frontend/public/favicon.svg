@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  <!-- Dotted flight trail -->
+  <path d="M4 36 C14 34, 20 38, 28 41 C36 44, 46 42, 60 40" stroke="#E5A910" stroke-width="2.5" stroke-dasharray="2 4" stroke-linecap="round" opacity="0.8"/>
+  
+  <!-- Origami Plane Main Body (Right Wing) -->
+  <polygon points="34,10 44,48 30,34" fill="#F5B800" />
+  
+  <!-- Left Top Wing -->
+  <polygon points="34,10 16,42 30,34" fill="#FFE033" />
+  
+  <!-- Underside Fold / Shadow -->
+  <polygon points="16,42 30,34 26,52" fill="#7A4B00" />
+</svg>

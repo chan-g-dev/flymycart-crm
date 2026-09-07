@@ -1,0 +1,360 @@
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { apiClient } from '../api/client';
+
+export const ROLES = {
+    super_admin: {
+        id: 'super_admin',
+        name: 'Super Admin',
+        badge: 'badge-danger',
+        description: 'Full Access (Financials, Cost Margins, Reconciliation, Settings, Staff Approvals)',
+        permissions: {
+            viewFinancials: true,
+            viewCostMargins: true,
+            addShipment: true,
+            editShipment: true,
+            deleteShipment: true,
+            approveRefunds: true,
+            manageAccounts: true,
+            runReconciliation: true,
+            exportReports: true,
+            manageSettings: true,
+            manageUsers: true
+        }
+    },
+    operations_staff: {
+        id: 'operations_staff',
+        name: 'Operations Staff',
+        badge: 'badge-primary',
+        description: 'Operational Bookings, Customer 360, Tracking (Financial Margins Masked)',
+        permissions: {
+            viewFinancials: false,
+            viewCostMargins: false,
+            addShipment: true,
+            editShipment: true,
+            deleteShipment: false,
+            approveRefunds: false,
+            manageAccounts: false,
+            runReconciliation: false,
+            exportReports: true,
+            manageSettings: false,
+            manageUsers: false
+        }
+    },
+    counter_staff: {
+        id: 'counter_staff',
+        name: 'Front Counter Staff',
+        badge: 'badge-warning',
+        description: 'Counter Shipment Entry & Receipts (Restricted Operations)',
+        permissions: {
+            viewFinancials: false,
+            viewCostMargins: false,
+            addShipment: true,
+            editShipment: false,
+            deleteShipment: false,
+            approveRefunds: false,
+            manageAccounts: false,
+            runReconciliation: false,
+            exportReports: false,
+            manageSettings: false,
+            manageUsers: false
+        }
+    }
+};
+
+const AuthContext = createContext();
+
+const getAvatarForRole = (roleId) => {
+    switch (roleId) {
+        case 'super_admin': return '👑';
+        case 'operations_staff': return '💼';
+        case 'counter_staff': return '📝';
+        default: return '👤';
+    }
+};
+
+const normalizeUserStatus = (status) => {
+    const normalized = String(status || 'pending').trim().toLowerCase();
+    if (normalized === 'active') return 'approved';
+    if (normalized === 'pending approval') return 'pending';
+    return normalized;
+};
+
+export const AuthProvider = ({ children }) => {
+    const [currentUser, setCurrentUser] = useState(() => {
+        const isLoggedOut = localStorage.getItem('fmc_logged_out') === 'true';
+        const isLoggedIn = localStorage.getItem('fmc_logged_in') === 'true';
+        let savedEmail = localStorage.getItem('fmc_user_email');
+        let savedRole = localStorage.getItem('fmc_user_role');
+        const savedName = localStorage.getItem('fmc_user_name') || '';
+
+        // Automatically purge any legacy customer role or profile
+        if (savedRole === 'customer' || savedName.includes('Customer') || (savedRole && !ROLES[savedRole])) {
+            savedRole = 'super_admin';
+            savedEmail = savedEmail && !savedEmail.includes('customer') ? savedEmail : 'chanakyagangabathina77@gmail.com';
+            localStorage.setItem('fmc_user_role', 'super_admin');
+            localStorage.setItem('fmc_user_name', 'Gangabathina Chanakya');
+            localStorage.setItem('fmc_user_email', savedEmail);
+            localStorage.removeItem('fmc_customer_id');
+            localStorage.removeItem('fmc_b2b_company_id');
+        }
+
+        if (isLoggedOut || !isLoggedIn || !savedEmail) {
+            return null;
+        }
+
+        const roleId = savedRole || 'super_admin';
+        return {
+            id: localStorage.getItem('fmc_user_id') || '055d37da-38d0-4fe9-9ca3-4b956dede81d',
+            email: savedEmail,
+            name: localStorage.getItem('fmc_user_name') || 'Gangabathina Chanakya',
+            roleId: roleId,
+            center: localStorage.getItem('fmc_user_center') || 'Main Hub (Bangalore)',
+            status: localStorage.getItem('fmc_user_status') || 'approved',
+            permissions: ROLES[roleId]?.permissions || ROLES.super_admin.permissions,
+            avatar: getAvatarForRole(roleId),
+            isSuperAdmin: roleId === 'super_admin'
+        };
+    });
+
+    const [activeRoleOverride, setActiveRoleOverride] = useState(() => {
+        const isLoggedOut = localStorage.getItem('fmc_logged_out') === 'true';
+        const isLoggedIn = localStorage.getItem('fmc_logged_in') === 'true';
+        let r = (isLoggedIn && !isLoggedOut) ? (localStorage.getItem('fmc_user_role') || 'super_admin') : null;
+        if (r === 'customer' || (r && !ROLES[r])) {
+            r = 'super_admin';
+            localStorage.setItem('fmc_user_role', 'super_admin');
+        }
+        return r;
+    });
+    const [userStatus, setUserStatus] = useState('approved');
+    const [authLoading, setAuthLoading] = useState(false);
+
+    const currentRoleId = activeRoleOverride || currentUser?.roleId || 'super_admin';
+    const currentRole = ROLES[currentRoleId] || ROLES.super_admin;
+    const normalizedStatus = normalizeUserStatus(userStatus);
+    const isApproved = normalizedStatus === 'approved';
+    const isPendingApproval = normalizedStatus === 'pending';
+    const isRejected = normalizedStatus === 'rejected';
+    const isSuspended = normalizedStatus === 'suspended';
+
+    const parseApiError = (err, fallback = 'Operation failed.') => {
+        if (!err) return fallback;
+        if (err.code === 'ECONNABORTED' || err.message?.includes('timeout')) {
+            return 'Server response timed out. Please check that the backend is running.';
+        }
+        if (err.code === 'ERR_NETWORK' || !err.response) {
+            return 'Cannot reach backend server. Please make sure backend is running on port 8000.';
+        }
+        const detail = err.response?.data?.detail || err.message;
+        if (typeof detail === 'string') return detail;
+        if (detail && typeof detail === 'object') {
+            return detail.message || detail.msg || JSON.stringify(detail);
+        }
+        return String(detail || fallback);
+    };
+
+    // Login
+    const login = async (email, password) => {
+        setAuthLoading(true);
+        try {
+            const data = await apiClient.login({ email: email.trim(), password });
+            localStorage.removeItem('fmc_logged_out');
+
+            if (data.access_token || data.session_token) {
+                const tok = data.access_token || data.session_token;
+                localStorage.setItem('fmc_access_token', tok);
+                localStorage.setItem('fmc_token', tok);
+                localStorage.setItem('fmc_session_token', tok);
+            }
+
+            if (data.user) {
+                const u = data.user;
+                const roleId = u.role || 'operations_staff';
+                const status = 'approved';
+                const name = u.name || email.split('@')[0];
+                const centerName = (u.centers && u.centers[0]) || 'Main Hub (Bangalore)';
+
+                localStorage.setItem('fmc_user_id', u.id);
+                localStorage.setItem('fmc_user_email', u.email);
+                localStorage.setItem('fmc_user_name', name);
+                localStorage.setItem('fmc_user_role', roleId);
+                localStorage.setItem('fmc_user_status', status);
+                localStorage.setItem('fmc_user_center', centerName);
+                localStorage.setItem('fmc_user_permissions', JSON.stringify(u.permissions || {}));
+                localStorage.setItem('fmc_logged_in', 'true');
+                localStorage.removeItem('fmc_logged_out');
+
+                setActiveRoleOverride(roleId);
+                setUserStatus(status);
+                setCurrentUser({
+                    id: u.id,
+                    email: u.email,
+                    name: name,
+                    roleId: roleId,
+                    roles: u.roles || [roleId],
+                    status: status,
+                    center: centerName,
+                    permissions: u.permissions || {},
+                    isSuperAdmin: roleId === 'super_admin' || (u.roles && u.roles.includes('SUPER_ADMIN')),
+                    avatar: getAvatarForRole(roleId)
+                });
+                return { status: 'authenticated', success: true, user: u };
+            }
+            return { status: 'authenticated', success: true };
+        } catch (err) {
+            throw new Error(parseApiError(err, 'Login failed. Please check your credentials.'));
+        } finally {
+            setAuthLoading(false);
+        }
+    };
+
+    // Logout / Clear session
+    const logout = () => {
+        localStorage.removeItem('fmc_access_token');
+        localStorage.removeItem('fmc_token');
+        localStorage.removeItem('fmc_session_token');
+        localStorage.removeItem('fmc_logged_in');
+        localStorage.removeItem('fmc_user_id');
+        localStorage.removeItem('fmc_user_email');
+        localStorage.removeItem('fmc_user_name');
+        localStorage.removeItem('fmc_user_role');
+        localStorage.removeItem('fmc_user_status');
+        localStorage.removeItem('fmc_user_center');
+        localStorage.removeItem('fmc_customer_id');
+        localStorage.removeItem('fmc_b2b_company_id');
+        localStorage.setItem('fmc_logged_out', 'true');
+        setCurrentUser(null);
+        setActiveRoleOverride(null);
+    };
+
+    // Logout All Devices
+    const logoutAll = () => {
+        logout();
+    };
+
+    // Check granular permission & scope
+    const hasPermission = (permKey, minScope = 'own') => {
+        if (currentUser?.isSuperAdmin || currentRoleId === 'super_admin') return true;
+
+        if (currentUser?.permissions) {
+            if (currentUser.permissions['*']) return true;
+            const grantedScope = currentUser.permissions[permKey];
+            if (grantedScope) {
+                const scopeLevels = { own: 1, center: 2, all: 3 };
+                const uLevel = scopeLevels[grantedScope.toLowerCase()] || 1;
+                const rLevel = scopeLevels[minScope.toLowerCase()] || 1;
+                return uLevel >= rLevel;
+            }
+        }
+
+        return !!currentRole?.permissions?.[permKey];
+    };
+
+    // Quick switch staff role for testing / demo
+    const switchUserRole = (roleId) => {
+        if (!ROLES[roleId]) return;
+        setActiveRoleOverride(roleId);
+        localStorage.setItem('fmc_user_role', roleId);
+        const name = roleId === 'super_admin' 
+            ? 'Gangabathina Chanakya' 
+            : (roleId === 'operations_staff' 
+                ? 'Lata (Operations)' 
+                : 'Uma (Counter Staff)');
+        localStorage.setItem('fmc_user_name', name);
+        setCurrentUser(prev => ({
+            ...(prev || {}),
+            roleId: roleId,
+            name: name,
+            isSuperAdmin: roleId === 'super_admin',
+            avatar: getAvatarForRole(roleId)
+        }));
+    };
+
+    // Direct Self-Registration & Immediate Login
+    const registerStaff = async (payload) => {
+        setAuthLoading(true);
+        try {
+            const data = await apiClient.signup({
+                email: payload.email.trim().toLowerCase(),
+                password: payload.password,
+                full_name: payload.name.trim(),
+                name: payload.name.trim(),
+                phone: payload.phone?.trim() || '',
+                requested_role: payload.requested_role || 'counter_staff',
+                center: payload.center || 'Main Hub (Bangalore)'
+            });
+            localStorage.removeItem('fmc_logged_out');
+
+            if (data.access_token || data.session_token) {
+                const tok = data.access_token || data.session_token;
+                localStorage.setItem('fmc_access_token', tok);
+                localStorage.setItem('fmc_token', tok);
+                localStorage.setItem('fmc_session_token', tok);
+            }
+
+            if (data.user) {
+                const u = data.user;
+                const roleId = u.role || payload.requested_role || 'counter_staff';
+                const status = 'approved';
+                const name = u.name || payload.name;
+                const centerName = (u.centers && u.centers[0]) || payload.center || 'Main Hub (Bangalore)';
+
+                localStorage.setItem('fmc_user_id', u.id);
+                localStorage.setItem('fmc_user_email', u.email);
+                localStorage.setItem('fmc_user_name', name);
+                localStorage.setItem('fmc_user_role', roleId);
+                localStorage.setItem('fmc_user_status', status);
+                localStorage.setItem('fmc_user_center', centerName);
+                localStorage.setItem('fmc_user_permissions', JSON.stringify(u.permissions || {}));
+                localStorage.setItem('fmc_logged_in', 'true');
+
+                setActiveRoleOverride(roleId);
+                setUserStatus(status);
+                setCurrentUser({
+                    id: u.id,
+                    email: u.email,
+                    name: name,
+                    roleId: roleId,
+                    roles: u.roles || [roleId],
+                    status: status,
+                    center: centerName,
+                    permissions: ROLES[roleId]?.permissions || {},
+                    isSuperAdmin: roleId === 'super_admin',
+                    avatar: getAvatarForRole(roleId)
+                });
+            }
+            return data;
+        } catch (err) {
+            throw new Error(parseApiError(err, 'Registration failed.'));
+        } finally {
+            setAuthLoading(false);
+        }
+    };
+
+    return (
+        <AuthContext.Provider value={{
+            session: { user: { email: currentUser?.email || '' } },
+            user: currentUser,
+            currentUser: currentUser,
+            currentRole: currentRole || ROLES.super_admin,
+            userStatus,
+            isAuthenticated: !!currentUser?.email && localStorage.getItem('fmc_logged_out') !== 'true',
+            isApproved,
+            isPendingApproval,
+            isRejected,
+            isSuspended,
+            authLoading,
+            login,
+            registerStaff,
+            logout,
+            logoutAll,
+            switchUserRole,
+            hasPermission,
+            roles: ROLES
+        }}>
+            {children}
+        </AuthContext.Provider>
+    );
+};
+
+export const useAuth = () => useContext(AuthContext);
