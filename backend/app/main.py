@@ -175,20 +175,8 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins,
     allow_credentials=True,  # Required for HttpOnly cookies
-    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=[
-        "Content-Type",
-        "Authorization",
-        "X-Request-ID",
-        "X-CSRF-Token",
-        "X-User-Role",
-        "X-User-Name",
-        "Accept",
-        "Accept-Language",
-        "Origin",
-        "Access-Control-Request-Method",
-        "Access-Control-Request-Headers",
-    ],
+    allow_methods=["*"],
+    allow_headers=["*"],
     expose_headers=["X-Total-Count", "X-Page-Count", "X-Process-Time"],
     max_age=3600,  # Preflight cache duration
 )

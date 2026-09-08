@@ -461,6 +461,7 @@ class SignupRequest(BaseModel):
 
 
 class LoginRequest(BaseModel):
+    full_name: Optional[str] = None
     email: str
     password: str
 

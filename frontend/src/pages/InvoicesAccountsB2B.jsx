@@ -342,17 +342,52 @@ export const Accounts = ({
     );
 };
 
-export const B2B = ({ b2bData, onOpenCustomerDrawer, onOpenB2BModal }) => {
+export const B2B = ({ b2bData, onOpenCustomerDrawer, onOpenB2BModal, onRefresh }) => {
     const formatCurrency = (n) => '₹' + Number(n || 0).toLocaleString('en-IN');
+    const [timeoutExpired, setTimeoutExpired] = useState(false);
+    const [isRefreshing, setIsRefreshing] = useState(false);
 
-    if (!b2bData) {
+    // Timeout safety fallback: if b2bData is null for more than 2 seconds, transition out of shimmer
+    React.useEffect(() => {
+        if (!b2bData) {
+            const timer = setTimeout(() => {
+                setTimeoutExpired(true);
+            }, 2000);
+            return () => clearTimeout(timer);
+        } else {
+            setTimeoutExpired(false);
+        }
+    }, [b2bData]);
+
+    const activeData = b2bData || (timeoutExpired ? {
+        total_credit_sales: 0,
+        collected: 0,
+        outstanding: 0,
+        due_this_week: 0,
+        overdue: 0,
+        aging: { not_due: 0, days1_30: 0, days31_60: 0, days61_90: 0, days90_plus: 0, total_outstanding: 0, overdue_total: 0 },
+        companies: []
+    } : null);
+
+    if (!activeData) {
         return <ContentShimmer message="Calculating Corporate Aging Schedules (30–90 Days) & Credit Limits..." />;
     }
 
+    const handleManualRefresh = async () => {
+        if (onRefresh) {
+            setIsRefreshing(true);
+            try {
+                await onRefresh();
+            } finally {
+                setTimeout(() => setIsRefreshing(false), 500);
+            }
+        }
+    };
+
     const exportToCSV = () => {
-        if (!b2bData.companies || b2bData.companies.length === 0) return;
+        if (!activeData.companies || activeData.companies.length === 0) return;
         const headers = ['Company', 'Contact Person', 'Mobile', 'Credit Limit (INR)', 'Total Billed (INR)', 'Outstanding (INR)', 'Credit Period (Days)', 'Status'];
-        const rows = b2bData.companies.map(c => [
+        const rows = activeData.companies.map(c => [
             `"${c.company}"`,
             `"${c.contact_name}"`,
             `"${c.mobile}"`,
@@ -381,6 +416,16 @@ export const B2B = ({ b2bData, onOpenCustomerDrawer, onOpenB2BModal }) => {
                     <p className="page-subtitle">Manage corporate credit limits, payment terms, and 5-bucket aging schedule</p>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    {onRefresh && (
+                        <button 
+                            className="btn btn-outline" 
+                            onClick={handleManualRefresh}
+                            title="Refresh corporate aging and balances"
+                            disabled={isRefreshing}
+                        >
+                            <RotateCcw size={14} className={isRefreshing ? 'spin-icon' : ''} /> Refresh
+                        </button>
+                    )}
                     <button className="btn btn-outline" onClick={exportToCSV}>
                         <Download size={14} /> Export CSV
                     </button>
@@ -392,11 +437,11 @@ export const B2B = ({ b2bData, onOpenCustomerDrawer, onOpenB2BModal }) => {
 
             {/* KPI Cards */}
             <div className="dash-stat-cards-grid" style={{ gridTemplateColumns: 'repeat(5, 1fr)', marginBottom: '18px' }}>
-                <div className="dash-mini-card"><span className="card-label">Total Credit Sales</span><div className="card-value">{formatCurrency(b2bData.total_credit_sales)}</div></div>
-                <div className="dash-mini-card"><span className="card-label">Collected</span><div className="card-value" style={{ color: 'var(--emerald)' }}>{formatCurrency(b2bData.collected)}</div></div>
-                <div className="dash-mini-card"><span className="card-label">Total Outstanding</span><div className="card-value" style={{ color: 'var(--amber)' }}>{formatCurrency(b2bData.outstanding)}</div></div>
-                <div className="dash-mini-card"><span className="card-label">Due This Week</span><div className="card-value" style={{ color: 'var(--rose)' }}>{formatCurrency(b2bData.due_this_week)}</div></div>
-                <div className="dash-mini-card"><span className="card-label">Overdue &gt; Terms</span><div className="card-value" style={{ color: 'var(--rose)' }}>{formatCurrency(b2bData.overdue)}</div></div>
+                <div className="dash-mini-card"><span className="card-label">Total Credit Sales</span><div className="card-value">{formatCurrency(activeData.total_credit_sales)}</div></div>
+                <div className="dash-mini-card"><span className="card-label">Collected</span><div className="card-value" style={{ color: 'var(--emerald)' }}>{formatCurrency(activeData.collected)}</div></div>
+                <div className="dash-mini-card"><span className="card-label">Total Outstanding</span><div className="card-value" style={{ color: 'var(--amber)' }}>{formatCurrency(activeData.outstanding)}</div></div>
+                <div className="dash-mini-card"><span className="card-label">Due This Week</span><div className="card-value" style={{ color: 'var(--rose)' }}>{formatCurrency(activeData.due_this_week)}</div></div>
+                <div className="dash-mini-card"><span className="card-label">Overdue &gt; Terms</span><div className="card-value" style={{ color: 'var(--rose)' }}>{formatCurrency(activeData.overdue)}</div></div>
             </div>
 
             {/* 5-Bucket Aging Schedule */}
@@ -405,23 +450,23 @@ export const B2B = ({ b2bData, onOpenCustomerDrawer, onOpenB2BModal }) => {
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '10px' }}>
                     <div style={{ background: 'var(--bg-app)', padding: '12px', borderRadius: 'var(--radius-sm)', textAlign: 'center', border: '1px solid var(--card-border)' }}>
                         <div style={{ fontSize: '11px', fontWeight: 800, color: 'var(--emerald)' }}>NOT DUE</div>
-                        <div style={{ fontSize: '18px', fontWeight: 900, marginTop: '4px' }}>{formatCurrency(b2bData.aging?.not_due)}</div>
+                        <div style={{ fontSize: '18px', fontWeight: 900, marginTop: '4px' }}>{formatCurrency(activeData.aging?.not_due)}</div>
                     </div>
                     <div style={{ background: 'var(--bg-app)', padding: '12px', borderRadius: 'var(--radius-sm)', textAlign: 'center', border: '1px solid var(--card-border)' }}>
                         <div style={{ fontSize: '11px', fontWeight: 800, color: 'var(--sky)' }}>1 - 30 DAYS</div>
-                        <div style={{ fontSize: '18px', fontWeight: 900, marginTop: '4px' }}>{formatCurrency(b2bData.aging?.days1_30)}</div>
+                        <div style={{ fontSize: '18px', fontWeight: 900, marginTop: '4px' }}>{formatCurrency(activeData.aging?.days1_30)}</div>
                     </div>
                     <div style={{ background: 'var(--bg-app)', padding: '12px', borderRadius: 'var(--radius-sm)', textAlign: 'center', border: '1px solid var(--card-border)' }}>
                         <div style={{ fontSize: '11px', fontWeight: 800, color: 'var(--amber)' }}>31 - 60 DAYS</div>
-                        <div style={{ fontSize: '18px', fontWeight: 900, marginTop: '4px' }}>{formatCurrency(b2bData.aging?.days31_60)}</div>
+                        <div style={{ fontSize: '18px', fontWeight: 900, marginTop: '4px' }}>{formatCurrency(activeData.aging?.days31_60)}</div>
                     </div>
                     <div style={{ background: 'var(--bg-app)', padding: '12px', borderRadius: 'var(--radius-sm)', textAlign: 'center', border: '1px solid var(--card-border)' }}>
                         <div style={{ fontSize: '11px', fontWeight: 800, color: '#8b5cf6' }}>61 - 90 DAYS</div>
-                        <div style={{ fontSize: '18px', fontWeight: 900, marginTop: '4px' }}>{formatCurrency(b2bData.aging?.days61_90)}</div>
+                        <div style={{ fontSize: '18px', fontWeight: 900, marginTop: '4px' }}>{formatCurrency(activeData.aging?.days61_90)}</div>
                     </div>
                     <div style={{ background: 'var(--bg-app)', padding: '12px', borderRadius: 'var(--radius-sm)', textAlign: 'center', border: '1px solid var(--card-border)' }}>
                         <div style={{ fontSize: '11px', fontWeight: 800, color: 'var(--rose)' }}>90+ DAYS OVERDUE</div>
-                        <div style={{ fontSize: '18px', fontWeight: 900, marginTop: '4px', color: 'var(--rose)' }}>{formatCurrency(b2bData.aging?.days90_plus)}</div>
+                        <div style={{ fontSize: '18px', fontWeight: 900, marginTop: '4px', color: 'var(--rose)' }}>{formatCurrency(activeData.aging?.days90_plus)}</div>
                     </div>
                 </div>
             </div>
@@ -446,39 +491,54 @@ export const B2B = ({ b2bData, onOpenCustomerDrawer, onOpenB2BModal }) => {
                             </tr>
                         </thead>
                         <tbody>
-                            {b2bData.companies?.map(c => {
-                                const util = c.credit_utilized_percent || 0;
-                                return (
-                                    <tr key={c.id}>
-                                        <td>
-                                            <strong style={{ color: 'var(--text-main)' }}>{c.company}</strong>
-                                            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>{c.contact_name}</div>
-                                        </td>
-                                        <td>{c.mobile}</td>
-                                        <td>{formatCurrency(c.credit_limit)}</td>
-                                        <td><strong style={{ color: c.outstanding > 0 ? 'var(--rose)' : 'var(--emerald)' }}>{formatCurrency(c.outstanding)}</strong></td>
-                                        <td>
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                                <div style={{ flex: 1, height: '6px', background: 'var(--bg-app)', borderRadius: '3px', overflow: 'hidden' }}>
-                                                    <div style={{ width: `${Math.min(100, util)}%`, height: '100%', background: util > 85 ? 'var(--rose)' : (util > 50 ? 'var(--amber)' : 'var(--emerald)') }}></div>
+                            {activeData.companies && activeData.companies.length > 0 ? (
+                                activeData.companies.map(c => {
+                                    const util = c.credit_utilized_percent || 0;
+                                    return (
+                                        <tr key={c.id}>
+                                            <td>
+                                                <strong style={{ color: 'var(--text-main)' }}>{c.company}</strong>
+                                                <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>{c.contact_name}</div>
+                                            </td>
+                                            <td>{c.mobile}</td>
+                                            <td>{formatCurrency(c.credit_limit)}</td>
+                                            <td><strong style={{ color: c.outstanding > 0 ? 'var(--rose)' : 'var(--emerald)' }}>{formatCurrency(c.outstanding)}</strong></td>
+                                            <td>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                                    <div style={{ flex: 1, height: '6px', background: 'var(--bg-app)', borderRadius: '3px', overflow: 'hidden' }}>
+                                                        <div style={{ width: `${Math.min(100, util)}%`, height: '100%', background: util > 85 ? 'var(--rose)' : (util > 50 ? 'var(--amber)' : 'var(--emerald)') }}></div>
+                                                    </div>
+                                                    <span style={{ fontSize: '11px', fontWeight: 700 }}>{util}%</span>
                                                 </div>
-                                                <span style={{ fontSize: '11px', fontWeight: 700 }}>{util}%</span>
-                                            </div>
-                                        </td>
-                                        <td><span className="status-pill in-transit">{c.credit_period_days} Days</span></td>
-                                        <td>
-                                            <span className={`status-pill ${c.outstanding > c.credit_limit ? 'delayed' : (c.outstanding > 0 ? 'picked-up' : 'delivered')}`}>
-                                                {c.status}
-                                            </span>
-                                        </td>
-                                        <td style={{ textAlign: 'right' }}>
-                                            <button className="btn btn-sm btn-outline" onClick={() => onOpenCustomerDrawer(c.id)}>
-                                                Statement
-                                            </button>
-                                        </td>
-                                    </tr>
-                                );
-                            })}
+                                            </td>
+                                            <td><span className="status-pill in-transit">{c.credit_period_days} Days</span></td>
+                                            <td>
+                                                <span className={`status-pill ${c.outstanding > c.credit_limit ? 'delayed' : (c.outstanding > 0 ? 'picked-up' : 'delivered')}`}>
+                                                    {c.status}
+                                                </span>
+                                            </td>
+                                            <td style={{ textAlign: 'right' }}>
+                                                <button className="btn btn-sm btn-outline" onClick={() => onOpenCustomerDrawer(c.id)}>
+                                                    Statement
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    );
+                                })
+                            ) : (
+                                <tr>
+                                    <td colSpan={8} style={{ textAlign: 'center', padding: '36px 16px', color: 'var(--text-muted)' }}>
+                                        <Building2 size={32} style={{ opacity: 0.35, marginBottom: '8px' }} />
+                                        <div style={{ fontWeight: 600, fontSize: '14px', color: 'var(--text-main)' }}>No Corporate B2B Clients Registered</div>
+                                        <div style={{ fontSize: '12px', marginTop: '4px', marginBottom: '14px' }}>
+                                            Add enterprise accounts to assign customized credit periods (30–90 days) and automated aging limits.
+                                        </div>
+                                        <button className="btn btn-primary-blue btn-sm" onClick={onOpenB2BModal}>
+                                            <Plus size={14} /> Add First B2B Client
+                                        </button>
+                                    </td>
+                                </tr>
+                            )}
                         </tbody>
                     </table>
                 </div>

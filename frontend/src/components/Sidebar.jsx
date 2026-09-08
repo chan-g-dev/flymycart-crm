@@ -193,11 +193,6 @@ const Sidebar = ({ currentPage, onNavigate, onSubNavigate, stats, isOpen = false
                 >
                     <ShieldCheck size={17} />
                     <span>Users & Access</span>
-                    {stats?.pending_staff_count > 0 && (
-                        <span className="sidebar-pill-badge amber" title="Staff awaiting approval">
-                            {stats.pending_staff_count}
-                        </span>
-                    )}
                 </button>
 
                 <button

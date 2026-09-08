@@ -444,7 +444,13 @@ def require_permission(perm_key: str):
 
 
 def mask_shipment_financials(shipment_dict: Dict[str, Any], user_ctx: Dict[str, Any]) -> Dict[str, Any]:
-    can_view = user_ctx.get("is_super_admin", False) or user_ctx.get("permissions", {}).get("viewCostMargins", False)
+    can_view = bool(
+        user_ctx.get("is_super_admin", False)
+        or "*" in user_ctx.get("permissions", {})
+        or user_ctx.get("permissions", {}).get("viewCostMargins", False)
+        or "reports.view_financial" in user_ctx.get("permissions", {})
+        or "viewCostMargins" in user_ctx.get("permissions", {})
+    )
     if not can_view:
         shipment_dict["provider_cost"] = None
         shipment_dict["actual_provider_cost"] = None

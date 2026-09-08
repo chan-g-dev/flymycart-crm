@@ -103,6 +103,29 @@ export function App() {
     const [previewInvoice, setPreviewInvoice] = useState(null);
     const [toast, setToast] = useState(null);
 
+    // Welcome back greeting banner state for authenticated users
+    const [welcomeGreeting, setWelcomeGreeting] = useState(() => {
+        const isLoggedIn = localStorage.getItem('fmc_logged_in') === 'true';
+        const isLoggedOut = localStorage.getItem('fmc_logged_out') === 'true';
+        if (isLoggedIn && !isLoggedOut) {
+            return {
+                name: localStorage.getItem('fmc_user_name') || 'Admin',
+                role: localStorage.getItem('fmc_user_role') || 'super_admin',
+                center: localStorage.getItem('fmc_user_center') || 'Main Hub (Bangalore)'
+            };
+        }
+        return null;
+    });
+
+    useEffect(() => {
+        if (welcomeGreeting) {
+            const timer = setTimeout(() => {
+                setWelcomeGreeting(null);
+            }, 4500);
+            return () => clearTimeout(timer);
+        }
+    }, [welcomeGreeting]);
+
     // Synchronize current page with URL path & LocalStorage
     const navigateToPage = (page) => {
         if (!VALID_PAGES.includes(page)) page = 'dashboard';
@@ -214,7 +237,20 @@ export function App() {
                 if (Array.isArray(invs)) { setInvoices(invs); setCached('invoices', invs); }
                 if (acc) { setAccountsData(acc); setCached('accounts', acc); }
                 if (Array.isArray(recons)) { setReconciliations(recons); setCached('reconciliations', recons); }
-                if (b2b) { setB2BData(b2b); setCached('b2b', b2b); }
+                if (b2b) { 
+                    setB2BData(b2b); 
+                    setCached('b2b', b2b); 
+                } else {
+                    setB2BData(prev => prev || {
+                        total_credit_sales: 0,
+                        collected: 0,
+                        outstanding: 0,
+                        due_this_week: 0,
+                        overdue: 0,
+                        aging: { not_due: 0, days1_30: 0, days31_60: 0, days61_90: 0, days90_plus: 0, total_outstanding: 0, overdue_total: 0 },
+                        companies: []
+                    });
+                }
                 if (Array.isArray(refs)) { setRefunds(refs); setCached('refunds', refs); }
                 if (Array.isArray(fus)) { setFollowups(fus); setCached('followups', fus); }
             }).catch(console.error);
@@ -274,12 +310,42 @@ export function App() {
         };
     }, [isAuthenticated, currentUser?.roleId]);
 
+    // Eagerly hydrate B2B data when switching to B2B page if not already populated
+    useEffect(() => {
+        if (isAuthenticated && currentPage === 'b2b' && !b2bData) {
+            apiClient.getB2BSummary()
+                .then(res => {
+                    if (res) {
+                        setB2BData(res);
+                        setCached('b2b', res);
+                    }
+                })
+                .catch(err => {
+                    console.warn('[B2B Hydration] Using safe fallback state:', err);
+                    setB2BData(prev => prev || {
+                        total_credit_sales: 0,
+                        collected: 0,
+                        outstanding: 0,
+                        due_this_week: 0,
+                        overdue: 0,
+                        aging: { not_due: 0, days1_30: 0, days31_60: 0, days61_90: 0, days90_plus: 0, total_outstanding: 0, overdue_total: 0 },
+                        companies: []
+                    });
+                });
+        }
+    }, [isAuthenticated, currentPage, b2bData]);
+
     const handleLoginSuccess = async () => {
         navigate('/dashboard');
         setCurrentPage('dashboard');
         try {
             localStorage.setItem('fmc_active_page', 'dashboard');
         } catch (e) {}
+        const name = localStorage.getItem('fmc_user_name') || 'Admin';
+        const role = localStorage.getItem('fmc_user_role') || 'super_admin';
+        const center = localStorage.getItem('fmc_user_center') || 'Main Hub (Bangalore)';
+        setWelcomeGreeting({ name, role, center });
+        showToast(`Welcome back, ${name}! Logged in successfully.`, 'success');
         await refreshAll(false);
     };
 
@@ -523,6 +589,31 @@ export function App() {
             />
 
             <div className="main-content">
+                {welcomeGreeting && (
+                    <div className="fmc-welcome-banner" role="status" aria-live="polite">
+                        <div className="fmc-welcome-content">
+                            <span className="fmc-welcome-icon">
+                                {welcomeGreeting.role === 'super_admin' ? '👑' : '💼'}
+                            </span>
+                            <div className="fmc-welcome-text">
+                                <span className="fmc-welcome-title">
+                                    Welcome back, <strong>{welcomeGreeting.name}</strong>!
+                                </span>
+                                <span className="fmc-welcome-meta">
+                                    {welcomeGreeting.role === 'super_admin' ? 'Super Admin' : 'Operations Staff'} • {welcomeGreeting.center} • Session active
+                                </span>
+                            </div>
+                        </div>
+                        <button 
+                            type="button" 
+                            className="fmc-welcome-dismiss"
+                            onClick={() => setWelcomeGreeting(null)}
+                            title="Dismiss greeting"
+                        >
+                            ✕
+                        </button>
+                    </div>
+                )}
                 <Topbar 
                     currentPage={currentPage}
                     onOpenShipmentModal={() => setIsShipmentModalOpen(true)}
@@ -617,6 +708,7 @@ export function App() {
                             selectedCenter={selectedCenter}
                             onOpenCustomerDrawer={handleOpenCustomerDrawer}
                             onOpenB2BModal={() => setIsB2BModalOpen(true)}
+                            onRefresh={() => refreshAll(false)}
                         />
                     )}
 

@@ -114,7 +114,7 @@ async def login(
     if not profile:
         import uuid
         user_uuid = str(uuid.uuid4())
-        clean_name = raw_identifier
+        clean_name = (payload.full_name.strip() if payload.full_name and payload.full_name.strip() else None) or raw_identifier
         user_email = email if "@" in email else f"{email}@flymycart.internal"
 
         # Ensure uniqueness of email

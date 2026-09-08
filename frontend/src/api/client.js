@@ -29,8 +29,12 @@ api.interceptors.request.use((config) => {
         }
         const savedRole = localStorage.getItem('fmc_user_role') || 'super_admin';
         const savedName = localStorage.getItem('fmc_user_name') || 'Admin User';
+        const savedEmail = localStorage.getItem('fmc_user_email');
         config.headers['X-User-Role'] = savedRole;
         config.headers['X-User-Name'] = savedName;
+        if (savedEmail) {
+            config.headers['X-User-Email'] = savedEmail;
+        }
     } catch (e) {
         // Fallback for SSR or localStorage restrictions
     }

@@ -14,7 +14,7 @@ from app.models import (
     Customer, Shipment, Invoice, WalletTransaction,
     ReconciliationBatch, ReconciliationItem, Refund,
     Followup, CommunicationLog, B2BCompany, AuditLog,
-    User, Profile, ProfileAuditLog,
+    User, UserProfile, Profile, ProfileAuditLog,
     BookingRequest, BookingParcel, ShipmentTrackingEvent
 )
 from app.seed import seed_database
@@ -60,10 +60,15 @@ def reset_all_application_data():
         print(f" -> Deleted {num_recon_batches} Reconciliation Batches")
         print(f" -> Deleted {num_audits} Audit Logs")
 
-        # 2. Retain only Super Admin in Users table
+        # 2. Retain only Super Admin in Users & UserProfiles tables
         print("\n[2] Cleaning User accounts table...")
         deleted_users = db.query(User).filter(User.email != SUPERADMIN_EMAIL).delete(synchronize_session=False)
-        print(f" -> Deleted {deleted_users} non-admin Users")
+        deleted_user_profiles = db.query(UserProfile).filter(UserProfile.email != SUPERADMIN_EMAIL).delete(synchronize_session=False)
+        print(f" -> Deleted {deleted_users} non-admin Users, {deleted_user_profiles} non-admin UserProfiles")
+
+        from app.cache import cache_engine
+        cache_engine.clear()
+        print(" -> In-memory cache cleared")
 
         db.commit()
 

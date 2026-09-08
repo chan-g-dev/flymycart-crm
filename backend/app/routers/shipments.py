@@ -35,7 +35,13 @@ def get_shipments(
     db: Session = Depends(get_db)
 ):
     is_default = not search and not status and not courier
-    can_view_margins = "viewCostMargins" in ctx.get("permissions", {})
+    can_view_margins = bool(
+        ctx.get("is_super_admin")
+        or "*" in ctx.get("permissions", {})
+        or ctx.get("permissions", {}).get("viewCostMargins")
+        or "reports.view_financial" in ctx.get("permissions", {})
+        or "viewCostMargins" in ctx.get("permissions", {})
+    )
     cache_key = f"shipments:default:{can_view_margins}"
 
     if is_default:
@@ -243,8 +249,14 @@ def create_shipment(
         ip_address=request.client.host if request.client else None
     )
 
-    s_out = ShipmentOut.model_validate(new_shipment)
-    if not "viewCostMargins" in ctx.get("permissions", {}):
+    can_view_margins = bool(
+        ctx.get("is_super_admin")
+        or "*" in ctx.get("permissions", {})
+        or ctx.get("permissions", {}).get("viewCostMargins")
+        or "reports.view_financial" in ctx.get("permissions", {})
+        or "viewCostMargins" in ctx.get("permissions", {})
+    )
+    if not can_view_margins:
         s_out.provider_cost = None
         s_out.actual_provider_cost = None
         s_out.gross_profit = None

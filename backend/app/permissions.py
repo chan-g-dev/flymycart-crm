@@ -168,6 +168,8 @@ DEFAULT_ROLE_PERMISSIONS: Dict[str, List[str]] = {
         PermissionCode.SEARCH_GLOBAL,
     ],
     "operations_staff": [
+        # Users & Directory (read-only view)
+        PermissionCode.USERS_VIEW,
         # Customers (no delete)
         PermissionCode.CUSTOMERS_VIEW,
         PermissionCode.CUSTOMERS_ADD,

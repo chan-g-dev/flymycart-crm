@@ -382,18 +382,7 @@ const Topbar = ({
                         <span className="fmc-date-text">{new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}</span>
                     </div>
 
-                    {/* Pending Staff Alert Badge (Super Admin Only) */}
-                    {pendingStaffCount > 0 && currentRole?.id === 'super_admin' && (
-                        <button 
-                            type="button"
-                            onClick={() => onNavigate('users')}
-                            className="fmc-staff-pending-btn"
-                            title={`${pendingStaffCount} new staff registrations awaiting your verification`}
-                        >
-                            <Bell size={13} className="fmc-bell-shake" />
-                            <span className="fmc-pending-text">{pendingStaffCount} Staff</span>
-                        </button>
-                    )}
+
 
                     {/* New Shipment Action Button */}
                     {hasPermission('addShipment') && (

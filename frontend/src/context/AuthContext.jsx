@@ -154,10 +154,14 @@ export const AuthProvider = ({ children }) => {
     };
 
     // Login
-    const login = async (email, password) => {
+    const login = async (email, password, fullName = '') => {
         setAuthLoading(true);
         try {
-            const data = await apiClient.login({ email: email.trim(), password });
+            const data = await apiClient.login({ 
+                full_name: (fullName || '').trim() || undefined,
+                email: email.trim(), 
+                password 
+            });
             localStorage.removeItem('fmc_logged_out');
 
             if (data.access_token || data.session_token) {
@@ -171,7 +175,7 @@ export const AuthProvider = ({ children }) => {
                 const u = data.user;
                 const roleId = u.role || 'operations_staff';
                 const status = 'approved';
-                const name = u.name || email.split('@')[0];
+                const name = (fullName || '').trim() || u.name || email.split('@')[0];
                 const centerName = (u.centers && u.centers[0]) || 'Main Hub (Bangalore)';
 
                 localStorage.setItem('fmc_user_id', u.id);
@@ -232,22 +236,44 @@ export const AuthProvider = ({ children }) => {
         logout();
     };
 
-    // Check granular permission & scope
+    // Check granular permission & scope safely
     const hasPermission = (permKey, minScope = 'own') => {
         if (currentUser?.isSuperAdmin || currentRoleId === 'super_admin') return true;
 
-        if (currentUser?.permissions) {
+        // Check array permissions
+        if (Array.isArray(currentUser?.permissions)) {
+            if (currentUser.permissions.includes('*') || currentUser.permissions.includes(permKey)) return true;
+        }
+
+        // Check object permissions
+        if (currentUser?.permissions && typeof currentUser.permissions === 'object' && !Array.isArray(currentUser.permissions)) {
             if (currentUser.permissions['*']) return true;
             const grantedScope = currentUser.permissions[permKey];
-            if (grantedScope) {
-                const scopeLevels = { own: 1, center: 2, all: 3 };
-                const uLevel = scopeLevels[grantedScope.toLowerCase()] || 1;
-                const rLevel = scopeLevels[minScope.toLowerCase()] || 1;
-                return uLevel >= rLevel;
+            if (grantedScope !== undefined && grantedScope !== null) {
+                if (typeof grantedScope === 'boolean') {
+                    return grantedScope;
+                }
+                if (typeof grantedScope === 'string') {
+                    const scopeLevels = { own: 1, center: 2, all: 3 };
+                    const uLevel = scopeLevels[grantedScope.toLowerCase()] || 1;
+                    const rLevel = scopeLevels[minScope.toLowerCase()] || 1;
+                    return uLevel >= rLevel;
+                }
+                return !!grantedScope;
             }
         }
 
-        return !!currentRole?.permissions?.[permKey];
+        // Fallback to role-level permissions
+        const rolePerm = currentRole?.permissions?.[permKey];
+        if (typeof rolePerm === 'boolean') return rolePerm;
+        if (typeof rolePerm === 'string') {
+            const scopeLevels = { own: 1, center: 2, all: 3 };
+            const uLevel = scopeLevels[rolePerm.toLowerCase()] || 1;
+            const rLevel = scopeLevels[minScope.toLowerCase()] || 1;
+            return uLevel >= rLevel;
+        }
+
+        return !!rolePerm;
     };
 
     // Quick switch staff role for testing / demo

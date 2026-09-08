@@ -9,6 +9,7 @@ export const AuthPage = ({ onLoginSuccess }) => {
     const { login } = useAuth();
 
     // Login state
+    const [loginFullName, setLoginFullName] = useState('');
     const [loginEmail, setLoginEmail] = useState('');
     const [loginPassword, setLoginPassword] = useState('');
     const [showLoginPassword, setShowLoginPassword] = useState(false);
@@ -20,15 +21,16 @@ export const AuthPage = ({ onLoginSuccess }) => {
         e?.preventDefault();
         setErrorMessage('');
 
+        const fullName = loginFullName.trim();
         const identifier = loginEmail.trim();
-        if (!identifier || !loginPassword) {
-            setErrorMessage('Please enter email or username and password.');
+        if (!fullName || !identifier || !loginPassword) {
+            setErrorMessage('Please fill in all mandatory fields: Full Name, Email, and Password.');
             return;
         }
 
         setIsSubmitting(true);
         try {
-            await login(identifier, loginPassword);
+            await login(identifier, loginPassword, fullName);
             if (onLoginSuccess) {
                 onLoginSuccess();
             }
@@ -64,13 +66,13 @@ export const AuthPage = ({ onLoginSuccess }) => {
             }}>
                 {/* Brand Header */}
                 <div style={{ 
-                    padding: '26px 24px 18px', 
+                    padding: '18px 24px 10px', 
                     textAlign: 'center',
                     borderBottom: '1px solid #f1f5f9',
                     background: '#ffffff'
                 }}>
-                    <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '12px' }}>
-                        <FlyMyCartLogo height={38} theme="light" />
+                    <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '8px' }}>
+                        <FlyMyCartLogo height={36} theme="light" />
                     </div>
                     <h2 style={{ 
                         margin: 0, 
@@ -82,8 +84,8 @@ export const AuthPage = ({ onLoginSuccess }) => {
                         CRM Staff Login
                     </h2>
                     <p style={{ 
-                        margin: '5px 0 0', 
-                        fontSize: '12.5px', 
+                        margin: '3px 0 0', 
+                        fontSize: '12px', 
                         color: '#64748b' 
                     }}>
                         Enter your credentials to access the system
@@ -91,18 +93,18 @@ export const AuthPage = ({ onLoginSuccess }) => {
                 </div>
 
                 {/* Form Body */}
-                <div style={{ padding: '22px 24px 14px' }}>
+                <div style={{ padding: '14px 24px 14px' }}>
                     {errorMessage && (
                         <div style={{
-                            padding: '10px 12px',
+                            padding: '9px 12px',
                             borderRadius: '8px',
                             background: '#fef2f2',
                             border: '1px solid #fecaca',
                             display: 'flex',
                             alignItems: 'flex-start',
                             gap: '8px',
-                            marginBottom: '16px',
-                            fontSize: '12.5px',
+                            marginBottom: '12px',
+                            fontSize: '12px',
                             color: '#b91c1c'
                         }}>
                             <AlertCircle size={15} style={{ flexShrink: 0, marginTop: '2px' }} />
@@ -110,16 +112,20 @@ export const AuthPage = ({ onLoginSuccess }) => {
                         </div>
                     )}
 
-                    <form onSubmit={handleLoginSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
+                    <form onSubmit={handleLoginSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '11px' }}>
+                        {/* 1. Full Name (Mandatory) */}
                         <div>
                             <label style={{ 
-                                display: 'block', 
-                                fontSize: '12.5px', 
+                                display: 'flex', 
+                                alignItems: 'center',
+                                gap: '4px',
+                                fontSize: '12px', 
                                 fontWeight: 700, 
                                 color: '#334155', 
-                                marginBottom: '6px' 
+                                marginBottom: '4px' 
                             }}>
-                                Email or Username
+                                <span>Full Name</span>
+                                <span style={{ color: '#ef4444', fontWeight: 800 }}>*</span>
                             </label>
                             <div style={{ position: 'relative' }}>
                                 <div style={{ 
@@ -127,24 +133,26 @@ export const AuthPage = ({ onLoginSuccess }) => {
                                     left: '12px', 
                                     top: '50%', 
                                     transform: 'translateY(-50%)', 
-                                    color: '#94a3b8' 
+                                    color: '#94a3b8',
+                                    display: 'flex',
+                                    alignItems: 'center'
                                 }}>
                                     <User size={16} />
                                 </div>
                                 <input
-                                    id="login-email"
+                                    id="login-fullname"
                                     type="text"
-                                    value={loginEmail}
-                                    onChange={(e) => setLoginEmail(e.target.value)}
-                                    placeholder="Enter username or email"
+                                    value={loginFullName}
+                                    onChange={(e) => setLoginFullName(e.target.value)}
+                                    placeholder="Enter your full name"
                                     required
                                     autoFocus
                                     style={{
                                         width: '100%',
-                                        padding: '11px 12px 11px 38px',
+                                        padding: '10px 12px 10px 38px',
                                         borderRadius: '8px',
                                         border: '1px solid #cbd5e1',
-                                        fontSize: '14px',
+                                        fontSize: '13.5px',
                                         color: '#0f172a',
                                         outline: 'none',
                                         boxSizing: 'border-box',
@@ -154,15 +162,19 @@ export const AuthPage = ({ onLoginSuccess }) => {
                             </div>
                         </div>
 
+                        {/* 2. Email (Mandatory) */}
                         <div>
                             <label style={{ 
-                                display: 'block', 
-                                fontSize: '12.5px', 
+                                display: 'flex', 
+                                alignItems: 'center',
+                                gap: '4px',
+                                fontSize: '12px', 
                                 fontWeight: 700, 
                                 color: '#334155', 
-                                marginBottom: '6px' 
+                                marginBottom: '4px' 
                             }}>
-                                Password
+                                <span>Email</span>
+                                <span style={{ color: '#ef4444', fontWeight: 800 }}>*</span>
                             </label>
                             <div style={{ position: 'relative' }}>
                                 <div style={{ 
@@ -170,7 +182,57 @@ export const AuthPage = ({ onLoginSuccess }) => {
                                     left: '12px', 
                                     top: '50%', 
                                     transform: 'translateY(-50%)', 
-                                    color: '#94a3b8' 
+                                    color: '#94a3b8',
+                                    display: 'flex',
+                                    alignItems: 'center'
+                                }}>
+                                    <Mail size={16} />
+                                </div>
+                                <input
+                                    id="login-email"
+                                    type="email"
+                                    value={loginEmail}
+                                    onChange={(e) => setLoginEmail(e.target.value)}
+                                    placeholder="Enter your email"
+                                    required
+                                    style={{
+                                        width: '100%',
+                                        padding: '10px 12px 10px 38px',
+                                        borderRadius: '8px',
+                                        border: '1px solid #cbd5e1',
+                                        fontSize: '13.5px',
+                                        color: '#0f172a',
+                                        outline: 'none',
+                                        boxSizing: 'border-box',
+                                        transition: 'border-color 0.15s ease'
+                                    }}
+                                />
+                            </div>
+                        </div>
+
+                        {/* 3. Password (Mandatory) */}
+                        <div>
+                            <label style={{ 
+                                display: 'flex', 
+                                alignItems: 'center',
+                                gap: '4px',
+                                fontSize: '12px', 
+                                fontWeight: 700, 
+                                color: '#334155', 
+                                marginBottom: '4px' 
+                            }}>
+                                <span>Password</span>
+                                <span style={{ color: '#ef4444', fontWeight: 800 }}>*</span>
+                            </label>
+                            <div style={{ position: 'relative' }}>
+                                <div style={{ 
+                                    position: 'absolute', 
+                                    left: '12px', 
+                                    top: '50%', 
+                                    transform: 'translateY(-50%)', 
+                                    color: '#94a3b8',
+                                    display: 'flex',
+                                    alignItems: 'center'
                                 }}>
                                     <Lock size={16} />
                                 </div>
@@ -183,10 +245,10 @@ export const AuthPage = ({ onLoginSuccess }) => {
                                     required
                                     style={{
                                         width: '100%',
-                                        padding: '11px 40px 11px 38px',
+                                        padding: '10px 40px 10px 38px',
                                         borderRadius: '8px',
                                         border: '1px solid #cbd5e1',
-                                        fontSize: '14px',
+                                        fontSize: '13.5px',
                                         color: '#0f172a',
                                         outline: 'none',
                                         boxSizing: 'border-box',
@@ -220,14 +282,14 @@ export const AuthPage = ({ onLoginSuccess }) => {
                             type="submit"
                             disabled={isSubmitting}
                             style={{
-                                marginTop: '4px',
+                                marginTop: '2px',
                                 width: '100%',
-                                padding: '11px',
+                                padding: '10px',
                                 borderRadius: '8px',
                                 border: 'none',
                                 background: '#1e64f0',
                                 color: '#ffffff',
-                                fontSize: '14px',
+                                fontSize: '13.5px',
                                 fontWeight: 700,
                                 cursor: isSubmitting ? 'not-allowed' : 'pointer',
                                 display: 'flex',
@@ -252,7 +314,7 @@ export const AuthPage = ({ onLoginSuccess }) => {
 
                 {/* Footer note */}
                 <div style={{
-                    padding: '8px 16px',
+                    padding: '7px 16px',
                     background: '#f8fafc',
                     borderTop: '1px solid #f1f5f9',
                     textAlign: 'center',

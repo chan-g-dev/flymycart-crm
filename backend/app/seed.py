@@ -116,10 +116,6 @@ STANDARD_ROLES = [
 
 def seed_permissions_and_roles(db: Session):
     """Initializes standard roles, permissions catalogue, and role mappings."""
-    existing_super = db.query(Role).filter(Role.name == "SUPER_ADMIN").first()
-    if existing_super and db.query(Permission).count() >= len(STANDARD_PERMISSIONS):
-        return
-
     # 1. Seed Permissions
     perm_map = {}
     for resource, action, code, module, is_fin, desc in STANDARD_PERMISSIONS:
@@ -177,7 +173,7 @@ def seed_permissions_and_roles(db: Session):
         ops_perms = [
             "customers.view", "customers.add", "customers.edit",
             "shipments.view", "shipments.add", "shipments.edit",
-            "reports.view"
+            "reports.view", "users.view"
         ]
         for code in ops_perms:
             if code in perm_map:
