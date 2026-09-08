@@ -312,6 +312,46 @@ td {
     transform: translateX(2px);
 }
 
+.sidebar-sublink.active {
+    color: #ffffff;
+    background: rgba(37, 99, 235, 0.24);
+    font-weight: 700;
+}
+
+.account-nav-target {
+    scroll-margin-top: 86px;
+}
+
+.provider-accounts-panel {
+    height: 430px;
+    min-height: 430px;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.provider-accounts-scroll {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding-right: 6px;
+    scrollbar-width: thin;
+    scrollbar-color: #cbd5e1 transparent;
+}
+
+.provider-accounts-scroll::-webkit-scrollbar { width: 6px; }
+.provider-accounts-scroll::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 999px; }
+.provider-account-card { margin-bottom: 10px; }
+.provider-account-card:last-child { margin-bottom: 0; }
+
+@media (max-width: 800px) {
+    .provider-accounts-panel {
+        height: 390px;
+        min-height: 390px;
+    }
+}
+
 /* Footer Card */
 .sidebar-footer-card {
     padding: 8px 10px;
@@ -1170,7 +1210,7 @@ input:checked+.slider:before {
 /* ==========================================================================
    TOPBAR RESPONSIVE SCREEN BREAKPOINTS (Never overflows screen)
    ========================================================================== */
-@media (max-width: 1200px) {
+@media (max-width: 900px) {
     .fmc-page-subtitle-text {
         display: none;
     }
@@ -1197,7 +1237,7 @@ input:checked+.slider:before {
     }
 }
 
-@media (max-width: 768px) {
+@media (max-width: 650px) {
     .fmc-topbar-root {
         height: 56px;
         padding: 0 10px;
@@ -1726,6 +1766,19 @@ input:checked+.slider:before {
     width: 100%;
 }
 
+.dashboard-summary-card {
+    height: 250px;
+    min-width: 0;
+    overflow: hidden;
+}
+
+.followups-summary-card > div:last-child {
+    min-height: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding-right: 4px;
+}
+
 @media (max-width: 1200px) {
     .dash-bottom-grid {
         grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1760,13 +1813,15 @@ input:checked+.slider:before {
     text-align: center;
     line-height: 1.1;
     pointer-events: none;
+    max-width: 66px;
 }
 
 .donut-center-label strong {
-    font-size: 11px;
+    font-size: clamp(9px, 1vw, 12px);
     font-weight: 800;
     color: var(--text-main);
     display: block;
+    overflow-wrap: anywhere;
 }
 
 .donut-center-label small {
@@ -1789,6 +1844,19 @@ input:checked+.slider:before {
     justify-content: space-between;
     align-items: center;
     font-size: 11px;
+    gap: 10px;
+    min-width: 0;
+}
+
+.donut-legend-item > strong {
+    min-width: 0;
+    max-width: 55%;
+    overflow: hidden;
+    color: var(--text-main);
+    font-size: clamp(9.5px, .9vw, 11.5px);
+    text-align: right;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .donut-legend-label {
@@ -1797,6 +1865,19 @@ input:checked+.slider:before {
     gap: 5px;
     color: var(--text-muted);
     font-size: 11px;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+@media (max-width: 900px) {
+    .dash-bottom-grid { grid-template-columns: repeat(2, minmax(260px, 1fr)); }
+}
+
+@media (max-width: 650px) {
+    .dash-bottom-grid { grid-template-columns: minmax(0, 1fr); }
+    .dashboard-summary-card { height: 250px; }
 }
 
 .legend-dot {
@@ -1823,6 +1904,55 @@ input:checked+.slider:before {
 .table-wrap {
     overflow-x: auto;
     width: 100%;
+}
+
+/* Invoice columns use a fixed grid so AWB/courier content cannot push later
+   columns off-screen. Horizontal scrolling is reserved for narrow screens. */
+.invoice-table-wrap {
+    overflow-x: hidden;
+}
+
+.invoice-table {
+    table-layout: fixed;
+}
+
+.invoice-table th,
+.invoice-table td {
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.invoice-table td {
+    white-space: nowrap;
+}
+
+.invoice-awb-cell {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+}
+
+.invoice-awb-cell > * {
+    flex-shrink: 0;
+}
+
+.invoice-actions-column {
+    text-align: right !important;
+}
+
+.invoice-actions-column .btn {
+    white-space: nowrap;
+}
+
+@media (max-width: 1050px) {
+    .invoice-table-wrap {
+        overflow-x: auto;
+    }
+
+    .invoice-table {
+        min-width: 980px;
+    }
 }
 
 .dash-bookings-scroll-wrap {
@@ -2211,6 +2341,43 @@ table.data-table tr:hover td {
     width: 95%;
 }
 
+.shipment-booking-modal {
+    overflow: hidden;
+}
+
+.shipment-booking-form {
+    min-width: 0;
+    overflow-x: hidden;
+    overflow-y: auto;
+    padding-right: 8px;
+}
+
+.shipment-booking-form .form-grid,
+.shipment-booking-form .form-group,
+.shipment-booking-form input,
+.shipment-booking-form select,
+.shipment-booking-form textarea {
+    min-width: 0;
+    max-width: 100%;
+    box-sizing: border-box;
+}
+
+.shipment-pricing-grid {
+    align-items: end;
+}
+
+.shipment-pricing-grid .form-group {
+    justify-content: flex-end;
+}
+
+.shipment-pricing-label {
+    display: flex;
+    min-height: 18px;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+
 .modal::-webkit-scrollbar {
     width: 6px;
 }
@@ -2381,6 +2548,45 @@ table.data-table tr:hover td {
     margin-top: 18px;
     padding-top: 12px;
     border-top: 1px solid var(--card-border);
+}
+
+/* Weekly report: compact information hierarchy with a purposeful empty state. */
+.weekly-report-card { padding: 18px 22px; }
+.weekly-report-heading { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding-bottom: 13px; border-bottom: 1px solid var(--card-border); }
+.weekly-report-heading h3 { margin: 2px 0 1px; font-size: 17px; color: var(--text-main); }
+.weekly-report-heading p { margin: 0; color: var(--text-muted); font-size: 12px; }
+.weekly-report-heading .btn { display: inline-flex; align-items: center; gap: 7px; white-space: nowrap; }
+.weekly-report-eyebrow { color: var(--primary-blue); font-size: 9.5px; font-weight: 800; letter-spacing: .6px; text-transform: uppercase; }
+.weekly-kpi-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin: 20px 0; }
+.weekly-kpi { position: relative; overflow: hidden; min-width: 0; padding: 16px 18px; border: 1px solid var(--card-border); border-radius: 11px; background: var(--card-bg); }
+.weekly-kpi::before { content: ''; position: absolute; inset: 0 auto 0 0; width: 4px; background: currentColor; }
+.weekly-kpi > span { display: block; color: var(--text-muted); font-size: 10.5px; font-weight: 800; letter-spacing: .4px; text-transform: uppercase; }
+.weekly-kpi strong { display: block; margin: 7px 0 2px; color: var(--text-main); font-size: 25px; line-height: 1; }
+.weekly-kpi strong em { color: var(--text-muted); font-size: 14px; font-style: normal; }
+.weekly-kpi small { color: var(--text-muted); font-size: 11px; }
+.weekly-kpi.blue { color: #2563eb; } .weekly-kpi.violet { color: #7c3aed; } .weekly-kpi.amber { color: #d97706; } .weekly-kpi.green { color: #059669; }
+.weekly-empty-state { min-height: 230px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 7px; border: 1px dashed #cbd5e1; border-radius: 12px; background: var(--bg-app); color: var(--text-muted); text-align: center; }
+.weekly-empty-state svg { color: #94a3b8; }
+.weekly-empty-state strong { color: var(--text-main); font-size: 15px; }
+.weekly-empty-state span { max-width: 420px; font-size: 12px; }
+.weekly-report-layout { display: grid; grid-template-columns: minmax(0, 1.65fr) minmax(260px, .75fr); gap: 16px; align-items: start; }
+.weekly-table-panel { overflow: hidden; border: 1px solid var(--card-border); border-radius: 11px; }
+.weekly-panel-title { display: flex; align-items: center; justify-content: space-between; padding: 13px 16px; border-bottom: 1px solid var(--card-border); }
+.weekly-panel-title span { color: var(--text-muted); font-size: 11px; }
+.weekly-data-table { width: 100%; table-layout: fixed; }
+.weekly-data-table th, .weekly-data-table td { padding: 11px 16px; text-align: left; }
+.weekly-profit { color: var(--emerald); font-weight: 700; }
+.weekly-breakdowns { display: grid; gap: 12px; }
+
+@media (max-width: 900px) {
+    .weekly-kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .weekly-report-layout { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 600px) {
+    .weekly-report-card { padding: 18px; }
+    .weekly-report-heading { align-items: flex-start; flex-direction: column; }
+    .weekly-kpi-grid { grid-template-columns: 1fr; }
 }
 
 /* Customer 360 Drawer */
@@ -3186,20 +3392,20 @@ table.data-table tr:hover td {
 .fmc-segmented-capsule {
     display: inline-flex;
     align-items: center;
-    gap: 4px;
-    padding: 4px;
+    gap: 3px;
+    padding: 3px;
     background: var(--card-bg);
     border: 1px solid var(--card-border);
-    border-radius: 12px;
+    border-radius: 10px;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
 }
 
 .fmc-segmented-btn {
     display: inline-flex;
     align-items: center;
-    gap: 7px;
-    padding: 8px 16px;
-    border-radius: 8px;
+    gap: 6px;
+    padding: 6px 12px;
+    border-radius: 7px;
     font-size: 12.5px;
     font-weight: 700;
     color: var(--text-muted);

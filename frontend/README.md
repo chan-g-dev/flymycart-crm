@@ -1,16 +1,18 @@
-# React + Vite
+# Fly My Cart CRM frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+React/Vite interface for the modules defined in [`../REQUIREMENTS.md`](../REQUIREMENTS.md).
 
-Currently, two official plugins are available:
+## Local development
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+1. Copy `.env.example` to `.env` and set `VITE_API_URL` to the FastAPI server URL.
+2. Install dependencies with `npm install`.
+3. Start the UI with `npm run dev`.
 
-## React Compiler
+The API client appends `/api` to `VITE_API_URL`. Authentication uses the backend application session (HttpOnly cookie with bearer-token fallback). CRM data is loaded after login and refreshed only after explicit user actions; there is no periodic polling.
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+## Validation
 
-## Expanding the Oxlint configuration
+- `npm run build`
+- `npm run lint`
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and Oxlint's TypeScript related rules in your project.
+The application entry point is `src/main.jsx`; top-level state and module routing live in `src/App.jsx`.

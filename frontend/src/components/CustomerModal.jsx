@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, UserPlus, Save, Building, Phone, Mail, MapPin, Loader2 } from 'lucide-react';
+import { X, UserPlus, Save, Loader2 } from 'lucide-react';
 import { apiClient } from '../api/client';
 
 const INITIAL_FORM = {

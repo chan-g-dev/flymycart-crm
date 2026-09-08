@@ -47,6 +47,12 @@ def migrate_database_schema(db: Session):
         "ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS b2b_company_id VARCHAR(50);",
         "ALTER TABLE shipments ADD COLUMN IF NOT EXISTS booking_request_id VARCHAR(50);",
         "ALTER TABLE customers ADD COLUMN IF NOT EXISTS documents JSONB DEFAULT '[]'::jsonb;",
+        "CREATE INDEX IF NOT EXISTS idx_customers_center_created ON customers (center, created_at);",
+        "CREATE INDEX IF NOT EXISTS idx_customers_center_type ON customers (center, customer_type);",
+        "CREATE INDEX IF NOT EXISTS idx_shipments_center_created ON shipments (center, created_at);",
+        "CREATE INDEX IF NOT EXISTS idx_shipments_center_status ON shipments (center, status);",
+        "CREATE INDEX IF NOT EXISTS idx_shipments_customer_created ON shipments (customer_id, created_at);",
+        "CREATE INDEX IF NOT EXISTS idx_invoices_customer_created ON invoices (customer_id, created_at);",
     ]
     for sql in migration_sqls:
         try:
@@ -173,7 +179,7 @@ def seed_permissions_and_roles(db: Session):
         ops_perms = [
             "customers.view", "customers.add", "customers.edit",
             "shipments.view", "shipments.add", "shipments.edit",
-            "reports.view", "users.view"
+            "reports.view", "users.view", "settings.view"
         ]
         for code in ops_perms:
             if code in perm_map:
@@ -256,7 +262,7 @@ def seed_super_admin(db: Session):
         prof.role = "super_admin"
         prof.status = "active"
         prof.mfa_required = True
-        prof.password_hash = SUPERADMIN_PASSWORD_HASH
+        prof.password_hash = prof.password_hash or SUPERADMIN_PASSWORD_HASH
         prof.approved_by = prof.approved_by or "System Root"
         prof.approved_at = prof.approved_at or datetime.datetime.utcnow()
 
@@ -310,17 +316,27 @@ def seed_super_admin(db: Session):
         u_admin.role = "super_admin"
         u_admin.status = "Active"
         u_admin.is_active = True
-        u_admin.password_hash = SUPERADMIN_PASSWORD_HASH
+        u_admin.password_hash = u_admin.password_hash or SUPERADMIN_PASSWORD_HASH
 
     db.commit()
 
 
 def seed_system_settings(db: Session):
     """Seeds baseline system settings and provider configurations."""
+    default_couriers = ["FedEx", "Aramex", "DHL", "Blue Dart", "Delhivery", "UPS", "Sree Maruthi", "LTL"]
+    default_centers = [
+        "Main Hub (Bangalore)",
+        "Delhi Regional Hub",
+        "Mumbai Branch",
+        "Hyderabad Hub",
+        "Kolkata Center",
+    ]
     rec = db.query(SystemSettings).first()
     if not rec:
         default_config = {
             "centerName": "Main Hub (Bangalore)",
+            "centers": default_centers,
+            "couriers": default_couriers,
             "centerPhone": "+91 98765 43210",
             "centerAddress": "Warehouse 4, Cargo Complex, Kempegowda International Airport Road, Bangalore, Karnataka - 560300",
             "gstin": "29AABCF1234M1Z5",
@@ -336,10 +352,10 @@ def seed_system_settings(db: Session):
                 {"name": "BRV", "openingBalance": 0.0, "currency": "INR", "notes": "BRV Air Express Wallet"}
             ],
             "postpaidProviders": [
-                {"name": "Aramex", "deposit": 200000.0, "paymentTerms": "15 Days", "accountNo": "ARX-IND-9082"},
-                {"name": "Blue Dart", "deposit": 150000.0, "paymentTerms": "30 Days", "accountNo": "BD-MUM-4411"},
-                {"name": "FedEx", "deposit": 300000.0, "paymentTerms": "30 Days", "accountNo": "FDX-BOMB-7782"},
-                {"name": "DHL Express", "deposit": 250000.0, "paymentTerms": "30 Days", "accountNo": "DHL-EXP-1102"}
+                {"name": "Aramex", "deposit": 0.0, "paymentTerms": "15 Days", "accountNo": "ARX-IND-9082"},
+                {"name": "Blue Dart", "deposit": 0.0, "paymentTerms": "30 Days", "accountNo": "BD-MUM-4411"},
+                {"name": "FedEx", "deposit": 0.0, "paymentTerms": "30 Days", "accountNo": "FDX-BOMB-7782"},
+                {"name": "DHL Express", "deposit": 0.0, "paymentTerms": "30 Days", "accountNo": "DHL-EXP-1102"}
             ],
             "collectionAccounts": [
                 {"id": "acc_office_qr", "name": "Office QR (PhonePe)", "accountType": "UPI / QR", "upiId": "flymycart@ybl"},
@@ -350,6 +366,20 @@ def seed_system_settings(db: Session):
         rec = SystemSettings(id=1, config_json=default_config)
         db.add(rec)
         db.commit()
+    else:
+        # Preserve company customizations while adding baseline lists to older
+        # installations that predate configurable couriers and centers.
+        config = dict(rec.config_json or {})
+        changed = False
+        if not config.get("centers"):
+            config["centers"] = default_centers
+            changed = True
+        if not config.get("couriers"):
+            config["couriers"] = default_couriers
+            changed = True
+        if changed:
+            rec.config_json = config
+            db.commit()
 
 
 def seed_database(db: Session):

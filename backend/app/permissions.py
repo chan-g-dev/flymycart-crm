@@ -195,6 +195,8 @@ DEFAULT_ROLE_PERMISSIONS: Dict[str, List[str]] = {
         PermissionCode.FOLLOWUPS_EDIT,
         # Search
         PermissionCode.SEARCH_GLOBAL,
+        # Settings (read-only)
+        PermissionCode.SETTINGS_VIEW,
     ],
     "accounts_staff": [
         # Customers (view only)

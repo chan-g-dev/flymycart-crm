@@ -4,12 +4,15 @@
 
 import os
 from typing import List
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         case_sensitive=True,
-        env_file=".env",
+        # `.env.local` is ignored by git and may override `.env` for a developer
+        # workstation. Real process environment variables still take precedence.
+        env_file=(".env", ".env.local"),
         extra="ignore"
     )
 
@@ -17,13 +20,30 @@ class Settings(BaseSettings):
     VERSION: str = "2.4.0-production"
     API_V1_PREFIX: str = "/api"
     ENVIRONMENT: str = os.getenv("ENVIRONMENT", "development")
-    DEBUG: bool = os.getenv("DEBUG", "true").lower() == "true"
+    DEBUG: bool = False
+
+    @field_validator("DEBUG", mode="before")
+    @classmethod
+    def parse_debug_setting(cls, value):
+        """Accept deployment-style values without crashing on a global DEBUG variable."""
+        if isinstance(value, bool):
+            return value
+        normalized = str(value or "").strip().lower()
+        if normalized in {"1", "true", "yes", "on", "debug", "development", "dev"}:
+            return True
+        if normalized in {"0", "false", "no", "off", "release", "production", "prod", ""}:
+            return False
+        raise ValueError("DEBUG must be a boolean, development/debug, or production/release value")
 
     # Database: Supports SQLite (Local Dev) & PostgreSQL / Supabase (Production)
     DATABASE_URL: str = os.getenv(
         "DATABASE_URL", 
         f"sqlite:///{os.path.join(os.path.dirname(os.path.abspath(__file__)), 'flymycart.db')}"
     )
+    DB_POOL_SIZE: int = int(os.getenv("DB_POOL_SIZE", "20"))
+    DB_MAX_OVERFLOW: int = int(os.getenv("DB_MAX_OVERFLOW", "20"))
+    DB_POOL_TIMEOUT_SECONDS: int = int(os.getenv("DB_POOL_TIMEOUT_SECONDS", "30"))
+    DB_POOL_RECYCLE_SECONDS: int = int(os.getenv("DB_POOL_RECYCLE_SECONDS", "1800"))
 
     # Security & Authentication
     SECRET_KEY: str = os.getenv("SECRET_KEY", "fmc-super-secret-key-change-in-production-7789")

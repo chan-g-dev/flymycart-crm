@@ -6,12 +6,12 @@ import os
 import datetime
 from typing import Optional, Dict, Any, List
 from fastapi import Header, HTTPException, Depends, Request, status
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from supabase import create_client, Client
 
 from app.config import settings
 from app.database import get_db
-from app.models import UserProfile, Profile, AppSession, Role, Permission
+from app.models import UserProfile, Profile, AppSession, Role, Permission, RolePermission
 from app.auth import (
     get_session_by_token, FALLBACK_COOKIE_NAME, SESSION_COOKIE_NAME
 )
@@ -68,7 +68,7 @@ def get_current_session_context(
     """
     Core Authentication & Session Middleware Guard:
     1. Extracts session token from HttpOnly cookie (__Host-fmc_session / fmc_session) or Bearer header.
-    2. Resolves UserProfile based on active session, or matching X-User-Email / X-User-Role headers.
+    2. Resolves UserProfile exclusively from a valid application session.
     3. Validates that user status is 'active' or 'approved'.
     4. Aggregates roles, granular permissions with scopes, and center access.
     5. Returns rich authenticated user context with strict role & permission boundaries.
@@ -87,20 +87,10 @@ def get_current_session_context(
 
     profile = None
     if session:
-        profile = db.query(UserProfile).filter(UserProfile.id == session.user_id).first()
-
-    # If no active session token, resolve by authenticated email or role header
-    if not profile and x_user_email and x_user_email.strip():
-        profile = db.query(UserProfile).filter(UserProfile.email.ilike(x_user_email.strip())).first()
-
-    if not profile and x_user_role and x_user_role.strip():
-        norm_role = x_user_role.strip().lower()
-        if norm_role in ["operations_staff", "operations"]:
-            profile = db.query(UserProfile).filter(UserProfile.role == "operations_staff").first()
-        elif norm_role in ["counter_staff", "counter"]:
-            profile = db.query(UserProfile).filter(UserProfile.role == "counter_staff").first()
-        elif norm_role in ["super_admin", "admin"]:
-            profile = db.query(UserProfile).filter(UserProfile.role == "super_admin", UserProfile.status.in_(["active", "approved"])).first()
+        profile = db.query(UserProfile).options(
+            joinedload(UserProfile.roles).joinedload(Role.permissions).joinedload(RolePermission.permission_rel),
+            joinedload(UserProfile.centers),
+        ).filter(UserProfile.id == session.user_id).first()
 
     if profile:
         # Instant revocation for suspended, archived or rejected accounts
@@ -115,8 +105,7 @@ def get_current_session_context(
         is_super = (
             "SUPER_ADMIN" in role_names or
             "super_admin" in [r.lower() for r in role_names] or
-            profile.role == "super_admin" or
-            profile.email.lower() == "chanakyagangabathina77@gmail.com"
+            profile.role == "super_admin"
         )
         role_code = profile.role if profile.role in {"super_admin", "operations_staff", "counter_staff", "customer"} else {
             "SUPER_ADMIN": "super_admin",
@@ -159,26 +148,6 @@ def get_current_session_context(
             "raw_profile": profile
         }
 
-    # Development / Fallback mode only when no profile could be matched at all
-    fallback_user = db.query(UserProfile).filter(UserProfile.role == "super_admin").first()
-    if fallback_user and fallback_user.status in ["active", "approved"]:
-        return {
-            "user_id": fallback_user.id,
-            "email": fallback_user.email,
-            "display_name": fallback_user.display_name,
-            "status": fallback_user.status,
-            "is_super_admin": True,
-            "roles": ["SUPER_ADMIN"],
-            "role_id": "super_admin",
-            "role_name": "Super Admin",
-            "permissions": {"*": "all"},
-            "centers": ["All Centers", "Main Hub (Bangalore)"],
-            "mfa_verified": True,
-            "mfa_verified_at": datetime.datetime.utcnow(),
-            "session_id": "dev_session_root",
-            "raw_profile": fallback_user
-        }
-
     raise HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Authentication required. Please log in with your credentials.",
@@ -205,6 +174,8 @@ def require_permission(permission_code: str, minimum_scope: str = "own"):
     Deny-by-default: If permission is not explicitly granted, returns 403 Forbidden.
     """
     def permission_checker(ctx: Dict[str, Any] = Depends(get_current_session_context)) -> Dict[str, Any]:
+        if ctx.get("status") not in {"active", "approved"}:
+            raise HTTPException(status_code=403, detail="Your account is awaiting Super Admin approval.")
         if ctx.get("is_super_admin", False):
             return ctx
 

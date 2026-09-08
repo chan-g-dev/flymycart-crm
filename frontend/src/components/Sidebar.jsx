@@ -2,8 +2,7 @@ import React, { useState } from 'react';
 import { 
     LayoutDashboard, 
     Users, 
-    Package, 
-    Boxes,
+    Package,
     FileText, 
     Wallet, 
     Building2, 
@@ -19,7 +18,7 @@ import {
 } from 'lucide-react';
 import { FlyMyCartLogo } from './FlyMyCartLogo';
 
-const Sidebar = ({ currentPage, onNavigate, onSubNavigate, stats, isOpen = false, onClose }) => {
+const Sidebar = ({ currentPage, activeSubPage, onNavigate, onSubNavigate, stats, isOpen = false, onClose }) => {
     const [isAccountsOpen, setIsAccountsOpen] = useState(false);
     const [isReportsOpen, setIsReportsOpen] = useState(false);
     const [isDarkMode, setIsDarkMode] = useState(false);
@@ -100,22 +99,22 @@ const Sidebar = ({ currentPage, onNavigate, onSubNavigate, stats, isOpen = false
 
                 {isAccountsOpen && (
                     <div className="sidebar-submenu">
-                        <button type="button" className="sidebar-sublink" onClick={() => onSubNavigate('accounts', 'customer_money')}>
+                        <button type="button" className={`sidebar-sublink ${activeSubPage === 'customer_money' ? 'active' : ''}`} onClick={() => onSubNavigate('accounts', 'customer_money')}>
                             Customer Collections
                         </button>
-                        <button type="button" className="sidebar-sublink" onClick={() => onSubNavigate('accounts', 'icl_wallet')}>
+                        <button type="button" className={`sidebar-sublink ${activeSubPage === 'icl_wallet' ? 'active' : ''}`} onClick={() => onSubNavigate('accounts', 'icl_wallet')}>
                             ICL Wallet
                         </button>
-                        <button type="button" className="sidebar-sublink" onClick={() => onSubNavigate('accounts', 'brv_wallet')}>
+                        <button type="button" className={`sidebar-sublink ${activeSubPage === 'brv_wallet' ? 'active' : ''}`} onClick={() => onSubNavigate('accounts', 'brv_wallet')}>
                             BRV Wallet
                         </button>
-                        <button type="button" className="sidebar-sublink" onClick={() => onSubNavigate('accounts', 'aramex_account')}>
+                        <button type="button" className={`sidebar-sublink ${activeSubPage === 'aramex_account' ? 'active' : ''}`} onClick={() => onSubNavigate('accounts', 'aramex_account')}>
                             Aramex Account
                         </button>
-                        <button type="button" className="sidebar-sublink" onClick={() => onSubNavigate('accounts', 'bluedart_account')}>
+                        <button type="button" className={`sidebar-sublink ${activeSubPage === 'bluedart_account' ? 'active' : ''}`} onClick={() => onSubNavigate('accounts', 'bluedart_account')}>
                             Blue Dart Account
                         </button>
-                        <button type="button" className="sidebar-sublink" onClick={() => onSubNavigate('accounts', 'reconciliation')}>
+                        <button type="button" className={`sidebar-sublink ${activeSubPage === 'reconciliation' ? 'active' : ''}`} onClick={() => onSubNavigate('accounts', 'reconciliation')}>
                             Reconciliation
                         </button>
                     </div>
@@ -174,13 +173,13 @@ const Sidebar = ({ currentPage, onNavigate, onSubNavigate, stats, isOpen = false
 
                 {isReportsOpen && (
                     <div className="sidebar-submenu">
-                        <button type="button" className="sidebar-sublink" onClick={() => onSubNavigate('reports', 'eod')}>
+                        <button type="button" className={`sidebar-sublink ${activeSubPage === 'eod' ? 'active' : ''}`} onClick={() => onSubNavigate('reports', 'eod')}>
                             EOD Report
                         </button>
-                        <button type="button" className="sidebar-sublink" onClick={() => onSubNavigate('reports', 'weekly')}>
+                        <button type="button" className={`sidebar-sublink ${activeSubPage === 'weekly' ? 'active' : ''}`} onClick={() => onSubNavigate('reports', 'weekly')}>
                             Weekly Trends
                         </button>
-                        <button type="button" className="sidebar-sublink" onClick={() => onSubNavigate('reports', 'monthly')}>
+                        <button type="button" className={`sidebar-sublink ${activeSubPage === 'monthly' ? 'active' : ''}`} onClick={() => onSubNavigate('reports', 'monthly')}>
                             Monthly P&L
                         </button>
                     </div>

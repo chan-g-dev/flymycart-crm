@@ -1,7 +1,7 @@
 import React from 'react';
 import { Loader2 } from 'lucide-react';
 
-export const ContentShimmer = ({ message = 'Synchronizing Financial Ledger & Analytics...', type = 'cards-and-table' }) => {
+export const ContentShimmer = ({ message = 'Loading financial records...' }) => {
     return (
         <div className="fmc-content-shimmer-container">
             {/* Header Banner Loader */}

@@ -6,10 +6,11 @@ import datetime
 from typing import Dict, Any
 from fastapi import APIRouter, Depends, Request
 from sqlalchemy.orm import Session
-from sqlalchemy import desc
+from sqlalchemy import desc, func, case
 
 from app.database import get_db
-from app.models import Shipment, Followup, Refund
+from app.models import Shipment, Followup, Refund, Invoice
+from app.collections import collection_totals, shipment_payments_query
 from app.auth import mask_shipment_financials
 from app.dependencies import require_permission
 from app.permissions import PermissionCode
@@ -23,60 +24,53 @@ def get_dashboard_summary(
     db: Session = Depends(get_db)
 ):
     """
-    Returns real-time dashboard analytics with 15-second TTL caching.
+    Returns current analytics using SQL aggregates instead of materializing shipment history.
     Automatically masks financial data for unauthorized staff roles.
     """
-    cache_key = f"dashboard_summary:{ctx.get('user_id', 'super_admin')}"
-    cached_summary = cache_engine.get(cache_key)
-    if cached_summary:
-        return cached_summary
-
     today_str = datetime.date.today().isoformat()
-
-    all_shipments = db.query(Shipment).all()
-    today_shipments = [s for s in all_shipments if s.date == today_str]
-    today_count = len(today_shipments)
-
-    # Today's courier breakdown & daily sales totals
-    courier_counts = {}
-    today_sales = 0.0
-    today_collected = 0.0
-
-    for s in today_shipments:
-        courier_counts[s.courier] = courier_counts.get(s.courier, 0) + 1
-        today_sales += (s.price or 0.0)
-        if s.payment_status == "Paid":
-            today_collected += (s.price or 0.0)
-        elif s.payment_status == "Partial":
-            today_collected += round((s.price or 0.0) * 0.5)
-
-    courier_breakdown = " | ".join([f"{c} {cnt}" for c, cnt in courier_counts.items()]) if courier_counts else "No bookings today yet"
-
-    # Operational status aggregations
-    in_transit_count = sum(1 for s in all_shipments if s.status in ["In Transit", "Picked Up", "Booked"])
-    delivered_count = sum(1 for s in all_shipments if s.status == "Delivered")
-    active_volume = in_transit_count + sum(1 for s in all_shipments if s.status == "Delayed")
-
-    # Active operational courier distribution across active fleet
-    active_courier_counts = {}
-    for s in all_shipments:
-        if s.courier:
-            active_courier_counts[s.courier] = active_courier_counts.get(s.courier, 0) + 1
-
-    total_sales = sum(s.price or 0.0 for s in all_shipments)
-    total_collected = sum(
-        (s.price or 0.0) if s.payment_status == "Paid"
-        else (round((s.price or 0.0) * 0.5) if s.payment_status == "Partial" else 0.0)
-        for s in all_shipments
-    )
-
-    # B2B Outstanding receivables
-    b2b_shipments = [s for s in all_shipments if s.customer_type == "B2B"]
-    b2b_outstanding = sum(s.price for s in b2b_shipments if s.payment_status in ["B2B Credit", "Unpaid", "Due"])
+    paid = shipment_payments_query(db).subquery()
+    balance = case((Shipment.price > func.coalesce(paid.c.paid, 0), Shipment.price - func.coalesce(paid.c.paid, 0)), else_=0)
+    today = Shipment.date == today_str
+    active = Shipment.status.in_(["In Transit", "Picked Up", "Booked"])
+    rows = db.query(
+        Shipment.center,
+        func.sum(case((today, 1), else_=0)).label("today_shipments_count"),
+        func.sum(case((today, Shipment.price), else_=0)).label("today_sales"),
+        func.sum(case((today, balance), else_=0)).label("pending_collection"),
+        func.sum(Shipment.price).label("total_sales"),
+        func.sum(func.coalesce(paid.c.paid, 0)).label("total_collected"),
+        func.sum(case((Shipment.customer_type == "B2B", balance), else_=0)).label("b2b_outstanding"),
+        func.sum(case((active, 1), else_=0)).label("in_transit_count"),
+        func.sum(case((Shipment.status == "Delivered", 1), else_=0)).label("delivered_count"),
+        func.sum(case((active | (Shipment.status == "Delayed"), 1), else_=0)).label("active_volume"),
+        func.sum(case((Shipment.cost_reconciled.is_(True), func.coalesce(Shipment.actual_provider_cost, Shipment.provider_cost)), else_=Shipment.provider_cost)).label("total_provider_cost"),
+        func.sum(Shipment.gross_profit).label("total_gross_profit"),
+    ).outerjoin(paid, paid.c.shipment_id == Shipment.id).group_by(Shipment.center).all()
+    centers = {row.center: dict(row._mapping) for row in rows}
+    totals = {key: sum(float(row.get(key) or 0) for row in centers.values()) for key in (
+        "today_shipments_count", "today_sales", "pending_collection", "total_sales", "total_collected",
+        "b2b_outstanding", "in_transit_count", "delivered_count", "active_volume",
+        "total_provider_cost", "total_gross_profit")}
+    daily_collections = collection_totals(db, today_str)
+    for center, values in centers.items():
+        values["today_collected"] = daily_collections["by_center"].get(center, 0)
+    today_collected = daily_collections["total"]
+    today_count = int(totals["today_shipments_count"])
+    today_sales = totals["today_sales"]
+    total_sales = totals["total_sales"]
+    total_collected = totals["total_collected"]
+    b2b_outstanding = totals["b2b_outstanding"]
+    in_transit_count = int(totals["in_transit_count"])
+    delivered_count = int(totals["delivered_count"])
+    active_volume = int(totals["active_volume"])
+    can_view_financials = bool(ctx.get("is_super_admin") or ctx.get("permissions", {}).get("*") or ctx.get("permissions", {}).get(PermissionCode.REPORTS_VIEW_FINANCIAL))
+    courier_counts = dict(db.query(Shipment.courier, func.count(Shipment.id)).filter(today).group_by(Shipment.courier).all())
+    active_courier_counts = dict(db.query(Shipment.courier, func.count(Shipment.id)).filter(Shipment.courier.isnot(None)).group_by(Shipment.courier).all())
+    courier_breakdown = " | ".join(f"{courier} {count}" for courier, count in courier_counts.items()) or "No bookings today yet"
 
     # Pending follow-ups & refund requests
     followups_due = db.query(Followup).filter(Followup.status == "Pending", Followup.due_date <= today_str).count()
-    refunds_pending = db.query(Refund).filter(Refund.status.in_(["Requested", "Approved"])).count()
+    refunds_pending = db.query(Refund).filter(Refund.status.in_(["Requested", "Under Review"])).count()
 
     # Recent shipments with RBAC financial masking
     recent_shipments_raw = db.query(Shipment).order_by(desc(Shipment.created_at)).limit(10).all()
@@ -126,15 +120,17 @@ def get_dashboard_summary(
         "active_volume": active_volume,
         "total_sales": total_sales,
         "total_collected": total_collected,
+        "total_provider_cost": totals["total_provider_cost"] if can_view_financials else None,
+        "total_gross_profit": totals["total_gross_profit"] if can_view_financials else None,
         "today_sales": today_sales,
         "today_collected": today_collected,
-        "pending_collection": today_sales - today_collected,
+        "collections_by_center": daily_collections["by_center"],
+        "pending_collection": totals["pending_collection"],
+        "center_summaries": centers,
         "b2b_outstanding": b2b_outstanding,
         "followups_due": followups_due,
         "refunds_pending": refunds_pending,
         "recent_shipments": recent_shipments
     }
 
-    # Store in cache for 15s
-    cache_engine.set(cache_key, summary_data, ttl=15)
     return summary_data

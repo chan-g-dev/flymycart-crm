@@ -1,16 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
     X, 
     Package, 
-    Save, 
-    UserCheck, 
-    DollarSign, 
-    Truck, 
-    MapPin, 
-    Scale, 
-    Calendar,
-    Phone,
-    Shield,
+    Save,
     CheckCircle2,
     Loader2
 } from 'lucide-react';
@@ -47,11 +39,12 @@ const getInitialShipmentForm = (todayStr) => ({
     courier: 'FedEx',
     domestic_international: 'International',
     service_type: 'International Priority',
-    provider_type: 'postpaid',
-    provider_name: 'Aramex',
+    provider_type: '',
+    provider_name: '',
     price: '',
     provider_cost: '',
     payment_status: 'Paid',
+    amount_received: '',
     payment_method: 'PhonePe',
     paid_to: 'Office QR',
     collected_by: 'Nawaz',
@@ -61,11 +54,14 @@ const getInitialShipmentForm = (todayStr) => ({
 
 const ShipmentModal = ({ isOpen, onClose, onCreated, settings }) => {
     const { currentUser } = useAuth();
-    const isSuperAdmin = currentUser?.isSuperAdmin || currentUser?.roleId === 'super_admin';
+    const canEnterShipmentCosts = currentUser?.isSuperAdmin
+        || currentUser?.roleId === 'super_admin'
+        || currentUser?.roleId === 'operations_staff';
     const todayStr = new Date().toISOString().slice(0, 10);
     const [form, setForm] = useState(getInitialShipmentForm(todayStr));
+    const lookupSequence = useRef(0);
     const [customerFound, setCustomerFound] = useState(null);
-    const [isSearchingCustomer, setIsSearchingCustomer] = useState(false);
+    const [, setIsSearchingCustomer] = useState(false);
     const [isSubmitting, setIsSubmitting] = useState(false);
 
     // Clean reset whenever modal opens
@@ -84,7 +80,8 @@ const ShipmentModal = ({ isOpen, onClose, onCreated, settings }) => {
         const h = parseFloat(form.height) || 0;
         const actual = parseFloat(form.actual_weight) || 0;
 
-        const vol = (l * w * h) / 5000.0;
+        const divisor = /cargo|ltl/i.test(`${form.service_type} ${form.courier}`) ? 4000 : 5000;
+        const vol = (l * w * h) / divisor;
         const chg = Math.max(actual, vol);
 
         setForm(prev => ({
@@ -92,43 +89,28 @@ const ShipmentModal = ({ isOpen, onClose, onCreated, settings }) => {
             volumetric_weight: parseFloat(vol.toFixed(2)),
             chargeable_weight: parseFloat(chg.toFixed(2))
         }));
-    }, [form.length, form.width, form.height, form.actual_weight]);
+    }, [form.length, form.width, form.height, form.actual_weight, form.service_type, form.courier]);
 
-    // Courier selection rules & dynamic provider routing
+    // Courier and accounting provider are selected independently. A courier can
+    // be billed through different contracted providers, so do not assume one.
     const handleCourierChange = (courierName) => {
-        let pType = 'postpaid';
-        let pName = 'Aramex';
+        setForm(prev => ({ ...prev, courier: courierName }));
+    };
 
-        const cLower = courierName.toLowerCase();
-        if (cLower.includes('delhivery') || cLower.includes('sree maruthi')) {
-            pType = 'prepaid';
-            pName = 'ICL';
-        } else if (cLower.includes('ltl') || cLower.includes('brv')) {
-            pType = 'prepaid';
-            pName = 'BRV Logistics';
-        } else if (cLower.includes('blue dart')) {
-            pType = 'postpaid';
-            pName = 'Blue Dart';
-        } else {
-            pType = 'postpaid';
-            pName = 'Aramex';
-        }
-
-        setForm(prev => ({
-            ...prev,
-            courier: courierName,
-            provider_type: pType,
-            provider_name: pName
-        }));
+    const handleProviderChange = (value) => {
+        const [providerType = '', providerName = ''] = value.split('|');
+        setForm(prev => ({ ...prev, provider_type: providerType, provider_name: providerName }));
     };
 
     // Live mobile lookup & auto-fill customer profile
     const handleMobileLookup = async (mobileVal) => {
-        setForm(prev => ({ ...prev, sender_phone: mobileVal }));
+        const sequence = ++lookupSequence.current;
+        setForm(prev => ({ ...prev, sender_phone: mobileVal, customer_id: '' }));
         if (mobileVal.trim().length >= 4) {
             setIsSearchingCustomer(true);
             try {
                 const res = await apiClient.lookupCustomerByMobile(mobileVal.trim());
+                if (sequence !== lookupSequence.current) return;
                 if (res.found && res.customer) {
                     const c = res.customer;
                     setCustomerFound(c.name);
@@ -145,7 +127,7 @@ const ShipmentModal = ({ isOpen, onClose, onCreated, settings }) => {
             } catch (err) {
                 console.error(err);
             } finally {
-                setIsSearchingCustomer(false);
+                if (sequence === lookupSequence.current) setIsSearchingCustomer(false);
             }
         } else {
             setCustomerFound(null);
@@ -197,11 +179,12 @@ const ShipmentModal = ({ isOpen, onClose, onCreated, settings }) => {
                 courier: form.courier,
                 domestic_international: form.domestic_international,
                 service_type: form.service_type,
-                provider_type: form.provider_type,
-                provider_name: form.provider_name,
+                provider_type: form.provider_type || 'postpaid',
+                provider_name: form.provider_name || 'Aramex',
                 price: parseFloat(form.price) || 0,
-                provider_cost: parseFloat(form.provider_cost) || (parseFloat(form.price) ? Math.round(parseFloat(form.price) * 0.65) : 0),
+                provider_cost: parseFloat(form.provider_cost) || 0,
                 payment_status: form.payment_status,
+                amount_received: form.payment_status === 'Partial' ? Number(form.amount_received) : null,
                 payment_method: form.payment_method,
                 paid_to: form.paid_to,
                 collected_by: form.collected_by,
@@ -233,7 +216,7 @@ const ShipmentModal = ({ isOpen, onClose, onCreated, settings }) => {
 
     return (
         <div className="modal-overlay">
-            <div className="modal modal-lg" style={{ maxHeight: '90vh', display: 'flex', flexDirection: 'column' }}>
+            <div className="modal modal-lg shipment-booking-modal" style={{ maxHeight: '90vh', display: 'flex', flexDirection: 'column' }}>
                 {/* Header */}
                 <div className="modal-header">
                     <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
@@ -251,7 +234,7 @@ const ShipmentModal = ({ isOpen, onClose, onCreated, settings }) => {
                 </div>
 
                 {/* Form Body */}
-                <form onSubmit={handleSubmit} style={{ overflowY: 'auto', paddingRight: '4px' }}>
+                <form className="shipment-booking-form" onSubmit={handleSubmit}>
                     {/* Section 1: Center, Staff & Dates */}
                     <div className="form-section-title">
                         <span>1. Center, Staff & Booking Info</span>
@@ -436,8 +419,8 @@ const ShipmentModal = ({ isOpen, onClose, onCreated, settings }) => {
                         </div>
                     </div>
 
-                    {/* Section 5: Courier Partner & Pricing (Super Admin sees cost/margin; Staff enters selling price only) */}
-                    {isSuperAdmin ? (
+                    {/* Operations Staff and Super Admin enter the complete shipment costing record. */}
+                    {canEnterShipmentCosts ? (
                         <>
                             <div className="form-section-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                 <span>5. Courier Partner, Cost Accounting & Gross Profit</span>
@@ -445,9 +428,9 @@ const ShipmentModal = ({ isOpen, onClose, onCreated, settings }) => {
                                     Gross Margin: ₹{estimatedMargin.toLocaleString('en-IN')} ({marginPct}%)
                                 </span>
                             </div>
-                            <div className="form-grid">
+                            <div className="form-grid shipment-pricing-grid">
                                 <div className="form-group">
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                                    <div className="shipment-pricing-label">
                                         <label style={{ margin: 0 }}>Courier Provider <span className="required">*</span></label>
                                         <CourierLogo courier={form.courier} height={18} />
                                     </div>
@@ -456,13 +439,14 @@ const ShipmentModal = ({ isOpen, onClose, onCreated, settings }) => {
                                     </select>
                                 </div>
                                 <div className="form-group">
-                                    <label>Accounting Provider Model</label>
-                                    <input 
-                                        type="text" 
-                                        readOnly 
-                                        value={`${form.provider_name} (${form.provider_type.toUpperCase()})`} 
-                                        style={{ background: '#f8fafc', fontWeight: 700, color: form.provider_type === 'prepaid' ? '#15803d' : '#0369a1' }} 
-                                    />
+                                    <label>Accounting Provider <span className="required">*</span></label>
+                                    <select required value={form.provider_type && form.provider_name ? `${form.provider_type}|${form.provider_name}` : ''} onChange={e => handleProviderChange(e.target.value)}>
+                                        <option value="" disabled>Select provider & billing</option>
+                                        <option value="postpaid|Aramex">Aramex (Postpaid)</option>
+                                        <option value="postpaid|Blue Dart">Blue Dart (Postpaid)</option>
+                                        <option value="prepaid|ICL">ICL (Prepaid)</option>
+                                        <option value="prepaid|BRV Logistics">BRV Logistics (Prepaid)</option>
+                                    </select>
                                 </div>
                                 <div className="form-group">
                                     <label>Customer Price / Sale (₹) <span className="required">*</span></label>
@@ -517,6 +501,23 @@ const ShipmentModal = ({ isOpen, onClose, onCreated, settings }) => {
                                         style={{ fontWeight: 800, color: 'var(--text-main)', fontSize: '15px' }} 
                                     />
                                 </div>
+                                <div className="form-group">
+                                    <label>Shipment Type</label>
+                                    <select value={form.domestic_international} onChange={e => setForm({ ...form, domestic_international: e.target.value })}>
+                                        <option value="Domestic">Domestic</option>
+                                        <option value="International">International</option>
+                                    </select>
+                                </div>
+                                <div className="form-group">
+                                    <label>Courier Service</label>
+                                    <select value={form.service_type} onChange={e => setForm({ ...form, service_type: e.target.value })}>
+                                        <option value="International Priority">International Priority</option>
+                                        <option value="International Economy">International Economy</option>
+                                        <option value="Domestic Express">Domestic Express</option>
+                                        <option value="Surface">Surface</option>
+                                        <option value="Cargo">Cargo / LTL</option>
+                                    </select>
+                                </div>
                             </div>
                         </>
                     )}
@@ -534,6 +535,7 @@ const ShipmentModal = ({ isOpen, onClose, onCreated, settings }) => {
                                 <option value="Partial">Partial Payment</option>
                                 <option value="Unpaid">Unpaid / Due</option>
                             </select>
+                            {form.payment_status === 'Partial' && <input type="number" min="0.01" max={form.price} step="0.01" required aria-label="Amount received" placeholder="Amount received" value={form.amount_received} onChange={e => setForm({ ...form, amount_received: e.target.value })} />}
                         </div>
                         <div className="form-group">
                             <label>Payment Mode</label>

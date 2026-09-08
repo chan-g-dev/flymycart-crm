@@ -44,10 +44,10 @@ def test_b2b_aging_schedule():
         {"balance": 1500, "date": "2026-05-01", "credit_period_days": 30},   # 90+ Days (122 days)
     ]
     aging = calculate_b2b_aging_buckets(items, as_of_date=today)
-    assert aging["not_due"] == 5000.0
-    assert aging["days1_30"] == 8000.0
-    assert aging["days31_60"] == 4000.0
-    assert aging["days61_90"] == 2000.0
+    assert aging["not_due"] == 13000.0
+    assert aging["days1_30"] == 4000.0
+    assert aging["days31_60"] == 2000.0
+    assert aging["days61_90"] == 0.0
     assert aging["days90_plus"] == 1500.0
     assert aging["total_outstanding"] == 20500.0
     # Overdue past 30 days credit period: 4000 + 2000 + 1500 = 7500

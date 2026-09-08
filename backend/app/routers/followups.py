@@ -4,7 +4,7 @@
 
 import uuid
 from typing import List, Dict, Any
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, Query, Response
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -18,10 +18,15 @@ followups_router = APIRouter(prefix="/api/followups", tags=["Follow-ups"])
 
 @followups_router.get("/", response_model=List[FollowupOut])
 def get_followups(
+    response: Response,
+    limit: int = Query(100, ge=1, le=500),
+    offset: int = Query(0, ge=0),
     ctx: Dict[str, Any] = Depends(require_permission(PermissionCode.FOLLOWUPS_VIEW)),
     db: Session = Depends(get_db)
 ):
-    return db.query(Followup).order_by(Followup.due_date).all()
+    query = db.query(Followup).order_by(Followup.due_date, Followup.id)
+    response.headers["X-Total-Count"] = str(query.count())
+    return query.limit(limit).offset(offset).all()
 
 @followups_router.post("/", response_model=FollowupOut)
 def create_followup(
@@ -31,7 +36,7 @@ def create_followup(
     db: Session = Depends(get_db)
 ):
     fu = Followup(
-        id=f"fu_{uuid.uuid4().hex[:8]}",
+        id=f"fu_{uuid.uuid4().hex[:16]}",
         customer_id=payload.customer_id,
         customer=payload.customer.strip(),
         category=payload.category,
@@ -95,7 +100,7 @@ def log_communication(
     db: Session = Depends(get_db)
 ):
     comm = CommunicationLog(
-        id=f"comm_{uuid.uuid4().hex[:8]}",
+        id=f"comm_{uuid.uuid4().hex[:16]}",
         customer_id=payload.customer_id,
         customer=payload.customer.strip(),
         date=payload.date,

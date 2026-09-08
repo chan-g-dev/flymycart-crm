@@ -105,7 +105,7 @@ def test_customer_booking_and_quote_conversion_flow():
     # 4. Super Admin logs in and lists requests
     admin_login = client.post("/auth/login", json={
         "email": "chanakyagangabathina77@gmail.com",
-        "password": "Chanu@1234"
+        "password": "Chanu@123"
     })
     assert admin_login.status_code == 200
     admin_token = admin_login.json()["session_token"]

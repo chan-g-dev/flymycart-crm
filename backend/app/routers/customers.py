@@ -5,15 +5,16 @@
 import uuid
 import datetime
 from typing import List, Optional, Dict, Any
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, File, UploadFile, Form
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, File, UploadFile, Form, Response
 from sqlalchemy.orm import Session, selectinload
-from sqlalchemy import desc, func, or_
+from sqlalchemy import desc, func, or_, case
 
 from app.database import get_db
 from app.models import (
     Customer, Shipment, Invoice, Refund,
     Followup, CommunicationLog, AuditLog
 )
+from app.collections import shipment_paid_map, shipment_payments_query
 from app.schemas import CustomerCreate, CustomerOut
 from app.auth import get_current_user_context, create_audit_log, mask_shipment_financials
 from app.dependencies import require_permission, get_current_session_context
@@ -42,12 +43,18 @@ def log_customer_audit(db: Session, user_name: str, cust_id: str, action: str, b
 
 @customers_router.get("/", response_model=List[CustomerOut])
 def get_customers(
+    response: Response,
+    limit: int = Query(100, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+    center: Optional[str] = None,
     search: Optional[str] = None,
     customer_type: Optional[str] = None,
     ctx: Dict[str, Any] = Depends(require_permission(PermissionCode.CUSTOMERS_VIEW)),
     db: Session = Depends(get_db)
 ):
-    query = db.query(Customer).options(selectinload(Customer.shipments))
+    query = db.query(Customer)
+    if center and center != "All Centers":
+        query = query.filter(Customer.center == center)
     if customer_type:
         query = query.filter(Customer.customer_type == customer_type)
     if search:
@@ -60,18 +67,25 @@ def get_customers(
                 func.lower(Customer.email).like(s)
             )
         )
-    customers = query.order_by(desc(Customer.created_at)).all()
-
-    res = []
-    for c in customers:
-        c_dict = CustomerOut.model_validate(c)
-        c_dict.total_bookings = len(c.shipments)
-        c_dict.total_spend = sum(s.price for s in c.shipments)
-        c_dict.outstanding_balance = sum(
-            s.price for s in c.shipments if s.payment_status in ["B2B Credit", "Unpaid", "Due"]
-        )
-        res.append(c_dict)
-    return res
+    query = query.order_by(desc(Customer.created_at), Customer.id)
+    response.headers["X-Total-Count"] = str(query.count())
+    query = query.limit(limit).offset(offset)
+    customer_rows = query.all()
+    ids = [customer.id for customer in customer_rows]
+    paid = shipment_payments_query(db).subquery()
+    balance = case((Shipment.price > func.coalesce(paid.c.paid, 0), Shipment.price - func.coalesce(paid.c.paid, 0)), else_=0)
+    stats = db.query(Shipment.customer_id, func.count(Shipment.id), func.sum(Shipment.price), func.sum(balance)).outerjoin(
+        paid, paid.c.shipment_id == Shipment.id).filter(Shipment.customer_id.in_(ids)).group_by(Shipment.customer_id).all() if ids else []
+    by_customer = {row[0]: row[1:] for row in stats}
+    result = []
+    for customer in customer_rows:
+        output = CustomerOut.model_validate(customer)
+        count, spend, outstanding = by_customer.get(customer.id, (0, 0, 0))
+        output.total_bookings = count
+        output.total_spend = spend or 0
+        output.outstanding_balance = outstanding or 0
+        result.append(output)
+    return result
 
 @customers_router.get("/lookup")
 def lookup_customer_by_mobile(
@@ -80,7 +94,7 @@ def lookup_customer_by_mobile(
     db: Session = Depends(get_db)
 ):
     term = f"%{mobile.strip()}%"
-    customer = db.query(Customer).filter(Customer.mobile.like(term)).first()
+    customer = db.query(Customer).filter(Customer.mobile == mobile.strip()).first()
     if not customer:
         return {"found": False, "customer": None}
     return {
@@ -113,7 +127,7 @@ def get_customer_360(
         raise HTTPException(status_code=404, detail="Customer profile not found")
 
     shipments_raw = db.query(Shipment).filter(
-        or_(Shipment.customer_id == customer.id, Shipment.customer_name == customer.name)
+        Shipment.customer_id == customer.id
     ).order_by(desc(Shipment.created_at)).all()
 
     shipments = []
@@ -143,23 +157,24 @@ def get_customer_360(
         shipments.append(mask_shipment_financials(s_dict, ctx))
 
     invoices = db.query(Invoice).filter(
-        or_(Invoice.customer_id == customer.id, Invoice.customer_name == customer.name)
+        Invoice.customer_id == customer.id
     ).order_by(desc(Invoice.created_at)).all()
 
     followups = db.query(Followup).filter(
-        or_(Followup.customer_id == customer.id, Followup.customer == customer.name)
+        Followup.customer_id == customer.id
     ).order_by(desc(Followup.created_at)).all()
 
     comms = db.query(CommunicationLog).filter(
-        or_(CommunicationLog.customer_id == customer.id, CommunicationLog.customer == customer.name)
+        CommunicationLog.customer_id == customer.id
     ).order_by(desc(CommunicationLog.created_at)).all()
 
     refunds = db.query(Refund).filter(
-        or_(Refund.customer_id == customer.id, Refund.customer == customer.name)
+        Refund.customer_id == customer.id
     ).order_by(desc(Refund.created_at)).all()
 
     total_spent = sum(s.price for s in shipments_raw)
-    total_outstanding = sum(s.price for s in shipments_raw if s.payment_status in ["B2B Credit", "Unpaid", "Due"])
+    paid = shipment_paid_map(db)
+    total_outstanding = sum(max(0, s.price - paid.get(s.id, 0)) for s in shipments_raw)
 
     return {
         "customer": customer,
@@ -184,7 +199,7 @@ def create_customer(
     if existing:
         raise HTTPException(status_code=400, detail=f"Customer with mobile {payload.mobile} already exists: {existing.name}")
 
-    cust_id = f"cust_{uuid.uuid4().hex[:8]}"
+    cust_id = f"cust_{uuid.uuid4().hex[:16]}"
     new_customer = Customer(
         id=cust_id,
         name=payload.name.strip(),
@@ -277,10 +292,10 @@ def delete_customer(
     
     c_name = customer.name
     db.query(CommunicationLog).filter(
-        or_(CommunicationLog.customer_id == customer.id, CommunicationLog.customer == customer.name)
+        CommunicationLog.customer_id == customer.id
     ).delete(synchronize_session=False)
     db.query(Refund).filter(
-        or_(Refund.customer_id == customer.id, Refund.customer == customer.name)
+        Refund.customer_id == customer.id
     ).delete(synchronize_session=False)
 
     db.delete(customer)
@@ -308,7 +323,7 @@ async def upload_customer_document(
     doc_name: str = Form("Customs KYC Document"),
     doc_type: str = Form("KYC Verification"),
     notes: Optional[str] = Form(None),
-    ctx: Dict[str, Any] = Depends(get_current_session_context),
+    ctx: Dict[str, Any] = Depends(require_permission("customers.edit")),
     db: Session = Depends(get_db)
 ):
     """
@@ -362,7 +377,7 @@ async def upload_customer_document(
 @customers_router.get("/{customer_id}/documents")
 def get_customer_documents(
     customer_id: str,
-    ctx: Dict[str, Any] = Depends(get_current_session_context),
+    ctx: Dict[str, Any] = Depends(require_permission("customers.view")),
     db: Session = Depends(get_db)
 ):
     """Returns all compliance and KYC documents attached to the customer."""

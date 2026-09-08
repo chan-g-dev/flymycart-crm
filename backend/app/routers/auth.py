@@ -62,9 +62,10 @@ async def login(
 ):
     """
     Fast & Resilient Authentication Flow:
-    1. First-time login: If credentials don't exist, automatically register and store in database.
-    2. Returning login: Authenticates against stored hash with zero remote network lag.
-    3. Issues HttpOnly secure session cookie and returns session context immediately.
+    1. An unknown email creates an active Operations Staff account on first login.
+    2. Returning users must provide the password stored during their first login.
+    3. Existing credentials are never replaced by this flow.
+    4. Issues an HttpOnly session cookie and returns the CRM session context.
     """
     # Rate limiting: 10 attempts per 5 minutes per IP
     client_ip = request.client.host if request.client else "unknown"
@@ -101,67 +102,52 @@ async def login(
                 display_name=legacy_u.name or raw_identifier,
                 phone=legacy_u.phone,
                 role=legacy_u.role or "operations_staff",
-                status="active" if legacy_u.status in ["Active", "approved"] else "active",
+                status=normalize_profile_status(legacy_u.status),
                 requested_role=legacy_u.role or "operations_staff",
-                password_hash=legacy_u.password_hash or hash_password(plain_password),
+                password_hash=legacy_u.password_hash,
                 created_at=legacy_u.created_at or datetime.datetime.utcnow()
             )
             db.add(profile)
             db.commit()
             db.refresh(profile)
 
-    # 3. First-time user login: Automatically create account in database as staff member
     if not profile:
-        import uuid
-        user_uuid = str(uuid.uuid4())
-        clean_name = (payload.full_name.strip() if payload.full_name and payload.full_name.strip() else None) or raw_identifier
-        user_email = email if "@" in email else f"{email}@flymycart.internal"
-
-        # Ensure uniqueness of email
-        alt_email = user_email
-        counter = 1
-        while db.query(UserProfile).filter(UserProfile.email.ilike(alt_email)).first():
-            alt_email = f"{email}_{counter}@flymycart.internal"
-            counter += 1
-        user_email = alt_email
+        full_name = (payload.full_name or "").strip()
+        if not full_name:
+            raise HTTPException(
+                status_code=400,
+                detail="Full name is required when creating an account for the first time.",
+            )
+        if "@" not in email:
+            raise HTTPException(status_code=400, detail="Enter a valid email address.")
 
         profile = UserProfile(
-            id=user_uuid,
-            email=user_email,
-            display_name=clean_name,
+            email=email,
+            display_name=full_name,
             role="operations_staff",
             requested_role="operations_staff",
             status="active",
             password_hash=hash_password(plain_password),
-            created_at=datetime.datetime.utcnow()
+            approved_by="First login registration",
+            approved_at=datetime.datetime.utcnow(),
         )
         db.add(profile)
+        db.flush()
 
-        # Sync to legacy User table
-        try:
-            legacy_sync = User(
-                id=f"u_{clean_name.replace(' ', '_').lower()[:25]}_{user_uuid[:6]}",
-                username=clean_name,
-                name=clean_name,
-                email=user_email,
-                password_hash=profile.password_hash,
-                role="operations_staff",
-                status="Active",
-                is_active=True,
-                center="Main Hub (Bangalore)",
-                created_at=datetime.datetime.utcnow()
-            )
-            db.add(legacy_sync)
-        except Exception:
-            pass
-
-        try:
-            db.add(UserCenterAccess(user_id=profile.id, center_id="Main Hub (Bangalore)", scope="operate"))
-        except Exception:
-            pass
-
+        from app.routers.users import resolve_role
+        role = resolve_role(db, "operations_staff")
+        if role:
+            db.add(UserRole(user_id=profile.id, role_id=role.id))
+        db.add(UserCenterAccess(
+            user_id=profile.id,
+            center_id="Main Hub (Bangalore)",
+            scope="operate",
+        ))
         db.commit()
-        db.refresh(profile)
+        profile = db.query(UserProfile).options(
+            joinedload(UserProfile.roles).joinedload(Role.permissions),
+            joinedload(UserProfile.centers),
+        ).filter(UserProfile.id == profile.id).first()
 
     # 4. Validate status
     if profile.status in ["suspended", "archived", "rejected"]:
@@ -183,17 +169,6 @@ async def login(
     if profile.password_hash:
         if verify_password(plain_password, profile.password_hash):
             password_valid = True
-    else:
-        # If user existed without a password_hash, record this password as initial password
-        profile.password_hash = hash_password(plain_password)
-        password_valid = True
-
-    if not password_valid and plain_password in ["Chanu@123", "password1234"] and (
-        profile.email == "chanakyagangabathina77@gmail.com" or 
-        (profile.display_name and profile.display_name.lower() == "chanakya")
-    ):
-        password_valid = True
-
     if not password_valid:
         create_audit_log(
             db=db, actor_user_id=profile.id, actor_name=profile.display_name,
@@ -204,7 +179,7 @@ async def login(
         )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect password for this user. If this account was previously created, please enter the original password.",
+            detail="Invalid login credentials.",
             headers={"WWW-Authenticate": "Bearer"},
         )
 
@@ -262,6 +237,7 @@ async def login(
             "name": profile.display_name,
             "role": profile.role,
             "roles": role_names,
+            "status": "approved" if profile.status == "active" else profile.status,
             "permissions": perms_dict,
             "centers": [c.center_id for c in profile.centers] or ["Main Hub (Bangalore)"],
             "customer_id": profile.customer_id,
@@ -311,12 +287,13 @@ def get_current_user_me(ctx: Dict[str, Any] = Depends(get_current_session_contex
             "name": ctx["display_name"],
             "email": ctx["email"],
             "role_id": ctx["role_id"],
-            "role_name": ctx["role_name"]
+            "role_name": ctx["role_name"],
+            "status": ctx["status"]
         },
         "roles": ctx["roles"],
         "permissions": ctx["permissions"],
         "centers": ctx["centers"],
-        "mfa_verified": True,
+        "mfa_verified": ctx["mfa_verified"],
         "is_super_admin": ctx["is_super_admin"]
     }
 
@@ -413,7 +390,7 @@ async def signup(
 ):
     """
     Direct registration endpoint.
-    Registers a new staff member with active status and signs them directly into the CRM.
+    Registers a pending staff member. CRM access requires Super Admin approval.
     """
     email = payload.get("email", "").strip().lower()
     plain_password = payload.get("password", "")
@@ -437,7 +414,7 @@ async def signup(
         phone=phone,
         role=requested_role,
         requested_role=requested_role,
-        status="active",
+        status="pending",
         password_hash=hash_password(plain_password)
     )
     db.add(new_profile)
@@ -456,7 +433,7 @@ async def signup(
     except Exception:
         pass
 
-    # Create active session for immediate direct entry into CRM
+    # Issue a session for the approval-status screen; operational guards deny pending accounts.
     session, raw_token = create_app_session(
         db=db,
         user_id=new_profile.id,
@@ -473,7 +450,9 @@ async def signup(
 
     return {
         "status": "success",
-        "message": "Registration successful.",
+        "user_id": new_profile.id,
+        "account_status": new_profile.status,
+        "message": "Registration submitted for Super Admin approval.",
         "access_token": raw_token,
         "session_token": raw_token,
         "token_type": "bearer",
@@ -483,7 +462,7 @@ async def signup(
             "name": new_profile.display_name,
             "role": new_profile.role,
             "roles": [new_profile.role],
-            "status": "active",
+            "status": "pending",
             "centers": [center]
         }
     }
@@ -519,9 +498,14 @@ async def customer_signup(
     if existing_user:
         raise HTTPException(status_code=400, detail="An account with this email already exists. Please log in.")
 
+    if db.query(Customer).filter((Customer.mobile == phone) | (Customer.email == email)).first():
+        raise HTTPException(status_code=409, detail="A customer profile already exists. Contact staff to verify and link your account.")
+
     b2b_company_id = None
     if account_type == "B2B" and company_name:
         b2b_comp = db.query(B2BCompany).filter(B2BCompany.company_name == company_name).first()
+        if b2b_comp:
+            raise HTTPException(status_code=409, detail="An existing corporate account must be linked by staff after verification.")
         if not b2b_comp:
             b2b_comp = B2BCompany(
                 company_name=company_name,
@@ -614,6 +598,17 @@ def step_up_mfa(
     Step-up MFA re-authentication for sensitive actions.
     """
     code = str(payload.get("code", "")).strip()
+    from app.auth import verify_totp_code
+    profile = ctx["raw_profile"]
+    if not profile.mfa_enabled or not profile.mfa_secret:
+        raise HTTPException(status_code=400, detail="An authenticator must be enrolled before MFA verification.")
+    if not verify_totp_code(profile.mfa_secret, code):
+        raise HTTPException(status_code=400, detail="Invalid authenticator code.")
+    session = db.get(AppSession, ctx["session_id"])
+    if not session:
+        raise HTTPException(status_code=401, detail="An active session is required.")
+    session.mfa_verified_at = datetime.datetime.utcnow()
+    db.commit()
     return {"status": "success", "message": "Step-up MFA verified successfully."}
 
 

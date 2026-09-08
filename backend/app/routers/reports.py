@@ -6,14 +6,80 @@ import datetime
 from typing import Optional, Dict, Any
 from fastapi import APIRouter, Depends, Request
 from sqlalchemy.orm import Session
-from sqlalchemy import or_
+from sqlalchemy import func
 
 from app.database import get_db
-from app.models import Shipment, Refund
+from app.models import Shipment, Refund, Invoice
+from app.collections import collection_totals
+from app.auth import mask_shipment_financials
+from app.schemas import ShipmentOut
 from app.dependencies import require_permission
 from app.permissions import PermissionCode
 
 reports_router = APIRouter(prefix="/api/reports", tags=["Reports"])
+
+
+@reports_router.get("/weekly")
+def get_weekly_operations_report(
+    end_date: Optional[str] = None,
+    ctx: Dict[str, Any] = Depends(require_permission(PermissionCode.REPORTS_VIEW)),
+    db: Session = Depends(get_db),
+):
+    """Seven-day operational report available to all staff with Reports access.
+
+    Financial margins remain exclusive to users with the financial-report permission.
+    The aggregates are calculated in SQL so the endpoint remains efficient as shipment
+    volume grows.
+    """
+    try:
+        period_end = datetime.date.fromisoformat(end_date) if end_date else datetime.date.today()
+    except ValueError:
+        period_end = datetime.date.today()
+    period_start = period_end - datetime.timedelta(days=6)
+    start_text, end_text = period_start.isoformat(), period_end.isoformat()
+
+    daily_rows = db.query(
+        Shipment.date,
+        func.count(Shipment.id),
+        func.sum(Shipment.price),
+        func.sum(Shipment.provider_cost),
+    ).filter(Shipment.date.between(start_text, end_text)).group_by(Shipment.date).all()
+    status_rows = db.query(Shipment.status, func.count(Shipment.id)).filter(
+        Shipment.date.between(start_text, end_text)
+    ).group_by(Shipment.status).all()
+    courier_rows = db.query(Shipment.courier, func.count(Shipment.id)).filter(
+        Shipment.date.between(start_text, end_text)
+    ).group_by(Shipment.courier).all()
+
+    by_date = {row[0]: row for row in daily_rows}
+    can_view_fin = bool(
+        ctx.get("is_super_admin")
+        or ctx.get("permissions", {}).get("*")
+        or ctx.get("permissions", {}).get(PermissionCode.REPORTS_VIEW_FINANCIAL)
+    )
+    days = []
+    for offset in range(7):
+        day = (period_start + datetime.timedelta(days=offset)).isoformat()
+        row = by_date.get(day)
+        revenue = float(row[2] or 0) if row else 0.0
+        cost = float(row[3] or 0) if row else 0.0
+        days.append({
+            "date": day,
+            "shipments_count": int(row[1]) if row else 0,
+            "revenue": revenue if can_view_fin else None,
+            "gross_profit": (revenue - cost) if can_view_fin else None,
+        })
+
+    return {
+        "period_start": start_text,
+        "period_end": end_text,
+        "shipments_count": sum(day["shipments_count"] for day in days),
+        "active_days": sum(1 for day in days if day["shipments_count"] > 0),
+        "daily": days,
+        "status_counts": {status or "Unknown": count for status, count in status_rows},
+        "courier_counts": {courier or "Unknown": count for courier, count in courier_rows},
+        "financials_visible": can_view_fin,
+    }
 
 @reports_router.get("/eod")
 def get_eod_report(
@@ -36,30 +102,27 @@ def get_eod_report(
     for s in shipments:
         courier_counts[s.courier] = courier_counts.get(s.courier, 0) + 1
         sales_total += s.price
-        cost = s.actual_provider_cost if s.cost_reconciled else s.provider_cost
+        cost = s.actual_provider_cost if s.actual_provider_cost is not None and s.cost_reconciled else (s.provider_cost or 0)
         total_cost += cost
 
-        if s.payment_status == "Paid":
-            collected_total += s.price
-            by_method[s.payment_method] = by_method.get(s.payment_method, 0.0) + s.price
-            by_employee[s.collected_by] = by_employee.get(s.collected_by, 0.0) + s.price
-        elif s.payment_status == "Partial":
-            partial = round(s.price * 0.5)
-            collected_total += partial
-            by_method[s.payment_method] = by_method.get(s.payment_method, 0.0) + partial
-            by_employee[s.collected_by] = by_employee.get(s.collected_by, 0.0) + partial
-        elif s.payment_status == "B2B Credit":
+        if s.payment_status == "B2B Credit":
             credit_total += s.price
 
+    collections = collection_totals(db, target_date)
+    collected_total = collections["total"]
+    by_method = collections["by_method"]
+    by_employee = collections["by_employee"]
+    pending = sum(inv.balance for inv in db.query(Invoice).filter(Invoice.date == target_date).all())
+
     refunds = db.query(Refund).filter(
-        or_(Refund.request_date == target_date, Refund.approval_date == target_date),
+        Refund.approval_date == target_date,
         Refund.status.in_(["Approved", "Refunded"])
     ).all()
     refunds_amt = sum(r.amount for r in refunds)
 
     gross_profit = sales_total - total_cost
     net_profit = gross_profit - refunds_amt
-    can_view_fin = PermissionCode.REPORTS_VIEW_FINANCIAL in ctx.get("permissions", {})
+    can_view_fin = bool(ctx.get("is_super_admin") or ctx.get("permissions", {}).get("*") or ctx.get("permissions", {}).get(PermissionCode.REPORTS_VIEW_FINANCIAL))
 
     return {
         "date": target_date,
@@ -68,13 +131,13 @@ def get_eod_report(
         "total_sales": sales_total,
         "total_collected": collected_total,
         "credit_sales": credit_total,
-        "pending_collection": max(0.0, sales_total - collected_total - credit_total),
+        "pending_collection": max(0.0, pending),
         "gross_profit": gross_profit if can_view_fin else None,
         "refunds_amount": refunds_amt if can_view_fin else None,
         "net_profit": net_profit if can_view_fin else None,
         "collections_by_method": by_method,
         "collections_by_employee": by_employee,
-        "shipments": shipments
+        "shipments": [mask_shipment_financials(ShipmentOut.model_validate(s).model_dump(), ctx) for s in shipments]
     }
 
 @reports_router.get("/monthly")
@@ -88,23 +151,23 @@ def get_monthly_pl_report(
 
     revenue = sum(s.price for s in shipments)
     predicted_cost = sum(s.provider_cost for s in shipments)
-    actual_cost = sum(s.actual_provider_cost if s.cost_reconciled else s.provider_cost for s in shipments)
+    actual_cost = sum(s.actual_provider_cost if s.actual_provider_cost is not None and s.cost_reconciled else (s.provider_cost or 0) for s in shipments)
 
     provider_breakdown = {}
     for s in shipments:
         key = f"{s.provider_name} ({s.provider_type.capitalize()})"
-        cost = s.actual_provider_cost if s.cost_reconciled else s.provider_cost
+        cost = s.actual_provider_cost if s.actual_provider_cost is not None and s.cost_reconciled else (s.provider_cost or 0)
         provider_breakdown[key] = provider_breakdown.get(key, 0.0) + cost
 
     refunds = db.query(Refund).filter(
-        Refund.request_date.startswith(target_month),
+        Refund.approval_date.startswith(target_month),
         Refund.status.in_(["Approved", "Refunded"])
     ).all()
     refunds_total = sum(r.amount for r in refunds)
 
     gross_profit = revenue - actual_cost
     net_profit = gross_profit - refunds_total
-    can_view_fin = PermissionCode.REPORTS_VIEW_FINANCIAL in ctx.get("permissions", {})
+    can_view_fin = bool(ctx.get("is_super_admin") or ctx.get("permissions", {}).get("*") or ctx.get("permissions", {}).get(PermissionCode.REPORTS_VIEW_FINANCIAL))
 
     return {
         "month": target_month,

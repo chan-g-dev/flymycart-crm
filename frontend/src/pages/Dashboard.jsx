@@ -12,14 +12,12 @@ import {
     ClipboardList, 
     RefreshCw, 
     Phone,
-    ShieldCheck,
-    ArrowUpRight,
-    Truck,
-    CheckCircle2
+    ShieldCheck
 } from 'lucide-react';
 import { CourierLogo } from '../components/CourierLogos';
 import { useAuth } from '../context/AuthContext';
 import { TableSkeleton, CardSkeleton } from '../components/LoadingSpinner';
+import { TrackingLink } from '../components/TrackingLink';
 
 export const Dashboard = ({ 
     data, 
@@ -32,8 +30,7 @@ export const Dashboard = ({
     onOpenCustomerModal, 
     onOpenReconciliationModal,
     onOpenCustomerDrawer,
-    isLoading = false,
-    isSyncing = false
+    isLoading = false
 }) => {
     const { currentUser } = useAuth();
     const formatCurrency = (n) => '₹' + Number(n || 0).toLocaleString('en-IN');
@@ -51,9 +48,9 @@ export const Dashboard = ({
     const todayBookingsCount = safeData.today_shipments_count ?? todayShipments.length;
     const todaySales = safeData.today_sales ?? todayShipments.reduce((acc, s) => acc + (s.price || 0), 0);
     const todayCollected = safeData.today_collected ?? todayShipments.reduce((acc, s) => s.payment_status === 'Paid' ? acc + (s.price || 0) : acc, 0);
-    const b2bOutstanding = safeData.b2b_outstanding ?? (b2bData?.total_outstanding || 109900);
-    const followupsDue = safeData.followups_due ?? (followups.filter(f => f.status === 'Pending').length || 3);
-    const refundsPending = safeData.refunds_pending ?? 1;
+    const b2bOutstanding = safeData.b2b_outstanding ?? b2bData?.total_outstanding ?? 0;
+    const followupsDue = safeData.followups_due ?? followups.filter(f => f.status === 'Pending').length;
+    const refundsPending = safeData.refunds_pending ?? 0;
 
     // Courier distribution (prefer today's if exists, else active fleet)
     const courierMap = {};
@@ -75,16 +72,25 @@ export const Dashboard = ({
     const ltlCount = activeCourierMap['LTL'] || courierMap['LTL'] || 0;
     const dhlCount = activeCourierMap['DHL'] || courierMap['DHL'] || 0;
 
-    const totalFleetVolume = safeData.active_volume || effectiveShipments.length || 12;
-    const inTransitVolume = safeData.in_transit_count || effectiveShipments.filter(s => ['In Transit', 'Picked Up', 'Booked'].includes(s.status)).length || 4;
-    const deliveredVolume = safeData.delivered_count || effectiveShipments.filter(s => s.status === 'Delivered').length || 7;
+    const totalFleetVolume = safeData.active_volume ?? effectiveShipments.length;
+    const inTransitVolume = safeData.in_transit_count ?? effectiveShipments.filter(s => ['In Transit', 'Picked Up', 'Booked'].includes(s.status)).length;
+    const deliveredVolume = safeData.delivered_count ?? effectiveShipments.filter(s => s.status === 'Delivered').length;
 
     // Financial totals for Donut
-    const totalSales = safeData.total_sales || accountsData?.total_sales || 184300;
-    const totalCollected = safeData.total_collected || accountsData?.total_collected || 89200;
+    const totalSales = safeData.total_sales ?? accountsData?.total_sales ?? 0;
+    const totalCollected = safeData.total_collected ?? accountsData?.total_collected ?? 0;
     const pendingCollection = Math.max(0, totalSales - totalCollected);
-    const grossProfit = Math.round(totalSales * 0.38);
-    const providerCost = totalSales - grossProfit;
+    const providerCost = safeData.total_provider_cost ?? 0;
+    const grossProfit = safeData.total_gross_profit ?? 0;
+    const collectionPercent = totalSales > 0 ? Math.min(100, Math.round((totalCollected / totalSales) * 100)) : 0;
+    const marginPercent = totalSales > 0 ? Math.round((grossProfit / totalSales) * 100) : 0;
+    const agingNotDue = b2bData?.aging?.not_due ?? 0;
+    const aging1To30 = b2bData?.aging?.days1_30 ?? 0;
+    const aging31To60 = b2bData?.aging?.days31_60 ?? 0;
+    const agingTotal = agingNotDue + aging1To30 + aging31To60;
+    const agingNotDuePercent = agingTotal > 0 ? (agingNotDue / agingTotal) * 100 : 0;
+    const aging1To30Percent = agingTotal > 0 ? (aging1To30 / agingTotal) * 100 : 0;
+    const aging31To60Percent = agingTotal > 0 ? (aging31To60 / agingTotal) * 100 : 0;
 
     // Top followups
     const pendingFollowups = (followups || []).filter(f => f.status === 'Pending').slice(0, 3);
@@ -377,7 +383,7 @@ export const Dashboard = ({
                                     <td><strong style={{ color: p.name === 'Aramex' ? '#dc2626' : '#1d4ed8' }}>{p.name}</strong></td>
                                     <td>{formatCurrency(p.deposit)}</td>
                                     <td>{formatCurrency(p.predicted_cost)}</td>
-                                    <td style={{ textAlign: 'right', fontWeight: 700, color: '#e11d48' }}>{formatCurrency(p.actual_billed || p.predicted_cost * 0.6)}</td>
+                                    <td style={{ textAlign: 'right', fontWeight: 700, color: '#e11d48' }}>{formatCurrency(p.actual_billed ?? 0)}</td>
                                 </tr>
                             ))}
                         </tbody>
@@ -423,12 +429,6 @@ export const Dashboard = ({
                         <span className="pill-stat" style={{ fontSize: '11px', background: '#f1f5f9', color: '#475569', fontWeight: 600 }}>
                             {effectiveShipments.length} Total Records
                         </span>
-                        {isSyncing && (
-                            <span className="fmc-live-badge" style={{ fontSize: '10px', padding: '2px 8px' }}>
-                                <span className="fmc-live-dot"></span>
-                                Updating...
-                            </span>
-                        )}
                     </div>
                     <a href="javascript:void(0)" onClick={() => onNavigate('shipments')} className="box-link" style={{ fontWeight: 600 }}>
                         View All Shipments &rarr;
@@ -472,7 +472,7 @@ export const Dashboard = ({
                                         <tr key={s.id || s.awb}>
                                             <td>
                                                 <strong style={{ color: '#0f172a', fontFamily: 'monospace', fontSize: '12px' }}>
-                                                    {s.awb}
+                                                    <TrackingLink awb={s.awb} courier={s.courier} />
                                                 </strong>
                                             </td>
                                             <td style={{ color: 'var(--text-muted)' }}>{formatDate(s.date)}</td>
@@ -517,17 +517,17 @@ export const Dashboard = ({
             {/* Bottom 4 Column Row (Charts & Follow-ups) */}
             <div className="dash-bottom-grid">
                 {/* 1. Sales vs Collection */}
-                <div className="dash-box donut-widget">
+                <div className="dash-box donut-widget dashboard-summary-card">
                     <div className="dash-box-header">
                         <h3>Sales vs Collection</h3>
                     </div>
                     <div className="donut-chart-container">
                         <svg viewBox="0 0 36 36" style={{ width: '74px', height: '74px' }}>
-                            <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="#2563eb" strokeWidth="4.2" strokeDasharray="73, 100" />
-                            <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="#10b981" strokeWidth="4.2" strokeDasharray="27, 100" strokeDashoffset="-73" />
+                            <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="#dbe3ef" strokeWidth="4.2" strokeDasharray="100, 100" />
+                            <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="#10b981" strokeWidth="4.2" strokeDasharray={`${collectionPercent}, 100`} />
                         </svg>
                         <div className="donut-center-label">
-                            <strong>{Math.round((totalCollected / (totalSales || 1)) * 100)}%</strong>
+                            <strong>{collectionPercent}%</strong>
                             <small>Collected</small>
                         </div>
                     </div>
@@ -548,17 +548,17 @@ export const Dashboard = ({
                 </div>
 
                 {/* 2. Provider Cost vs Profit */}
-                <div className="dash-box donut-widget">
+                <div className="dash-box donut-widget dashboard-summary-card">
                     <div className="dash-box-header">
                         <h3>Carrier Cost vs Gross Margin</h3>
                     </div>
                     <div className="donut-chart-container">
                         <svg viewBox="0 0 36 36" style={{ width: '74px', height: '74px' }}>
-                            <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="#64748b" strokeWidth="4.2" strokeDasharray="62, 100" />
-                            <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="#10b981" strokeWidth="4.2" strokeDasharray="38, 100" strokeDashoffset="-62" />
+                            <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="#dbe3ef" strokeWidth="4.2" strokeDasharray="100, 100" />
+                            <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="#10b981" strokeWidth="4.2" strokeDasharray={`${Math.max(0, marginPercent)}, 100`} />
                         </svg>
                         <div className="donut-center-label">
-                            <strong style={{ color: 'var(--emerald)' }}>38%</strong>
+                            <strong style={{ color: 'var(--emerald)' }}>{marginPercent}%</strong>
                             <small>Margin</small>
                         </div>
                     </div>
@@ -579,16 +579,16 @@ export const Dashboard = ({
                 </div>
 
                 {/* 3. B2B Outstanding Aging */}
-                <div className="dash-box donut-widget">
+                <div className="dash-box donut-widget dashboard-summary-card">
                     <div className="dash-box-header">
                         <h3>B2B Outstanding Aging</h3>
                     </div>
                     <div className="donut-chart-container">
                         <svg viewBox="0 0 36 36" style={{ width: '74px', height: '74px' }}>
-                            <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="#10b981" strokeWidth="4" strokeDasharray="35, 100" />
-                            <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="#2563eb" strokeWidth="4" strokeDasharray="30, 100" strokeDashoffset="-35" />
-                            <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="#f59e0b" strokeWidth="4" strokeDasharray="20, 100" strokeDashoffset="-65" />
-                            <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="#ef4444" strokeWidth="4" strokeDasharray="15, 100" strokeDashoffset="-85" />
+                            <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="#dbe3ef" strokeWidth="4" strokeDasharray="100, 100" />
+                            <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="#10b981" strokeWidth="4" strokeDasharray={`${agingNotDuePercent}, 100`} />
+                            <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="#2563eb" strokeWidth="4" strokeDasharray={`${aging1To30Percent}, 100`} strokeDashoffset={-agingNotDuePercent} />
+                            <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="#f59e0b" strokeWidth="4" strokeDasharray={`${aging31To60Percent}, 100`} strokeDashoffset={-(agingNotDuePercent + aging1To30Percent)} />
                         </svg>
                         <div className="donut-center-label">
                             <strong>{formatCurrency(b2bOutstanding)}</strong>
@@ -598,21 +598,21 @@ export const Dashboard = ({
                     <div className="donut-legend">
                         <div className="donut-legend-item">
                             <span className="donut-legend-label"><span className="legend-dot" style={{ background: '#10b981' }}></span> Not Due</span>
-                            <strong>{formatCurrency(b2bData?.aging?.not_due || 49000)}</strong>
+                            <strong>{formatCurrency(agingNotDue)}</strong>
                         </div>
                         <div className="donut-legend-item">
                             <span className="donut-legend-label"><span className="legend-dot" style={{ background: '#2563eb' }}></span> 1 - 30 Days</span>
-                            <strong>{formatCurrency(b2bData?.aging?.days1_30 || 38500)}</strong>
+                            <strong>{formatCurrency(aging1To30)}</strong>
                         </div>
                         <div className="donut-legend-item">
                             <span className="donut-legend-label"><span className="legend-dot" style={{ background: '#f59e0b' }}></span> 31 - 60 Days</span>
-                            <strong>{formatCurrency(b2bData?.aging?.days31_60 || 22400)}</strong>
+                            <strong>{formatCurrency(aging31To60)}</strong>
                         </div>
                     </div>
                 </div>
 
                 {/* 4. Top Follow-ups Due */}
-                <div className="dash-box">
+                <div className="dash-box dashboard-summary-card followups-summary-card">
                     <div className="dash-box-header">
                         <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                             <PhoneCall size={14} color="#2563eb" />

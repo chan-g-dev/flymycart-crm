@@ -27,14 +27,6 @@ api.interceptors.request.use((config) => {
         if (token) {
             config.headers['Authorization'] = `Bearer ${token}`;
         }
-        const savedRole = localStorage.getItem('fmc_user_role') || 'super_admin';
-        const savedName = localStorage.getItem('fmc_user_name') || 'Admin User';
-        const savedEmail = localStorage.getItem('fmc_user_email');
-        config.headers['X-User-Role'] = savedRole;
-        config.headers['X-User-Name'] = savedName;
-        if (savedEmail) {
-            config.headers['X-User-Email'] = savedEmail;
-        }
     } catch (e) {
         // Fallback for SSR or localStorage restrictions
     }
@@ -171,6 +163,7 @@ export const apiClient = {
 
     // Reports
     getEODReport: (date) => api.get('/reports/eod', { params: { date } }).then(res => res.data),
+    getWeeklyReport: (endDate) => api.get('/reports/weekly', { params: { end_date: endDate } }).then(res => res.data),
     getMonthlyReport: (month) => api.get('/reports/monthly', { params: { month } }).then(res => res.data),
     getMonthlyPLReport: (month) => api.get('/reports/monthly', { params: { month } }).then(res => res.data),
     getLiveDashboard: () => api.get('/reports/live', { params: { center: 'All Centers' } }).then(res => res.data),

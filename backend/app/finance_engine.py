@@ -110,14 +110,15 @@ def calculate_b2b_aging_buckets(
 
         buckets["total_outstanding"] += balance
 
-        # Determine if overdue past credit period
-        if age_days <= 0:
+        # Buckets measure days past the agreed due date, not invoice age.
+        overdue_days = age_days - credit_period_days
+        if overdue_days <= 0:
             buckets["not_due"] += balance
-        elif age_days <= 30:
+        elif overdue_days <= 30:
             buckets["days1_30"] += balance
-        elif age_days <= 60:
+        elif overdue_days <= 60:
             buckets["days31_60"] += balance
-        elif age_days <= 90:
+        elif overdue_days <= 90:
             buckets["days61_90"] += balance
         else:
             buckets["days90_plus"] += balance

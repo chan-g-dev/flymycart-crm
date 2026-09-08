@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect } from 'react';
 import { apiClient } from '../api/client';
 
 export const ROLES = {
@@ -85,24 +85,11 @@ export const AuthProvider = ({ children }) => {
         const isLoggedIn = localStorage.getItem('fmc_logged_in') === 'true';
         let savedEmail = localStorage.getItem('fmc_user_email');
         let savedRole = localStorage.getItem('fmc_user_role');
-        const savedName = localStorage.getItem('fmc_user_name') || '';
-
-        // Automatically purge any legacy customer role or profile
-        if (savedRole === 'customer' || savedName.includes('Customer') || (savedRole && !ROLES[savedRole])) {
-            savedRole = 'super_admin';
-            savedEmail = savedEmail && !savedEmail.includes('customer') ? savedEmail : 'chanakyagangabathina77@gmail.com';
-            localStorage.setItem('fmc_user_role', 'super_admin');
-            localStorage.setItem('fmc_user_name', 'Gangabathina Chanakya');
-            localStorage.setItem('fmc_user_email', savedEmail);
-            localStorage.removeItem('fmc_customer_id');
-            localStorage.removeItem('fmc_b2b_company_id');
-        }
-
         if (isLoggedOut || !isLoggedIn || !savedEmail) {
             return null;
         }
 
-        const roleId = savedRole || 'super_admin';
+        const roleId = savedRole || 'counter_staff';
         return {
             id: localStorage.getItem('fmc_user_id') || '055d37da-38d0-4fe9-9ca3-4b956dede81d',
             email: savedEmail,
@@ -120,17 +107,25 @@ export const AuthProvider = ({ children }) => {
         const isLoggedOut = localStorage.getItem('fmc_logged_out') === 'true';
         const isLoggedIn = localStorage.getItem('fmc_logged_in') === 'true';
         let r = (isLoggedIn && !isLoggedOut) ? (localStorage.getItem('fmc_user_role') || 'super_admin') : null;
-        if (r === 'customer' || (r && !ROLES[r])) {
-            r = 'super_admin';
-            localStorage.setItem('fmc_user_role', 'super_admin');
-        }
         return r;
     });
-    const [userStatus, setUserStatus] = useState('approved');
-    const [authLoading, setAuthLoading] = useState(false);
+    const [userStatus, setUserStatus] = useState(() => normalizeUserStatus(localStorage.getItem('fmc_user_status')));
+    const [authLoading, setAuthLoading] = useState(true);
 
-    const currentRoleId = activeRoleOverride || currentUser?.roleId || 'super_admin';
-    const currentRole = ROLES[currentRoleId] || ROLES.super_admin;
+    useEffect(() => {
+        let active = true;
+        apiClient.getAuthMe().then(data => {
+            if (!active) return;
+            const roleId = data.user.role_id;
+            setCurrentUser({ id: data.user.id, email: data.user.email, name: data.user.name, roleId, roles: data.roles, permissions: data.permissions, center: data.centers?.[0], isSuperAdmin: data.is_super_admin });
+            setActiveRoleOverride(roleId);
+            setUserStatus(normalizeUserStatus(data.user.status));
+        }).catch(() => { if (active) setCurrentUser(null); }).finally(() => { if (active) setAuthLoading(false); });
+        return () => { active = false; };
+    }, []);
+
+    const currentRoleId = activeRoleOverride || currentUser?.roleId || 'counter_staff';
+    const currentRole = ROLES[currentRoleId] || { id: currentRoleId, name: currentRoleId, permissions: {} };
     const normalizedStatus = normalizeUserStatus(userStatus);
     const isApproved = normalizedStatus === 'approved';
     const isPendingApproval = normalizedStatus === 'pending';
@@ -174,7 +169,7 @@ export const AuthProvider = ({ children }) => {
             if (data.user) {
                 const u = data.user;
                 const roleId = u.role || 'operations_staff';
-                const status = 'approved';
+                const status = normalizeUserStatus(u.status || data.profile?.status || data.account_status);
                 const name = (fullName || '').trim() || u.name || email.split('@')[0];
                 const centerName = (u.centers && u.centers[0]) || 'Main Hub (Bangalore)';
 
@@ -238,7 +233,8 @@ export const AuthProvider = ({ children }) => {
 
     // Check granular permission & scope safely
     const hasPermission = (permKey, minScope = 'own') => {
-        if (currentUser?.isSuperAdmin || currentRoleId === 'super_admin') return true;
+        if (!isApproved) return false;
+        if (currentUser?.isSuperAdmin) return true;
 
         // Check array permissions
         if (Array.isArray(currentUser?.permissions)) {
@@ -263,22 +259,13 @@ export const AuthProvider = ({ children }) => {
             }
         }
 
-        // Fallback to role-level permissions
-        const rolePerm = currentRole?.permissions?.[permKey];
-        if (typeof rolePerm === 'boolean') return rolePerm;
-        if (typeof rolePerm === 'string') {
-            const scopeLevels = { own: 1, center: 2, all: 3 };
-            const uLevel = scopeLevels[rolePerm.toLowerCase()] || 1;
-            const rLevel = scopeLevels[minScope.toLowerCase()] || 1;
-            return uLevel >= rLevel;
-        }
-
-        return !!rolePerm;
+        const aliases = { viewFinancials: 'reports.view_financial', viewCostMargins: 'reports.view_financial', addShipment: 'shipments.add', editShipment: 'shipments.edit', deleteShipment: 'shipments.delete', approveRefunds: 'refunds.approve', manageAccounts: 'accounts.edit', runReconciliation: 'reconciliation.run', exportReports: 'reports.export', manageSettings: 'settings.manage', manageUsers: 'users.manage_permissions' };
+        return !!currentUser?.permissions?.[aliases[permKey]];
     };
 
     // Quick switch staff role for testing / demo
     const switchUserRole = (roleId) => {
-        if (!ROLES[roleId]) return;
+        if (!currentUser?.isSuperAdmin || !ROLES[roleId]) return;
         setActiveRoleOverride(roleId);
         localStorage.setItem('fmc_user_role', roleId);
         const name = roleId === 'super_admin' 
@@ -321,7 +308,7 @@ export const AuthProvider = ({ children }) => {
             if (data.user) {
                 const u = data.user;
                 const roleId = u.role || payload.requested_role || 'counter_staff';
-                const status = 'approved';
+                const status = normalizeUserStatus(u.status || data.profile?.status || data.account_status);
                 const name = u.name || payload.name;
                 const centerName = (u.centers && u.centers[0]) || payload.center || 'Main Hub (Bangalore)';
 

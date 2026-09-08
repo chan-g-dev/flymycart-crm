@@ -10,15 +10,13 @@ import {
     MapPin, 
     ArrowUpRight, 
     FileText, 
-    Download, 
-    Truck,
-    Globe,
-    Send,
+    Download,
     Edit3
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { CourierLogo } from '../components/CourierLogos';
 import { TableSkeleton, ButtonSpinner } from '../components/LoadingSpinner';
+import { TrackingLink } from '../components/TrackingLink';
 
 export const Customers = ({ 
     customers, 
@@ -35,8 +33,6 @@ export const Customers = ({
     const [isDeleting, setIsDeleting] = useState(false);
 
     const formatCurrency = (n) => '₹' + Number(n || 0).toLocaleString('en-IN');
-    const formatDate = (d) => d ? new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '-';
-
     const handleSearchChange = (e) => {
         setSearchVal(e.target.value);
         onSearch(e.target.value, typeVal);
@@ -495,7 +491,7 @@ export const Shipments = ({
                                     return (
                                         <tr key={s.id}>
                                             <td>
-                                                <strong style={{ color: 'var(--primary-blue)', fontFamily: 'monospace', fontSize: '13px' }}>{s.awb}</strong>
+                                                <strong><TrackingLink awb={s.awb} courier={s.courier} style={{ fontFamily: 'monospace', fontSize: '13px' }} /></strong>
                                                 <div style={{ fontSize: '10.5px', color: 'var(--text-muted)', marginTop: '2px', whiteSpace: 'nowrap' }}>
                                                     <span className={`status-pill ${s.payment_status === 'Paid' ? 'delivered' : 'delayed'}`} style={{ fontSize: '9.5px', padding: '1px 6px', marginRight: '4px' }}>
                                                         {s.payment_status}

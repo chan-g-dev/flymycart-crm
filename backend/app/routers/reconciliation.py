@@ -7,8 +7,10 @@ import datetime
 import re
 import csv
 import io
+import math
+from app.cache import cache_engine
 from typing import List, Dict, Any, Optional
-from fastapi import APIRouter, Depends, HTTPException, Request, File, UploadFile, Form
+from fastapi import APIRouter, Depends, HTTPException, Request, File, UploadFile, Form, Query, Response
 from sqlalchemy.orm import Session
 from sqlalchemy import desc, func, or_
 
@@ -24,10 +26,15 @@ reconciliation_router = APIRouter(prefix="/api/reconciliation", tags=["Reconcili
 
 @reconciliation_router.get("/batches", response_model=List[ReconciliationBatchOut])
 def get_reconciliation_batches(
+    response: Response,
+    limit: int = Query(100, ge=1, le=500),
+    offset: int = Query(0, ge=0),
     ctx: Dict[str, Any] = Depends(require_permission(PermissionCode.RECONCILIATION_VIEW)),
     db: Session = Depends(get_db)
 ):
-    return db.query(ReconciliationBatch).order_by(desc(ReconciliationBatch.created_at)).all()
+    query = db.query(ReconciliationBatch).order_by(desc(ReconciliationBatch.created_at), ReconciliationBatch.id)
+    response.headers["X-Total-Count"] = str(query.count())
+    return query.limit(limit).offset(offset).all()
 
 @reconciliation_router.get("/batches/{batch_id}", response_model=ReconciliationBatchOut)
 def get_reconciliation_batch(
@@ -153,10 +160,32 @@ def apply_reconciliation(
     db: Session = Depends(get_db)
 ):
     matched_items = payload.get("matched", []) + payload.get("wrong_amount", [])
+    provider = str(payload.get("provider", "")).strip()
+    if not provider or not matched_items:
+        raise HTTPException(status_code=400, detail="Provider and matched bill items are required")
+    verified_items = []
+    seen = set()
+    for item in matched_items:
+        awb = str(item.get("awb", "")).strip()
+        try:
+            cost = float(item["actual_cost"])
+        except (KeyError, TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="Invalid provider cost")
+        if not awb or awb.lower() in seen or not math.isfinite(cost) or cost < 0:
+            raise HTTPException(status_code=400, detail="Bill contains an invalid cost or duplicate AWB")
+        seen.add(awb.lower())
+        ship = db.query(Shipment).filter(func.lower(Shipment.awb) == awb.lower(),
+            func.lower(Shipment.provider_name) == provider.lower()).first()
+        if not ship:
+            raise HTTPException(status_code=400, detail=f"AWB {awb} does not belong to this provider")
+        verified_items.append((ship, round(cost, 2)))
+    predicted_total = round(sum(ship.provider_cost or 0 for ship, cost in verified_items), 2)
+    actual_total = round(sum(cost for ship, cost in verified_items), 2)
+    matched_count = sum(abs(cost - (ship.provider_cost or 0)) < 0.01 for ship, cost in verified_items)
     updated_count = 0
 
-    batch_no = f"REC-{datetime.date.today().strftime('%Y%m')}-{uuid.uuid4().hex[:3].upper()}"
-    batch_id = f"rec_{uuid.uuid4().hex[:8]}"
+    batch_no = f"REC-{datetime.date.today().strftime('%Y%m')}-{uuid.uuid4().hex[:12].upper()}"
+    batch_id = f"rec_{uuid.uuid4().hex[:16]}"
 
     rec_batch = ReconciliationBatch(
         id=batch_id,
@@ -165,20 +194,18 @@ def apply_reconciliation(
         provider=payload.get("provider", "Aramex"),
         bill_reference=payload.get("bill_reference", f"{payload.get('provider')} Bill"),
         total_shipments=len(matched_items),
-        predicted_total=float(payload.get("total_predicted", 0.0)),
-        actual_bill=float(payload.get("total_actual", 0.0)),
-        variance=float(payload.get("variance", 0.0)),
+        predicted_total=predicted_total,
+        actual_bill=actual_total,
+        variance=round(actual_total - predicted_total, 2),
         status="Applied",
-        matched_count=len(payload.get("matched", [])),
-        discrepancy_count=len(payload.get("wrong_amount", [])),
+        matched_count=matched_count,
+        discrepancy_count=len(verified_items) - matched_count,
         notes=f"Reconciliation applied. Updated {len(matched_items)} shipments with actual provider costs."
     )
     db.add(rec_batch)
 
-    for item in matched_items:
-        awb = item.get("awb")
-        act_cost = float(item.get("actual_cost", 0.0))
-        ship = db.query(Shipment).filter(func.lower(Shipment.awb) == awb.lower()).first()
+    for ship, act_cost in verified_items:
+        awb = ship.awb
 
         if ship:
             ship.actual_provider_cost = act_cost
@@ -192,7 +219,7 @@ def apply_reconciliation(
             updated_count += 1
 
             rec_item = ReconciliationItem(
-                id=f"reci_{uuid.uuid4().hex[:8]}",
+                id=f"reci_{uuid.uuid4().hex[:16]}",
                 batch_id=batch_id,
                 awb=awb,
                 shipment_id=ship.id,
@@ -200,12 +227,13 @@ def apply_reconciliation(
                 predicted_cost=ship.provider_cost,
                 actual_cost=act_cost,
                 variance=act_cost - ship.provider_cost,
-                status=item.get("status", "MATCHED"),
-                notes=item.get("notes")
+                status="MATCHED" if abs(act_cost - (ship.provider_cost or 0)) < 0.01 else "WRONG AMOUNT"
             )
             db.add(rec_item)
 
     db.commit()
+    cache_engine.invalidate_prefix("shipments:")
+    cache_engine.invalidate_prefix("dashboard_summary")
 
     create_audit_log(
         db=db,

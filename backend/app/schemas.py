@@ -120,7 +120,14 @@ class CustomerOut(CustomerBase):
     model_config = ConfigDict(from_attributes=True)
 
 # --- SHIPMENT SCHEMAS ---
-class ParcelInfo(BaseModel):
+class ParcelBox(BaseModel):
+    length: float = Field(default=0, ge=0, allow_inf_nan=False)
+    width: float = Field(default=0, ge=0, allow_inf_nan=False)
+    height: float = Field(default=0, ge=0, allow_inf_nan=False)
+    actual_weight: float = Field(default=0, ge=0, allow_inf_nan=False)
+
+
+class ParcelInfo(ParcelBox):
     description: Optional[str] = None
     packages_count: int = 1
     actual_weight: float = 0.0
@@ -129,6 +136,7 @@ class ParcelInfo(BaseModel):
     height: float = 0.0
     volumetric_weight: float = 0.0
     chargeable_weight: float = 0.0
+    boxes: List[ParcelBox] = Field(default_factory=list)
 
 class ReceiverInfo(BaseModel):
     name: str
@@ -166,8 +174,9 @@ class ShipmentCreate(BaseModel):
     service_type: str = "International Priority"
     provider_type: str = "postpaid"  # prepaid or postpaid
     provider_name: str
-    price: float
-    provider_cost: float
+    price: float = Field(ge=0, allow_inf_nan=False)
+    provider_cost: float = Field(ge=0, allow_inf_nan=False)
+    amount_received: Optional[float] = Field(default=None, ge=0, allow_inf_nan=False)
 
     payment_status: str = "Paid"
     payment_method: str = "PhonePe"
@@ -252,7 +261,7 @@ class InvoiceCreate(BaseModel):
     due_date: Optional[str] = None
 
 class InvoicePaymentCreate(BaseModel):
-    amount: float
+    amount: float = Field(gt=0, allow_inf_nan=False)
     payment_method: str = "PhonePe"
     paid_to: str = "Office QR"
     collected_by: str = "Nawaz"
@@ -662,7 +671,7 @@ class BookingRequestCreate(BaseModel):
     parcels: Optional[List[BookingParcelCreate]] = []
 
 class BookingQuoteCreate(BaseModel):
-    quoted_amount: float
+    quoted_amount: float = Field(gt=0, allow_inf_nan=False)
     quoted_courier: Optional[str] = None
     quoted_notes: Optional[str] = None
 

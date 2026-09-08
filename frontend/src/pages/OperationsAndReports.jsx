@@ -4,89 +4,15 @@ import {
     Check, 
     MessageSquare, 
     Printer, 
-    Download, 
-    Trash2, 
     Calendar, 
-    FileText, 
-    ShieldCheck, 
-    Phone, 
-    Send, 
-    Settings as SettingsIcon,
-    RotateCcw,
-    History,
+    FileText,
     TrendingUp,
-    DollarSign,
-    CheckCircle2,
-    XCircle,
-    UserCheck,
-    Clock,
-    RefreshCw,
-    AlertCircle,
-    UserPlus,
-    Filter,
-    ShieldAlert,
-    UserX,
-    Mail,
-    MapPin,
-    Shield,
-    Zap,
-    Search,
-    Users as UsersIcon,
-    Loader2
+    Shield
 } from 'lucide-react';
-import { useAuth, ROLES } from '../context/AuthContext';
+import { useAuth } from '../context/AuthContext';
 import { apiClient } from '../api/client';
 import { WhatsAppIcon, CourierLogo } from '../components/CourierLogos';
 import { ContentShimmer } from '../components/ContentShimmer';
-
-const normalizeStaffRole = (value) => {
-    const raw = String(value || '').trim().toLowerCase().replace(/\s+/g, '_');
-    if (!raw) return 'operations_staff';
-    if (raw === 'superadmin') return 'super_admin';
-    if (raw === 'front_counter') return 'counter_staff';
-    if (raw === 'front_counter_staff') return 'counter_staff';
-    if (raw === 'operations_manager' || raw === 'manager') return 'operations_staff';
-    return raw;
-};
-
-const normalizeStaffStatus = (value) => {
-    const raw = String(value || '').trim().toLowerCase();
-    if (raw === 'active' || raw === 'approved') return 'Active';
-    if (raw === 'pending' || raw === 'pending approval' || raw === 'invited') return 'Pending Approval';
-    if (raw === 'rejected') return 'Rejected';
-    if (raw === 'suspended' || raw === 'inactive') return 'Suspended';
-    return value || 'Pending Approval';
-};
-
-const normalizeStaffRecord = (user) => {
-    const primaryRole = user?.role || user?.role_id || user?.roles?.[0]?.id || user?.roles?.[0]?.name;
-    const normalizedRole = normalizeStaffRole(primaryRole);
-    const normalizedStatus = normalizeStaffStatus(user?.status);
-    const firstCenter = Array.isArray(user?.centers) && user.centers.length > 0
-        ? (typeof user.centers[0] === 'string' ? user.centers[0] : user.centers[0]?.center_id || user.centers[0]?.name)
-        : null;
-
-    return {
-        ...user,
-        name: user?.name || user?.display_name || user?.full_name || user?.user_name || user?.email?.split('@')?.[0] || 'Staff Member',
-        email: user?.email || '',
-        phone: user?.phone || '',
-        role: normalizedRole,
-        roles: user?.roles || [],
-        status: normalizedStatus,
-        is_active: typeof user?.is_active === 'boolean' ? user.is_active : normalizedStatus === 'Active',
-        center: user?.center || firstCenter || 'Main Hub (Bangalore)',
-        approved_by: user?.approved_by || user?.approved_by_name || null,
-        approval_date: user?.approval_date || user?.approved_at || null
-    };
-};
-
-const getApiErrorMessage = (error, fallback = 'Something went wrong. Please try again.') => {
-    const detail = error?.response?.data?.detail;
-    if (Array.isArray(detail)) return detail.map(item => item?.msg || item).join(', ');
-    if (typeof detail === 'object' && detail?.message) return detail.message;
-    return detail || error?.response?.data?.message || error?.message || fallback;
-};
 
 export const Refunds = ({ refunds, onOpenRefundModal, onApproveRefund, onProcessRefund, onRejectRefund }) => {
     const { hasPermission } = useAuth();
@@ -271,7 +197,7 @@ export const Followups = ({ followups, onCompleteFollowup, onOpenCommModal }) =>
     );
 };
 
-export const Reports = () => {
+export const Reports = ({ activeTab }) => {
     const { hasPermission } = useAuth();
     const canViewFinancials = hasPermission('viewFinancials');
 
@@ -279,8 +205,14 @@ export const Reports = () => {
     const [eodDate, setEodDate] = useState(new Date().toISOString().slice(0, 10));
     const [monthVal, setMonthVal] = useState(new Date().toISOString().slice(0, 7));
     const [eodReport, setEodReport] = useState(null);
+    const [weeklyReport, setWeeklyReport] = useState(null);
     const [monthlyReport, setMonthlyReport] = useState(null);
     const [loading, setLoading] = useState(true);
+
+    useEffect(() => {
+        if (!activeTab || !['eod', 'weekly', 'monthly'].includes(activeTab)) return;
+        setTab(activeTab === 'monthly' && !canViewFinancials ? 'eod' : activeTab);
+    }, [activeTab, canViewFinancials]);
 
     const formatCurrency = (n) => '₹' + Number(n || 0).toLocaleString('en-IN');
     const formatDate = (d) => d ? new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '-';
@@ -291,13 +223,17 @@ export const Reports = () => {
             return;
         }
         setLoading(true);
-        const timer = setTimeout(() => {
-            if (tab === 'eod') {
+        if (tab === 'eod') {
                 apiClient.getEODReport(eodDate).then(data => {
                     setEodReport(data);
                     setLoading(false);
                 }).catch(() => setLoading(false));
-            } else if ((tab === 'monthly' || tab === 'weekly') && canViewFinancials) {
+            } else if (tab === 'weekly') {
+                apiClient.getWeeklyReport(eodDate).then(data => {
+                    setWeeklyReport(data);
+                    setLoading(false);
+                }).catch(() => setLoading(false));
+            } else if (tab === 'monthly' && canViewFinancials) {
                 apiClient.getMonthlyPLReport(monthVal).then(data => {
                     setMonthlyReport(data);
                     setLoading(false);
@@ -305,8 +241,6 @@ export const Reports = () => {
             } else {
                 setLoading(false);
             }
-        }, 320);
-        return () => clearTimeout(timer);
     }, [tab, eodDate, monthVal, canViewFinancials]);
 
     const handlePrintEOD = () => {
@@ -324,23 +258,6 @@ export const Reports = () => {
                     <p className="page-subtitle" style={{ fontSize: '12.5px', color: 'var(--text-muted)' }}>
                         Live business reporting pulling directly from Shipments, Customer Payments, Wallets, and Provider Costs.
                     </p>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                    <span style={{ 
-                        fontSize: '11px', 
-                        fontWeight: 700, 
-                        padding: '4px 10px', 
-                        borderRadius: '999px', 
-                        background: 'rgba(16, 185, 129, 0.12)', 
-                        color: 'var(--emerald, #10b981)', 
-                        border: '1px solid rgba(16, 185, 129, 0.3)',
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: '5px'
-                    }}>
-                        <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#10b981', display: 'inline-block' }}></span>
-                        Single-Entry Live Sync
-                    </span>
                 </div>
             </div>
 
@@ -393,15 +310,15 @@ export const Reports = () => {
                 </div>
 
                 {/* Target Date / Period Quick Capsule */}
-                {tab === 'eod' ? (
+                {tab !== 'monthly' ? (
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'var(--card-bg)', padding: '6px 14px', borderRadius: '10px', border: '1px solid var(--card-border)', boxShadow: '0 2px 6px rgba(0,0,0,0.06)' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '7px', background: 'var(--card-bg)', padding: '4px 10px', borderRadius: '8px', border: '1px solid var(--card-border)', boxShadow: '0 2px 6px rgba(0,0,0,0.06)' }}>
                             <Calendar size={14} color="var(--primary-blue)" />
-                            <label style={{ fontWeight: 800, fontSize: '11.5px', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Audit Date:</label>
+                            <label style={{ fontWeight: 800, fontSize: '10.5px', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.4px' }}>{tab === 'weekly' ? 'Week Ending:' : 'Audit Date:'}</label>
                             <input 
                                 type="date" 
                                 className="filter-input" 
-                                style={{ border: 'none', padding: '0', background: 'transparent', fontSize: '13px', fontWeight: 700, color: 'var(--text-main)', outline: 'none', cursor: 'pointer' }} 
+                                style={{ border: 'none', padding: '0', background: 'transparent', fontSize: '12px', fontWeight: 700, color: 'var(--text-main)', outline: 'none', cursor: 'pointer' }} 
                                 value={eodDate} 
                                 onChange={e => setEodDate(e.target.value)} 
                             />
@@ -594,13 +511,56 @@ export const Reports = () => {
                         </div>
                     )}
 
-                    {/* Tab 2 & 3: Monthly / Weekly Executive P&L */}
-                    {(tab === 'monthly' || tab === 'weekly') && monthlyReport && (
+                    {tab === 'weekly' && weeklyReport && (
+                        <div className="fmc-report-hero-card weekly-report-card">
+                            <div className="weekly-report-heading">
+                                <div>
+                                    <span className="weekly-report-eyebrow">7-day operational overview</span>
+                                    <h3>Weekly Operations Report</h3>
+                                    <p>{formatDate(weeklyReport.period_start)} – {formatDate(weeklyReport.period_end)}</p>
+                                </div>
+                                <button className="btn btn-outline" onClick={() => window.print()}><Printer size={14} /> Print Report</button>
+                            </div>
+
+                            <div className="weekly-kpi-grid">
+                                <div className="weekly-kpi blue"><span>Total bookings</span><strong>{weeklyReport.shipments_count}</strong><small>Across the selected week</small></div>
+                                <div className="weekly-kpi violet"><span>Active booking days</span><strong>{weeklyReport.active_days}<em>/7</em></strong><small>Days with shipment activity</small></div>
+                                <div className="weekly-kpi amber"><span>Couriers used</span><strong>{Object.keys(weeklyReport.courier_counts || {}).length}</strong><small>Active logistics partners</small></div>
+                                <div className="weekly-kpi green"><span>Delivered</span><strong>{weeklyReport.status_counts?.Delivered || 0}</strong><small>Completed shipments</small></div>
+                            </div>
+
+                            {weeklyReport.shipments_count === 0 ? (
+                                <div className="weekly-empty-state">
+                                    <Calendar size={30} />
+                                    <strong>No bookings in this week</strong>
+                                    <span>Choose another week-ending date to review previous shipment activity.</span>
+                                </div>
+                            ) : (
+                                <div className="weekly-report-layout">
+                                    <div className="weekly-table-panel">
+                                        <div className="weekly-panel-title"><strong>Daily booking trend</strong><span>Day-by-day activity</span></div>
+                                        <div className="table-container">
+                                            <table className="data-table weekly-data-table"><thead><tr><th>Date</th><th>Bookings</th>{weeklyReport.financials_visible && <><th>Revenue</th><th>Gross Profit</th></>}</tr></thead>
+                                                <tbody>{weeklyReport.daily.map(day => <tr key={day.date}><td>{formatDate(day.date)}</td><td><strong>{day.shipments_count}</strong></td>{weeklyReport.financials_visible && <><td>{formatCurrency(day.revenue)}</td><td className="weekly-profit">{formatCurrency(day.gross_profit)}</td></>}</tr>)}</tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+                                    <div className="weekly-breakdowns">
+                                        <div className="fmc-breakdown-box"><div className="fmc-breakdown-header">Courier Distribution</div>{Object.entries(weeklyReport.courier_counts || {}).map(([name, count]) => <div className="fmc-breakdown-item" key={name}><CourierLogo courier={name} height={16} /><strong>{count}</strong></div>)}</div>
+                                        <div className="fmc-breakdown-box"><div className="fmc-breakdown-header">Shipment Status</div>{Object.entries(weeklyReport.status_counts || {}).map(([name, count]) => <div className="fmc-breakdown-item" key={name}><span>{name}</span><strong>{count}</strong></div>)}</div>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    )}
+
+                    {/* Monthly Executive P&L */}
+                    {tab === 'monthly' && monthlyReport && (
                         <div className="fmc-report-hero-card">
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px', paddingBottom: '16px', borderBottom: '1px solid var(--card-border)', marginBottom: '20px' }}>
                                 <div>
                                     <h3 style={{ color: 'var(--text-main)', fontSize: '18px', fontWeight: 900, margin: 0 }}>
-                                        {tab === 'weekly' ? 'Weekly Business Summary & Trend Analytics' : 'Monthly Executive Profit & Loss (P&L) Statement'}
+                                        Monthly Executive Profit & Loss (P&L) Statement
                                     </h3>
                                     <div style={{ color: 'var(--text-muted)', fontSize: '12.5px', marginTop: '3px' }}>
                                         Financial Period: <strong>{monthlyReport.period}</strong> • Verified Against Single-Entry DB
@@ -670,7 +630,20 @@ export const Reports = () => {
 export { Users } from './UsersSection';
 
 export const Settings = ({ settings, onUpdateSettings }) => {
-    const { hasPermission } = useAuth();
+    const { hasPermission, currentUser } = useAuth();
+    const canManageSettings = Boolean(currentUser?.isSuperAdmin || currentUser?.roleId === 'super_admin');
+    const visibleCouriers = settings?.couriers?.length
+        ? settings.couriers
+        : ['FedEx', 'Aramex', 'DHL', 'Blue Dart', 'Delhivery', 'UPS', 'Sree Maruthi', 'LTL'];
+    const visibleCenters = settings?.centers?.length
+        ? settings.centers
+        : [
+            settings?.centerName || 'Main Hub (Bangalore)',
+            'Delhi Regional Hub',
+            'Mumbai Branch',
+            'Hyderabad Hub',
+            'Kolkata Center',
+        ];
     const [newCourier, setNewCourier] = useState('');
     const [newCenter, setNewCenter] = useState('');
     const [auditLogs, setAuditLogs] = useState([]);
@@ -685,7 +658,7 @@ export const Settings = ({ settings, onUpdateSettings }) => {
         if (!newCourier.trim()) return;
         const updated = {
             ...settings,
-            couriers: [...(settings?.couriers || []), newCourier.trim()]
+            couriers: [...visibleCouriers, newCourier.trim()]
         };
         onUpdateSettings(updated);
         setNewCourier('');
@@ -695,7 +668,7 @@ export const Settings = ({ settings, onUpdateSettings }) => {
         if (!newCenter.trim()) return;
         const updated = {
             ...settings,
-            centers: [...(settings?.centers || []), newCenter.trim()]
+            centers: [...visibleCenters, newCenter.trim()]
         };
         onUpdateSettings(updated);
         setNewCenter('');
@@ -717,14 +690,14 @@ export const Settings = ({ settings, onUpdateSettings }) => {
                 <div className="dash-box">
                     <h4 style={{ fontSize: '13.5px', fontWeight: 800, marginBottom: '10px', color: 'var(--text-main)' }}>📦 Configurable Couriers</h4>
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '12px' }}>
-                        {settings?.couriers?.map(c => (
+                        {visibleCouriers.map(c => (
                             <span key={c} className="status-pill in-transit" style={{ fontSize: '12px', padding: '5px 10px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
                                 <CourierLogo courier={c} height={14} />
                                 <span>{c}</span>
                             </span>
                         ))}
                     </div>
-                    {hasPermission('manageSettings') && (
+                    {canManageSettings && (
                         <div style={{ display: 'flex', gap: '8px' }}>
                             <input type="text" className="filter-input" placeholder="Add custom courier..." value={newCourier} onChange={e => setNewCourier(e.target.value)} />
                             <button className="btn btn-primary-blue" onClick={handleAddCourier}>Add</button>
@@ -736,11 +709,11 @@ export const Settings = ({ settings, onUpdateSettings }) => {
                 <div className="dash-box">
                     <h4 style={{ fontSize: '13.5px', fontWeight: 800, marginBottom: '10px', color: 'var(--text-main)' }}>🏢 Business Hubs & Centers</h4>
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '12px' }}>
-                        {settings?.centers?.map(c => (
+                        {visibleCenters.map(c => (
                             <span key={c} className="status-pill delivered" style={{ fontSize: '12px', padding: '5px 10px' }}>{c}</span>
                         ))}
                     </div>
-                    {hasPermission('manageSettings') && (
+                    {canManageSettings && (
                         <div style={{ display: 'flex', gap: '8px' }}>
                             <input type="text" className="filter-input" placeholder="Add business center..." value={newCenter} onChange={e => setNewCenter(e.target.value)} />
                             <button className="btn btn-primary-blue" onClick={handleAddCenter}>Add</button>

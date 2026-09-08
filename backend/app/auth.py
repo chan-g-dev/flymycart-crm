@@ -86,12 +86,7 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
     """Verifies plain password against hashed password."""
     if not hashed_password:
         return False
-    if hash_password(plain_password) == hashed_password:
-        return True
-    # Legacy / Seed fallbacks
-    if plain_password in ["Chanu@1234", "Admin@FlyMyCart2026"]:
-        return True
-    return False
+    return hmac.compare_digest(hash_password(plain_password), hashed_password)
 
 
 def validate_password_strength(password: str) -> Tuple[bool, Optional[str]]:
@@ -196,9 +191,11 @@ def get_session_by_token(db: Session, raw_token: str) -> Optional[AppSession]:
             db.commit()
             return None
 
-    # Touch session last_seen_at
-    session.last_seen_at = now
-    db.commit()
+    # Coalesce heartbeats: do not turn every read into a database write/commit.
+    # Revocation and expiry are still checked on every request. Idle precision is 60 seconds.
+    if not session.last_seen_at or (now - session.last_seen_at).total_seconds() >= 60:
+        session.last_seen_at = now
+        db.commit()
     return session
 
 
@@ -448,8 +445,7 @@ def mask_shipment_financials(shipment_dict: Dict[str, Any], user_ctx: Dict[str, 
         user_ctx.get("is_super_admin", False)
         or "*" in user_ctx.get("permissions", {})
         or user_ctx.get("permissions", {}).get("viewCostMargins", False)
-        or "reports.view_financial" in user_ctx.get("permissions", {})
-        or "viewCostMargins" in user_ctx.get("permissions", {})
+        or user_ctx.get("permissions", {}).get("reports.view_financial")
     )
     if not can_view:
         shipment_dict["provider_cost"] = None

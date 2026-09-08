@@ -19,15 +19,13 @@ import {
     LogOut,
     Menu,
     Command,
-    Sparkles,
     CheckCircle2,
-    SlidersHorizontal,
-    Boxes,
-    RefreshCw
+    Boxes
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { apiClient } from '../api/client';
 import { navigate } from '../utils/navigation';
+import { TrackingLink } from './TrackingLink';
 
 const PAGE_CONFIG = {
     dashboard: { 
@@ -111,13 +109,11 @@ const Topbar = ({
     onPreviewInvoice,
     onNavigate,
     settings,
-    pendingStaffCount = 0,
     onToggleSidebar,
     selectedCenter = 'All Centers',
-    onSelectCenter,
-    isSyncing = false
+    onSelectCenter
 }) => {
-    const { currentUser, currentRole, hasPermission, logout, switchUserRole } = useAuth();
+    const { currentUser, currentRole, hasPermission, logout } = useAuth();
     const pageMeta = PAGE_CONFIG[currentPage] || PAGE_CONFIG.dashboard;
     const PageIcon = pageMeta.icon;
 
@@ -215,14 +211,6 @@ const Topbar = ({
                     <div className="fmc-page-title-box">
                         <div className="fmc-page-title-row">
                             <h1 className="fmc-page-title-heading">{pageMeta.title}</h1>
-                            <span className="fmc-live-pill" style={{ display: 'inline-flex', alignItems: 'center', gap: '5px' }} title={isSyncing ? 'Real-time database synchronizing...' : 'Live socket connected'}>
-                                {isSyncing ? (
-                                    <RefreshCw size={9} className="fmc-spin-icon" style={{ color: '#0284c7' }} />
-                                ) : (
-                                    <span className="fmc-live-dot" />
-                                )}
-                                <span style={{ fontSize: '10px' }}>{isSyncing ? 'SYNCING' : 'LIVE'}</span>
-                            </span>
                         </div>
                         <p className="fmc-page-subtitle-text">{pageMeta.subtitle}</p>
                     </div>
@@ -278,7 +266,7 @@ const Topbar = ({
                                             className="fmc-search-result-row"
                                         >
                                             <div className="fmc-search-row-main">
-                                                <span className="fmc-awb-code">{s.awb}</span>
+                                                <TrackingLink awb={s.awb} courier={s.courier} className="fmc-awb-code" />
                                                 <span className="fmc-search-name">{s.customer_name}</span>
                                                 <span className="fmc-search-dest">&rarr; {s.destination}</span>
                                             </div>

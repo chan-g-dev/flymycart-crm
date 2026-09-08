@@ -5,12 +5,13 @@
 import uuid
 import datetime
 from typing import List, Optional, Dict, Any
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, Query, Response
 from sqlalchemy.orm import Session
 from sqlalchemy import desc, func, or_
 
 from app.database import get_db
-from app.models import Invoice, Shipment, AuditLog
+from app.models import Invoice, Shipment, AuditLog, PaymentCollection
+from app.cache import cache_engine
 from app.schemas import InvoiceOut, InvoicePaymentCreate
 from app.auth import get_current_user_context, create_audit_log
 from app.dependencies import require_permission
@@ -37,6 +38,9 @@ def log_invoice_audit(db: Session, user_name: str, inv_id: str, action: str, bef
 
 @invoices_router.get("/", response_model=List[InvoiceOut])
 def get_invoices(
+    response: Response,
+    limit: int = Query(100, ge=1, le=500),
+    offset: int = Query(0, ge=0),
     search: Optional[str] = None,
     status: Optional[str] = None,
     customer_id: Optional[str] = None,
@@ -57,7 +61,9 @@ def get_invoices(
                 func.lower(Invoice.awb).like(s)
             )
         )
-    return query.order_by(desc(Invoice.created_at)).all()
+    query = query.order_by(desc(Invoice.created_at), Invoice.id)
+    response.headers["X-Total-Count"] = str(query.count())
+    return query.limit(limit).offset(offset).all()
 
 @invoices_router.get("/{invoice_id}", response_model=InvoiceOut)
 def get_invoice(
@@ -85,10 +91,18 @@ def record_invoice_payment(
     pay_amt = float(payload.amount)
     if pay_amt <= 0:
         raise HTTPException(status_code=400, detail="Payment amount must be greater than 0")
+    if pay_amt > round(inv.total - inv.paid, 2):
+        raise HTTPException(status_code=400, detail="Payment exceeds the outstanding invoice balance")
+    if not all(value.strip() for value in (payload.payment_method, payload.paid_to, payload.collected_by)):
+        raise HTTPException(status_code=400, detail="Payment method, destination account and collector are required")
 
     before_paid = inv.paid
-    inv.paid += pay_amt
-    inv.balance = max(0.0, inv.total - inv.paid)
+    inv.paid = round(inv.paid + pay_amt, 2)
+    inv.balance = max(0.0, round(inv.total - inv.paid, 2))
+    db.add(PaymentCollection(invoice_id=inv.id, shipment_id=inv.shipment_id,
+        date=datetime.date.today().isoformat(), amount=pay_amt,
+        payment_method=payload.payment_method, paid_to=payload.paid_to,
+        collected_by=payload.collected_by, reference=payload.reference))
 
     if inv.balance <= 0:
         inv.status = "Paid"
@@ -106,6 +120,8 @@ def record_invoice_payment(
 
     db.commit()
     db.refresh(inv)
+    cache_engine.invalidate_prefix("dashboard_summary")
+    cache_engine.invalidate_prefix("shipments:")
 
     log_invoice_audit(
         db,

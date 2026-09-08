@@ -33,6 +33,12 @@ def setup_module():
     db.add(pending_user)
     db.commit()
     db.close()
+    from app.models import UserProfile
+    from app.auth import create_app_session
+    with SessionLocal() as db:
+        admin = db.query(UserProfile).filter(UserProfile.role == "super_admin").first()
+        _, token = create_app_session(db, admin.id, mfa_verified=True)
+        client.headers["Authorization"] = f"Bearer {token}"
 
 
 def test_pending_staff_count():

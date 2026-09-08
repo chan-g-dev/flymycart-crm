@@ -32,13 +32,20 @@ from app.routers import (
 )
 from app.auth import get_current_user_context
 from app.dependencies import get_current_session_context
+from app.routers.bookings import bookings_router
 
 from contextlib import asynccontextmanager
 import asyncio
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Non-blocking background DB verification allowing instantaneous server startup."""
+    """Finish schema initialization before accepting application traffic."""
+    if settings.ENVIRONMENT == "production":
+        if settings.DATABASE_URL.startswith("sqlite"):
+            raise RuntimeError("Production requires PostgreSQL; SQLite is for local development only.")
+        if len(settings.SECRET_KEY) < 32 or "change" in settings.SECRET_KEY.lower():
+            raise RuntimeError("Set a unique SECRET_KEY of at least 32 characters before production startup.")
+
     def _init_db():
         try:
             Base.metadata.create_all(bind=engine)
@@ -49,9 +56,9 @@ async def lifespan(app: FastAPI):
             finally:
                 db.close()
         except Exception as e:
-            print(f"Background DB sync notice: {e}")
+            raise RuntimeError("Database initialization failed") from e
 
-    asyncio.create_task(asyncio.to_thread(_init_db))
+    await asyncio.to_thread(_init_db)
     yield
 
 app = FastAPI(
@@ -202,6 +209,7 @@ def health_check():
 
 # Register All Routers with both /api and root prefixes for seamless integration
 app.include_router(auth_router)
+app.include_router(bookings_router)
 app.include_router(auth_router, prefix="/api")
 
 app.include_router(users_router)

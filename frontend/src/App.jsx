@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useAuth } from './context/AuthContext';
 import { apiClient } from './api/client';
-import { LoadingSpinner, OverlayLoader } from './components/LoadingSpinner';
 
 import Sidebar from './components/Sidebar';
 import Topbar from './components/Topbar';
@@ -22,7 +21,6 @@ import { Dashboard } from './pages/Dashboard';
 import { Customers, Shipments } from './pages/CustomersAndShipments';
 import { Invoices, Accounts, B2B } from './pages/InvoicesAccountsB2B';
 import { Refunds, Followups, Reports, Users, Settings } from './pages/OperationsAndReports';
-import { SplashLoader } from './components/SplashLoader';
 import { AuthPage } from './components/AuthPage';
 import { StepUpModal } from './components/StepUpModal';
 import { getCurrentPath, navigate } from './utils/navigation';
@@ -65,13 +63,11 @@ const setCached = (key, val) => {
 };
 
 export function App() {
-    const { isAuthenticated, isPendingApproval, isRejected, authLoading, currentUser } = useAuth();
+    const { isAuthenticated, isPendingApproval, isRejected, isSuspended, logout, authLoading, currentUser } = useAuth();
     const [currentPage, setCurrentPage] = useState(getInitialPage);
+    const [activeSubPage, setActiveSubPage] = useState('');
     const [isLoading, setIsLoading] = useState(false);
-    const [isSyncing, setIsSyncing] = useState(false);
     const [isDrawerLoading, setIsDrawerLoading] = useState(false);
-    const [isSplashComplete, setIsSplashComplete] = useState(false);
-    const [syncStep, setSyncStep] = useState('Connecting to Courier Financial Engine...');
     const [selectedCenter, setSelectedCenter] = useState('All Centers');
     const [dashboardData, setDashboardData] = useState(() => loadCached('dashboard', null));
     const [customers, setCustomers] = useState(() => loadCached('customers', []));
@@ -187,10 +183,9 @@ export function App() {
         }
     }, [isAuthenticated, currentUser, authLoading]);
 
-    // Fast Real-Time CRM Hydration & Background Sync
+    // Load CRM data on demand (initial load, explicit refresh, or completed mutation).
     const refreshAll = async (silent = false) => {
         if (!silent) setIsLoading(true);
-        setIsSyncing(true);
         try {
             // Phase 1: Critical UI Path (Dashboard + Shipments + Customers + Settings + Pending Counts)
             const [dash, custs, ships, setts, pCount] = await Promise.all([
@@ -204,21 +199,6 @@ export function App() {
             if (dash) { 
                 setDashboardData(dash); 
                 setCached('dashboard', dash); 
-            } else if (ships && ships.length) {
-                const activeShips = ships || [];
-                const tSales = activeShips.reduce((acc, s) => acc + (s.price || 0), 0);
-                const tColl = activeShips.reduce((acc, s) => s.payment_status === 'Paid' ? acc + (s.price || 0) : acc, 0);
-                const synDash = {
-                    today_shipments_count: activeShips.length,
-                    today_sales: tSales,
-                    today_collected: tColl,
-                    pending_collection: Math.max(0, tSales - tColl),
-                    b2b_outstanding: activeShips.filter(s => s.customer_type === 'B2B').reduce((acc, s) => acc + (s.price || 0), 0),
-                    followups_due: 3,
-                    refunds_pending: 1,
-                    recent_shipments: activeShips.slice(0, 10)
-                };
-                setDashboardData(prev => prev || synDash);
             }
             if (Array.isArray(custs)) { setCustomers(custs); setCached('customers', custs); }
             if (Array.isArray(ships)) { setShipments(ships); setCached('shipments', ships); }
@@ -259,55 +239,13 @@ export function App() {
             console.error('Error fetching CRM data:', err);
         } finally {
             if (!silent) setIsLoading(false);
-            setTimeout(() => setIsSyncing(false), 600);
         }
     };
 
-    // Live Real-Time Cross-Portal Sync Engine (BroadcastChannel + Heartbeat + Visibility)
+    // Perform one initial data load after authentication. No polling or automatic syncing.
     useEffect(() => {
         if (!isAuthenticated) return;
-
-        // 1. Initial hydration
         refreshAll(false);
-
-        // 2. High-speed cross-tab broadcast channel for instant (<200ms) sync
-        let syncChannel = null;
-        try {
-            if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
-                syncChannel = new BroadcastChannel('fmc_crm_sync');
-                syncChannel.onmessage = (event) => {
-                    console.log('[Live Sync Engine] Received immediate cross-portal update:', event.data);
-                    refreshAll(true);
-                };
-            }
-        } catch (e) {
-            console.warn('BroadcastChannel sync unavailable:', e);
-        }
-
-        // 3. Fast auto-sync background heartbeat (every 5 seconds when active)
-        const intervalId = setInterval(() => {
-            if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
-                refreshAll(true);
-            }
-        }, 5000);
-
-        // 4. Instant refresh when user returns to window or changes visibility
-        const onVisibilityChange = () => {
-            if (document.visibilityState === 'visible') {
-                refreshAll(true);
-            }
-        };
-        const onFocus = () => refreshAll(true);
-
-        document.addEventListener('visibilitychange', onVisibilityChange);
-        window.addEventListener('focus', onFocus);
-
-        return () => {
-            clearInterval(intervalId);
-            document.removeEventListener('visibilitychange', onVisibilityChange);
-            window.removeEventListener('focus', onFocus);
-            if (syncChannel) syncChannel.close();
-        };
     }, [isAuthenticated, currentUser?.roleId]);
 
     // Eagerly hydrate B2B data when switching to B2B page if not already populated
@@ -351,6 +289,7 @@ export function App() {
 
     // Navigation and subnavigation handlers
     const handleSubNavigate = (parent, sub) => {
+        setActiveSubPage(sub);
         navigateToPage(parent);
         if (sub === 'reconciliation') {
             setIsReconModalOpen(true);
@@ -506,23 +445,23 @@ export function App() {
         const todaySales = todayCenterShips.reduce((acc, s) => acc + (s.price || 0), 0);
         const todayCollected = todayCenterShips.reduce((acc, s) => {
             if (s.payment_status === 'Paid') return acc + (s.price || 0);
-            if (s.payment_status === 'Partial') return acc + Math.round((s.price || 0) * 0.5);
+            if (s.payment_status === 'Partial') return acc + filteredInvoices.filter(inv => inv.shipment_id === s.id).reduce((total, inv) => total + (inv.paid || 0), 0);
             return acc;
         }, 0);
         const centerB2BOutstanding = filteredShipments
             .filter(s => s.customer_type === 'B2B' && s.payment_status !== 'Paid')
-            .reduce((acc, s) => acc + (s.price || 0), 0);
+            .reduce((acc, s) => acc + Math.max(0, (s.price || 0) - filteredInvoices.filter(inv => inv.shipment_id === s.id).reduce((total, inv) => total + (inv.paid || 0), 0)), 0);
 
         return {
             ...dashboardData,
             today_shipments_count: todayCenterShips.length,
             today_sales: todaySales,
-            today_collected: todayCollected,
+            today_collected: dashboardData.collections_by_center?.[selectedCenter] || 0,
             pending_collection: Math.max(0, todaySales - todayCollected),
             b2b_outstanding: centerB2BOutstanding,
             recent_shipments: filteredShipments.slice(0, 10)
         };
-    }, [dashboardData, filteredShipments, selectedCenter]);
+    }, [dashboardData, filteredShipments, filteredInvoices, selectedCenter]);
 
     const filteredAccountsData = useMemo(() => {
         if (!accountsData) return null;
@@ -531,7 +470,7 @@ export function App() {
         const totalSales = filteredShipments.reduce((acc, s) => acc + (s.price || 0), 0);
         const totalCollected = filteredShipments.reduce((acc, s) => {
             if (s.payment_status === 'Paid') return acc + (s.price || 0);
-            if (s.payment_status === 'Partial') return acc + Math.round((s.price || 0) * 0.5);
+            if (s.payment_status === 'Partial') return acc + filteredInvoices.filter(inv => inv.shipment_id === s.id).reduce((total, inv) => total + (inv.paid || 0), 0);
             return acc;
         }, 0);
 
@@ -568,10 +507,15 @@ export function App() {
         );
     }
 
+    if (isPendingApproval || isRejected || isSuspended) {
+        return <main style={{ padding: 48 }}><h1>{isPendingApproval ? 'Awaiting approval' : 'Account unavailable'}</h1><p>{isPendingApproval ? 'Your account is awaiting Super Admin approval. Sign in again after approval.' : 'Contact Super Admin about your account status.'}</p><button onClick={logout}>Sign out</button></main>;
+    }
+
     return (
         <div style={{ display: 'flex', width: '100vw', height: '100vh', overflow: 'hidden' }}>
             <Sidebar 
                 currentPage={currentPage}
+                activeSubPage={activeSubPage}
                 onNavigate={(page) => {
                     navigateToPage(page);
                     setIsMobileSidebarOpen(false);
@@ -622,11 +566,9 @@ export function App() {
                     onNavigate={navigateToPage}
                     settings={settings}
                     onDataMutated={refreshAll}
-                    pendingStaffCount={pendingStaffCount}
                     onToggleSidebar={() => setIsMobileSidebarOpen(!isMobileSidebarOpen)}
                     selectedCenter={selectedCenter}
                     onSelectCenter={setSelectedCenter}
-                    isSyncing={isSyncing}
                 />
 
                 <main className="page-content">
@@ -644,7 +586,6 @@ export function App() {
                             onOpenReconciliationModal={() => setIsReconModalOpen(true)}
                             onOpenCustomerDrawer={handleOpenCustomerDrawer}
                             isLoading={isLoading}
-                            isSyncing={isSyncing}
                         />
                     )}
 
@@ -699,6 +640,7 @@ export function App() {
                             onOpenWalletModal={handleOpenWalletModal}
                             onOpenReconciliationModal={() => setIsReconModalOpen(true)}
                             onOpenReconciliationModalWithBatch={() => setIsReconModalOpen(true)}
+                            activeSection={activeSubPage}
                         />
                     )}
 
@@ -733,7 +675,7 @@ export function App() {
                     )}
 
                     {currentPage === 'reports' && (
-                        <Reports />
+                        <Reports activeTab={activeSubPage} />
                     )}
 
                     {currentPage === 'users' && (

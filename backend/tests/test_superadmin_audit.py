@@ -26,7 +26,7 @@ def test_system_full_flow():
     print("\n[Step 1] Logging in as Super Admin (Gangabathina Chanakya)...")
     login_res = client.post("/auth/login", json={
         "email": "chanakyagangabathina77@gmail.com",
-        "password": "Chanu@1234"
+        "password": "Chanu@123"
     })
     print(f"Login status code: {login_res.status_code}")
     assert login_res.status_code == 200, f"Login failed: {login_res.text}"

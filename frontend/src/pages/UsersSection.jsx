@@ -16,48 +16,15 @@ import {
     Trash2, 
     Key, 
     Lock, 
-    Eye, 
-    Sparkles, 
     LayoutGrid, 
     List, 
     Download, 
     UserX, 
-    Building2, 
-    SlidersHorizontal, 
-    X, 
-    Loader2 
+    Building2,
+    X
 } from 'lucide-react';
-import { useAuth, ROLES } from '../context/AuthContext';
+import { useAuth } from '../context/AuthContext';
 import { apiClient } from '../api/client';
-
-const DEFAULT_DEMO_STAFF = [
-    {
-        id: 'usr-001',
-        name: 'Gangabathina Chanakya',
-        email: 'chanakyagangabathina77@gmail.com',
-        phone: '+91 98480 12345',
-        role: 'super_admin',
-        status: 'Active',
-        is_active: true,
-        center: 'Main Hub (Bangalore)',
-        approved_by: 'System Initializer',
-        approval_date: '2025-01-10T10:00:00Z',
-        created_at: '2025-01-10T10:00:00Z'
-    },
-    {
-        id: 'usr-002',
-        name: 'G Venkateswarlu',
-        email: 'chanakyagangabathina18@gmail.com',
-        phone: '+91 98480 54321',
-        role: 'operations_staff',
-        status: 'Active',
-        is_active: true,
-        center: 'Main Hub (Bangalore)',
-        approved_by: 'Gangabathina Chanakya',
-        approval_date: '2026-09-07T14:39:48Z',
-        created_at: '2026-09-07T14:39:48Z'
-    }
-];
 
 const normalizeStaffRole = (value) => {
     const raw = String(value || '').trim().toLowerCase().replace(/\s+/g, '_');
@@ -144,9 +111,7 @@ const getRoleConfig = (roleKey) => {
 export const Users = ({ settings, onDataMutated }) => {
     const { currentUser, currentRole } = useAuth();
     
-    // Default list initialized with rich fallback
-    const [staffList, setStaffList] = useState(DEFAULT_DEMO_STAFF);
-    const [loading, setLoading] = useState(false);
+    const [staffList, setStaffList] = useState([]);
     const [isRefreshing, setIsRefreshing] = useState(false);
     
     // Filters & view modes
@@ -158,12 +123,10 @@ export const Users = ({ settings, onDataMutated }) => {
     
     // Action states
     const [actionLoadingId, setActionLoadingId] = useState(null);
-    const [actionType, setActionType] = useState(null);
     const [feedbackMessage, setFeedbackMessage] = useState(null);
-    const [staffLoadError, setStaffLoadError] = useState(null);
     
     // Role choices pending per applicant
-    const [pendingRoleAssignments, setPendingRoleAssignments] = useState({});
+    const pendingRoleAssignments = {};
 
 
     const availableCenters = useMemo(() => {
@@ -177,8 +140,7 @@ export const Users = ({ settings, onDataMutated }) => {
         currentRole?.id === 'super_admin' || 
         currentUser?.roleId === 'super_admin' || 
         currentUser?.role === 'super_admin' || 
-        currentUser?.isSuperAdmin ||
-        currentUser?.email === 'chanakyagangabathina77@gmail.com'
+        currentUser?.isSuperAdmin
     );
 
     const activeUser = {
@@ -189,22 +151,16 @@ export const Users = ({ settings, onDataMutated }) => {
         roleLabel: isSuperAdmin ? 'Super Admin' : (currentRole?.name || 'Operations Staff')
     };
 
-    const fetchUsers = async (silent = false) => {
-        if (!silent) setLoading(true);
+    const fetchUsers = async () => {
         setIsRefreshing(true);
         try {
             const data = await apiClient.getUsers();
             const records = Array.isArray(data) ? data : (data?.data || []);
-            if (records.length > 0) {
-                const normalized = records.map(normalizeStaffRecord);
-                setStaffList(normalized);
-            }
-            setStaffLoadError(null);
+            setStaffList(records.map(normalizeStaffRecord));
         } catch (err) {
-            console.warn('Backend staff directory load fallback to client state:', err);
-            // If server error, maintain existing list
+            console.error('Unable to load the staff directory:', err);
+            setStaffList([]);
         } finally {
-            if (!silent) setLoading(false);
             setIsRefreshing(false);
         }
     };
@@ -225,7 +181,6 @@ export const Users = ({ settings, onDataMutated }) => {
             return;
         }
         setActionLoadingId(userId);
-        setActionType('approve');
 
         const assignedRole = customRole || pendingRoleAssignments[userId] || 'operations_staff';
 
@@ -252,7 +207,6 @@ export const Users = ({ settings, onDataMutated }) => {
             showFeedback(`✓ "${staffName}" activated locally for CRM workspace.`, 'success');
         } finally {
             setActionLoadingId(null);
-            setActionType(null);
         }
     };
 
@@ -263,7 +217,6 @@ export const Users = ({ settings, onDataMutated }) => {
         }
         if (!window.confirm(`Decline access registration for "${staffName}"?`)) return;
         setActionLoadingId(userId);
-        setActionType('reject');
 
         setStaffList(prev => prev.map(u => u.id === userId ? {
             ...u,
@@ -280,7 +233,6 @@ export const Users = ({ settings, onDataMutated }) => {
             showFeedback(`Authorization declined for "${staffName}".`, 'warning');
         } finally {
             setActionLoadingId(null);
-            setActionType(null);
         }
     };
 
@@ -296,7 +248,6 @@ export const Users = ({ settings, onDataMutated }) => {
         }
 
         setActionLoadingId(userId);
-        setActionType('role');
 
         setStaffList(prev => prev.map(u => u.id === userId ? { ...u, role: newRole } : u));
 
@@ -308,7 +259,6 @@ export const Users = ({ settings, onDataMutated }) => {
             showFeedback(`Role updated to ${getRoleConfig(newRole).label} (saved).`, 'success');
         } finally {
             setActionLoadingId(null);
-            setActionType(null);
         }
     };
 
@@ -324,7 +274,6 @@ export const Users = ({ settings, onDataMutated }) => {
 
         const nextActive = !user.is_active;
         setActionLoadingId(user.id);
-        setActionType('toggle');
 
         setStaffList(prev => prev.map(u => u.id === user.id ? {
             ...u,
@@ -344,7 +293,6 @@ export const Users = ({ settings, onDataMutated }) => {
             showFeedback(`Staff "${user.name}" status updated to ${nextActive ? 'Active' : 'Suspended'}.`, 'success');
         } finally {
             setActionLoadingId(null);
-            setActionType(null);
         }
     };
 
@@ -361,7 +309,6 @@ export const Users = ({ settings, onDataMutated }) => {
 
         if (!window.confirm(`Permanently remove staff record for "${staffName}"? This action cannot be undone.`)) return;
         setActionLoadingId(userId);
-        setActionType('delete');
 
         setStaffList(prev => prev.filter(u => u.id !== userId));
 
@@ -373,7 +320,6 @@ export const Users = ({ settings, onDataMutated }) => {
             showFeedback(`Removed staff "${staffName}" from directory.`, 'warning');
         } finally {
             setActionLoadingId(null);
-            setActionType(null);
         }
     };
 
@@ -402,7 +348,6 @@ export const Users = ({ settings, onDataMutated }) => {
     };
 
     // Filter calculations
-    const pendingStaff = useMemo(() => staffList.filter(u => u.status === 'Pending Approval'), [staffList]);
     const activeStaff = useMemo(() => staffList.filter(u => u.status === 'Active'), [staffList]);
     const suspendedStaff = useMemo(() => staffList.filter(u => u.status === 'Suspended' || u.status === 'Rejected'), [staffList]);
 

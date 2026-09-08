@@ -15,7 +15,7 @@ from app.database import Base
 class User(Base):
     __tablename__ = "users"
 
-    id = Column(String(50), primary_key=True, default=lambda: f"u_{uuid.uuid4().hex[:8]}")
+    id = Column(String(50), primary_key=True, default=lambda: f"u_{uuid.uuid4().hex[:16]}")
     username = Column(String(50), unique=True, nullable=False, index=True)
     password_hash = Column(String(255), nullable=True)
     name = Column(String(100), nullable=False)
@@ -35,7 +35,7 @@ class User(Base):
 class AuditLog(Base):
     __tablename__ = "audit_logs"
 
-    id = Column(String(50), primary_key=True, default=lambda: f"aud_{uuid.uuid4().hex[:8]}")
+    id = Column(String(50), primary_key=True, default=lambda: f"aud_{uuid.uuid4().hex[:16]}")
     user_id = Column(String(50), nullable=True)
     user_name = Column(String(100), default="System")
     event_type = Column(String(100), default="audit")
@@ -71,7 +71,7 @@ class AuditLog(Base):
 class B2BCompany(Base):
     __tablename__ = "b2b_companies"
 
-    id = Column(String(50), primary_key=True, default=lambda: f"b2b_{uuid.uuid4().hex[:8]}")
+    id = Column(String(50), primary_key=True, default=lambda: f"b2b_{uuid.uuid4().hex[:16]}")
     company_name = Column(String(150), unique=True, nullable=False, index=True)
     contact_person = Column(String(100), nullable=False)
     mobile = Column(String(20), nullable=False, index=True)
@@ -91,7 +91,7 @@ class B2BCompany(Base):
 class Customer(Base):
     __tablename__ = "customers"
 
-    id = Column(String(50), primary_key=True, default=lambda: f"cust_{uuid.uuid4().hex[:8]}")
+    id = Column(String(50), primary_key=True, default=lambda: f"cust_{uuid.uuid4().hex[:16]}")
     name = Column(String(100), nullable=False, index=True)
     company = Column(String(100), nullable=True)
     mobile = Column(String(20), nullable=False, index=True)
@@ -110,6 +110,11 @@ class Customer(Base):
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
 
+    __table_args__ = (
+        Index("idx_customers_center_created", "center", "created_at"),
+        Index("idx_customers_center_type", "center", "customer_type"),
+    )
+
     shipments = relationship("Shipment", back_populates="customer_rel", cascade="all, delete-orphan")
     invoices = relationship("Invoice", back_populates="customer_rel", cascade="all, delete-orphan")
     followups = relationship("Followup", back_populates="customer_rel", cascade="all, delete-orphan")
@@ -120,7 +125,7 @@ class Customer(Base):
 class BookingRequest(Base):
     __tablename__ = "booking_requests"
 
-    id = Column(String(50), primary_key=True, default=lambda: f"req_{uuid.uuid4().hex[:8]}")
+    id = Column(String(50), primary_key=True, default=lambda: f"req_{uuid.uuid4().hex[:16]}")
     request_no = Column(String(50), unique=True, nullable=False, index=True)
     customer_id = Column(String(50), ForeignKey("customers.id"), nullable=True, index=True)
     customer_name = Column(String(100), nullable=False, index=True)
@@ -197,7 +202,7 @@ class BookingRequest(Base):
 class BookingParcel(Base):
     __tablename__ = "booking_parcels"
 
-    id = Column(String(50), primary_key=True, default=lambda: f"bp_{uuid.uuid4().hex[:8]}")
+    id = Column(String(50), primary_key=True, default=lambda: f"bp_{uuid.uuid4().hex[:16]}")
     booking_request_id = Column(String(50), ForeignKey("booking_requests.id"), nullable=False, index=True)
     package_number = Column(Integer, default=1)
     description = Column(String(200), nullable=True)
@@ -214,7 +219,7 @@ class BookingParcel(Base):
 class ShipmentTrackingEvent(Base):
     __tablename__ = "shipment_tracking_events"
 
-    id = Column(String(50), primary_key=True, default=lambda: f"trk_{uuid.uuid4().hex[:8]}")
+    id = Column(String(50), primary_key=True, default=lambda: f"trk_{uuid.uuid4().hex[:16]}")
     shipment_id = Column(String(50), ForeignKey("shipments.id"), nullable=False, index=True)
     timestamp = Column(DateTime, default=datetime.datetime.utcnow, index=True)
     status = Column(String(50), nullable=False)  # Booked, Picked Up, In Transit, Delivered, Delayed, Cancelled
@@ -228,7 +233,7 @@ class ShipmentTrackingEvent(Base):
 class Shipment(Base):
     __tablename__ = "shipments"
 
-    id = Column(String(50), primary_key=True, default=lambda: f"ship_{uuid.uuid4().hex[:8]}")
+    id = Column(String(50), primary_key=True, default=lambda: f"ship_{uuid.uuid4().hex[:16]}")
     awb = Column(String(50), unique=True, nullable=False, index=True)
     date = Column(String(20), nullable=False, index=True)
     pickup_date = Column(String(20), nullable=True)
@@ -295,6 +300,9 @@ class Shipment(Base):
         Index("idx_shipments_customer_status", "customer_id", "status"),
         Index("idx_shipments_date_status", "date", "status"),
         Index("idx_shipments_provider_cost", "provider_name", "cost_reconciled"),
+        Index("idx_shipments_center_created", "center", "created_at"),
+        Index("idx_shipments_center_status", "center", "status"),
+        Index("idx_shipments_customer_created", "customer_id", "created_at"),
     )
 
     customer_rel = relationship("Customer", back_populates="shipments")
@@ -306,7 +314,7 @@ class Shipment(Base):
 class Invoice(Base):
     __tablename__ = "invoices"
 
-    id = Column(String(50), primary_key=True, default=lambda: f"inv_{uuid.uuid4().hex[:8]}")
+    id = Column(String(50), primary_key=True, default=lambda: f"inv_{uuid.uuid4().hex[:16]}")
     invoice_no = Column(String(50), unique=True, nullable=False, index=True)
     date = Column(String(20), nullable=False, index=True)
     due_date = Column(String(20), nullable=True)
@@ -334,17 +342,34 @@ class Invoice(Base):
     __table_args__ = (
         Index("idx_invoices_customer_status", "customer_id", "status"),
         Index("idx_invoices_date_status", "date", "status"),
+        Index("idx_invoices_customer_created", "customer_id", "created_at"),
     )
 
     customer_rel = relationship("Customer", back_populates="invoices")
     b2b_company_rel = relationship("B2BCompany", back_populates="invoices")
     shipment_rel = relationship("Shipment", back_populates="invoice_rel")
+    payments = relationship("PaymentCollection", cascade="all, delete-orphan")
+
+
+class PaymentCollection(Base):
+    __tablename__ = "payment_collections"
+
+    id = Column(String(50), primary_key=True, default=lambda: f"pay_{uuid.uuid4().hex[:12]}")
+    invoice_id = Column(String(50), ForeignKey("invoices.id"), nullable=False, index=True)
+    shipment_id = Column(String(50), ForeignKey("shipments.id"), nullable=True, index=True)
+    date = Column(String(20), nullable=False, index=True)
+    amount = Column(Float, nullable=False)
+    payment_method = Column(String(100), nullable=False)
+    paid_to = Column(String(100), nullable=False)
+    collected_by = Column(String(100), nullable=False)
+    reference = Column(String(200), nullable=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
 
 
 class WalletTransaction(Base):
     __tablename__ = "wallet_transactions"
 
-    id = Column(String(50), primary_key=True, default=lambda: f"tx_{uuid.uuid4().hex[:8]}")
+    id = Column(String(50), primary_key=True, default=lambda: f"tx_{uuid.uuid4().hex[:16]}")
     date = Column(String(20), nullable=False, index=True)
     wallet = Column(String(50), nullable=False, index=True)  # ICL, BRV, or dynamic
     type = Column(String(20), nullable=False)  # recharge (transfer), usage (cost)
@@ -364,7 +389,7 @@ class WalletTransaction(Base):
 class PostpaidProviderAccount(Base):
     __tablename__ = "postpaid_provider_accounts"
 
-    id = Column(String(50), primary_key=True, default=lambda: f"ppa_{uuid.uuid4().hex[:8]}")
+    id = Column(String(50), primary_key=True, default=lambda: f"ppa_{uuid.uuid4().hex[:16]}")
     provider_name = Column(String(50), unique=True, nullable=False, index=True)  # Aramex, Blue Dart
     opening_deposit = Column(Float, default=0.0)
     deposit_balance = Column(Float, default=0.0)
@@ -376,7 +401,7 @@ class PostpaidProviderAccount(Base):
 class ReconciliationBatch(Base):
     __tablename__ = "reconciliation_batches"
 
-    id = Column(String(50), primary_key=True, default=lambda: f"rec_{uuid.uuid4().hex[:8]}")
+    id = Column(String(50), primary_key=True, default=lambda: f"rec_{uuid.uuid4().hex[:16]}")
     batch_no = Column(String(50), unique=True, nullable=False, index=True)
     date = Column(String(20), nullable=False)
     provider = Column(String(50), nullable=False, index=True)
@@ -397,7 +422,7 @@ class ReconciliationBatch(Base):
 class ReconciliationItem(Base):
     __tablename__ = "reconciliation_items"
 
-    id = Column(String(50), primary_key=True, default=lambda: f"reci_{uuid.uuid4().hex[:8]}")
+    id = Column(String(50), primary_key=True, default=lambda: f"reci_{uuid.uuid4().hex[:16]}")
     batch_id = Column(String(50), ForeignKey("reconciliation_batches.id"), nullable=False, index=True)
     awb = Column(String(50), nullable=False, index=True)
     shipment_id = Column(String(50), nullable=True)
@@ -415,7 +440,7 @@ class ReconciliationItem(Base):
 class Refund(Base):
     __tablename__ = "refunds"
 
-    id = Column(String(50), primary_key=True, default=lambda: f"ref_{uuid.uuid4().hex[:8]}")
+    id = Column(String(50), primary_key=True, default=lambda: f"ref_{uuid.uuid4().hex[:16]}")
     customer = Column(String(100), nullable=False)
     customer_id = Column(String(50), nullable=True)
     awb = Column(String(50), nullable=False, index=True)
@@ -437,7 +462,7 @@ class Refund(Base):
 class Followup(Base):
     __tablename__ = "followups"
 
-    id = Column(String(50), primary_key=True, default=lambda: f"fu_{uuid.uuid4().hex[:8]}")
+    id = Column(String(50), primary_key=True, default=lambda: f"fu_{uuid.uuid4().hex[:16]}")
     customer_id = Column(String(50), ForeignKey("customers.id"), nullable=True)
     customer = Column(String(100), nullable=False)
     category = Column(String(50), default="Customer Retention")  # Inactivity 5d/10d/15d/30d, Invoice Due, B2B Payment, Customer Retention
@@ -455,7 +480,7 @@ class Followup(Base):
 class CommunicationLog(Base):
     __tablename__ = "communication_logs"
 
-    id = Column(String(50), primary_key=True, default=lambda: f"comm_{uuid.uuid4().hex[:8]}")
+    id = Column(String(50), primary_key=True, default=lambda: f"comm_{uuid.uuid4().hex[:16]}")
     customer_id = Column(String(50), nullable=True)
     customer = Column(String(100), nullable=False, index=True)
     date = Column(String(20), nullable=False)
@@ -650,4 +675,3 @@ class ProfileAuditLog(Base):
 
     profile = relationship("UserProfile", foreign_keys=[profile_id])
     changer = relationship("UserProfile", foreign_keys=[changed_by])
-

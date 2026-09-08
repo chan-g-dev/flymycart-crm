@@ -13,7 +13,8 @@ from app.database import get_db
 from app.models import SystemSettings, AuditLog
 from app.schemas import AuditLogOut
 from app.dependencies import (
-    require_permission
+    require_permission,
+    require_super_admin,
 )
 from app.auth import create_audit_log
 from app.cache import cache_engine
@@ -42,7 +43,7 @@ def get_settings(
 def update_settings(
     payload: Dict[str, Any],
     request: Request,
-    ctx: Dict[str, Any] = Depends(require_permission("settings.manage")),
+    ctx: Dict[str, Any] = Depends(require_super_admin),
     db: Session = Depends(get_db)
 ):
     """

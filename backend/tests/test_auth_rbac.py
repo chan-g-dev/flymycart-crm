@@ -66,10 +66,11 @@ def test_login_flow_and_cookie():
     """Tests POST /api/auth/login and session cookie issuance."""
     response = client.post("/api/auth/login", json={
         "email": "chanakyagangabathina77@gmail.com",
-        "password": "Chanu@1234"
+        "password": "Chanu@123"
     })
     assert response.status_code == 200
     data = response.json()
+    assert data["user"]["status"] == "approved"
     assert data["status"] in ["authenticated", "mfa_challenge_required", "mfa_setup_required"]
 
     # If MFA challenge is returned, test MFA verify
@@ -91,7 +92,14 @@ def test_get_current_user_me():
 
 def test_step_up_mfa_endpoint():
     """Tests POST /api/auth/step-up re-authentication."""
-    response = client.post("/api/auth/step-up", json={"code": "123456"})
+    secret = generate_totp_secret()
+    with SessionLocal() as db:
+        admin = db.query(UserProfile).filter(UserProfile.role == "super_admin").first()
+        admin.mfa_enabled = True
+        admin.mfa_secret = secret
+        db.commit()
+    assert client.post("/api/auth/step-up", json={"code": "invalid"}).status_code == 400
+    response = client.post("/api/auth/step-up", json={"code": generate_totp_code(secret)})
     assert response.status_code == 200
     assert response.json()["status"] == "success"
 
@@ -100,7 +108,7 @@ def test_staff_action_approval_and_delete_routes():
     """Covers the staff approval, rejection, and delete operations expected by the UI."""
     admin_session = client.post("/api/auth/login", json={
         "email": "chanakyagangabathina77@gmail.com",
-        "password": "Chanu@1234"
+        "password": "Chanu@123"
     })
     assert admin_session.status_code == 200
 

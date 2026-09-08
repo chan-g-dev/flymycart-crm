@@ -5,9 +5,10 @@
 import uuid
 import datetime
 from typing import List, Optional, Dict, Any
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, Query, Response
 from sqlalchemy.orm import Session
 from sqlalchemy import desc, func, or_
+from sqlalchemy.exc import IntegrityError
 
 from app.database import get_db
 from app.models import (
@@ -26,30 +27,33 @@ from app.cache import cache_engine
 
 shipments_router = APIRouter(prefix="/api/shipments", tags=["Shipments"])
 
+def validate_shipment_status(status, delay_reason):
+    if status not in {"Booked", "Picked Up", "In Transit", "Delivered", "Delayed", "Cancelled"}:
+        raise HTTPException(status_code=400, detail="Invalid shipment status")
+    if status == "Delayed" and not (delay_reason or "").strip():
+        raise HTTPException(status_code=400, detail="A delay reason is required")
+
 @shipments_router.get("/", response_model=List[ShipmentOut])
 def get_shipments(
+    response: Response,
+    limit: int = Query(100, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+    center: Optional[str] = None,
     search: Optional[str] = None,
     status: Optional[str] = None,
     courier: Optional[str] = None,
     ctx: Dict[str, Any] = Depends(require_permission(PermissionCode.SHIPMENTS_VIEW)),
     db: Session = Depends(get_db)
 ):
-    is_default = not search and not status and not courier
     can_view_margins = bool(
         ctx.get("is_super_admin")
         or "*" in ctx.get("permissions", {})
         or ctx.get("permissions", {}).get("viewCostMargins")
-        or "reports.view_financial" in ctx.get("permissions", {})
-        or "viewCostMargins" in ctx.get("permissions", {})
+        or ctx.get("permissions", {}).get("reports.view_financial")
     )
-    cache_key = f"shipments:default:{can_view_margins}"
-
-    if is_default:
-        cached_res = cache_engine.get(cache_key)
-        if cached_res:
-            return cached_res
-
     query = db.query(Shipment)
+    if center and center != "All Centers":
+        query = query.filter(Shipment.center == center)
     if status:
         query = query.filter(Shipment.status == status)
     if courier:
@@ -62,10 +66,14 @@ def get_shipments(
                 func.lower(Shipment.customer_name).like(s),
                 func.lower(Shipment.receiver_name).like(s),
                 Shipment.receiver_phone.like(s),
-                Shipment.sender_phone.like(s)
+                Shipment.sender_phone.like(s),
+                Shipment.id.in_(db.query(Invoice.shipment_id).filter(func.lower(Invoice.invoice_no).like(s)))
             )
         )
-    shipments = query.order_by(desc(Shipment.created_at)).all()
+    query = query.order_by(desc(Shipment.created_at), Shipment.id)
+    response.headers["X-Total-Count"] = str(query.count())
+    query = query.limit(limit).offset(offset)
+    shipments = query.all()
 
     out = [ShipmentOut.model_validate(s) for s in shipments]
     if not can_view_margins:
@@ -74,8 +82,6 @@ def get_shipments(
             s_out.actual_provider_cost = None
             s_out.gross_profit = None
 
-    if is_default:
-        cache_engine.set(cache_key, out, ttl=20)
 
     return out
 
@@ -88,6 +94,14 @@ def create_shipment(
 ):
     # 1. Check duplicate AWB
     awb_clean = payload.awb.strip()
+    if not awb_clean:
+        raise HTTPException(status_code=400, detail="AWB is required")
+    validate_shipment_status(payload.status, payload.delay_reason)
+    paid_amt = payload.price if payload.payment_status == "Paid" else (payload.amount_received or 0.0)
+    if payload.payment_status == "Partial" and not 0 < paid_amt < payload.price:
+        raise HTTPException(status_code=400, detail="Partial payment must specify an amount between zero and the selling price")
+    if payload.payment_status not in ["Paid", "Partial"] and paid_amt:
+        raise HTTPException(status_code=400, detail="Amount received requires Paid or Partial payment status")
     if db.query(Shipment).filter(func.lower(Shipment.awb) == awb_clean.lower()).first():
         raise HTTPException(status_code=400, detail=f"AWB tracking number '{awb_clean}' already exists!")
 
@@ -97,11 +111,13 @@ def create_shipment(
         customer = db.query(Customer).filter(Customer.id == payload.customer_id).first()
     if not customer and payload.sender and payload.sender.phone:
         customer = db.query(Customer).filter(Customer.mobile == payload.sender.phone.strip()).first()
-    if not customer:
-        customer = db.query(Customer).filter(func.lower(Customer.name) == payload.customer_name.strip().lower()).first()
+    if payload.customer_id and not customer:
+        raise HTTPException(status_code=404, detail="Customer not found")
 
     if not customer:
-        cust_id = f"cust_{uuid.uuid4().hex[:8]}"
+        if not payload.sender or not payload.sender.phone or not payload.sender.phone.strip():
+            raise HTTPException(status_code=400, detail="A mobile number is required for a new customer")
+        cust_id = f"cust_{uuid.uuid4().hex[:16]}"
         customer = Customer(
             id=cust_id,
             name=payload.customer_name.strip(),
@@ -114,18 +130,24 @@ def create_shipment(
             address=payload.sender.address.strip() if payload.sender and payload.sender.address else ""
         )
         db.add(customer)
-        db.commit()
-        db.refresh(customer)
+        db.flush()
 
     # 3. Authoritative Volumetric & Chargeable weight calculation
     vol_wt, chargeable_wt = calculate_volumetric_and_chargeable_weight(
         payload.parcel.length,
         payload.parcel.width,
         payload.parcel.height,
-        payload.parcel.actual_weight
+        payload.parcel.actual_weight,
+        divisor=4000.0 if any(term in f"{payload.service_type} {payload.courier}".lower() for term in ("cargo", "ltl")) else 5000.0
     )
 
     # 4. Authoritative Gross Profit calculation
+    if payload.parcel.boxes:
+        divisor = 4000.0 if any(term in f"{payload.service_type} {payload.courier}".lower() for term in ("cargo", "ltl")) else 5000.0
+        vol_wt = round(sum(box.length * box.width * box.height / divisor for box in payload.parcel.boxes), 2)
+        payload.parcel.actual_weight = round(sum(box.actual_weight for box in payload.parcel.boxes), 2)
+        payload.parcel.packages_count = len(payload.parcel.boxes)
+        chargeable_wt = max(vol_wt, payload.parcel.actual_weight)
     cost_reconciled = (payload.provider_type == "prepaid")
     gross_profit = calculate_gross_profit(
         selling_price=payload.price,
@@ -134,7 +156,7 @@ def create_shipment(
         cost_reconciled=cost_reconciled
     )
 
-    ship_id = f"ship_{uuid.uuid4().hex[:8]}"
+    ship_id = f"ship_{uuid.uuid4().hex[:16]}"
 
     new_shipment = Shipment(
         id=ship_id,
@@ -193,7 +215,7 @@ def create_shipment(
     # 5. Prepaid Partner Wallet Ledger Deduction
     if payload.provider_type == "prepaid":
         wallet_tx = WalletTransaction(
-            id=f"tx_{uuid.uuid4().hex[:8]}",
+            id=f"tx_{uuid.uuid4().hex[:16]}",
             date=payload.date,
             wallet=payload.provider_name,
             type="usage",
@@ -207,12 +229,11 @@ def create_shipment(
         db.add(wallet_tx)
 
     # 6. Auto-generate Official Invoice
-    inv_no = f"FMC-{datetime.date.today().strftime('%Y%m')}-{uuid.uuid4().hex[:3].upper()}"
-    paid_amt = payload.price if payload.payment_status == "Paid" else (round(payload.price * 0.5) if payload.payment_status == "Partial" else 0.0)
+    inv_no = f"FMC-{datetime.date.today().strftime('%Y%m')}-{uuid.uuid4().hex[:12].upper()}"
     bal_amt = payload.price - paid_amt
 
     new_invoice = Invoice(
-        id=f"inv_{uuid.uuid4().hex[:8]}",
+        id=f"inv_{uuid.uuid4().hex[:16]}",
         invoice_no=inv_no,
         date=payload.date,
         customer_id=customer.id,
@@ -231,8 +252,18 @@ def create_shipment(
         status="Paid" if bal_amt == 0 else ("Partial" if paid_amt > 0 else "Due")
     )
     db.add(new_invoice)
+    db.flush()
+    if paid_amt:
+        from app.models import PaymentCollection
+        db.add(PaymentCollection(invoice_id=new_invoice.id, shipment_id=ship_id,
+            date=payload.date, amount=paid_amt, payment_method=payload.payment_method,
+            paid_to=payload.paid_to, collected_by=payload.collected_by))
 
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail=f"AWB tracking number '{awb_clean}' already exists!") from exc
     db.refresh(new_shipment)
 
     cache_engine.invalidate_prefix("dashboard_summary")
@@ -253,9 +284,9 @@ def create_shipment(
         ctx.get("is_super_admin")
         or "*" in ctx.get("permissions", {})
         or ctx.get("permissions", {}).get("viewCostMargins")
-        or "reports.view_financial" in ctx.get("permissions", {})
-        or "viewCostMargins" in ctx.get("permissions", {})
+        or ctx.get("permissions", {}).get("reports.view_financial")
     )
+    s_out = ShipmentOut.model_validate(new_shipment)
     if not can_view_margins:
         s_out.provider_cost = None
         s_out.actual_provider_cost = None
@@ -275,6 +306,7 @@ def update_shipment_status(
         raise HTTPException(status_code=404, detail="Shipment not found")
 
     before_status = ship.status
+    validate_shipment_status(payload.get("status", ship.status), payload.get("delay_reason", ship.delay_reason))
     if "status" in payload:
         ship.status = payload["status"]
         if payload["status"] == "Delivered" and not ship.delivery_date:
@@ -315,8 +347,10 @@ def delete_shipment(
         raise HTTPException(status_code=404, detail="Shipment not found")
     
     awb = shipment.awb
+    from app.models import PaymentCollection
+    db.query(PaymentCollection).filter(PaymentCollection.shipment_id == shipment.id).delete(synchronize_session=False)
     db.query(Invoice).filter(or_(Invoice.shipment_id == shipment.id, Invoice.awb == awb)).delete(synchronize_session=False)
-    db.query(Refund).filter(or_(Refund.shipment_id == shipment.id, Refund.awb == awb)).delete(synchronize_session=False)
+    db.query(Refund).filter(Refund.awb == awb).delete(synchronize_session=False)
     db.query(WalletTransaction).filter(WalletTransaction.awb == awb).delete(synchronize_session=False)
 
     db.delete(shipment)

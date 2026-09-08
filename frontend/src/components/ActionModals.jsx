@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, Wallet, Check, RotateCcw, MessageSquare, Send, Save, CreditCard, Building, Truck, Loader2 } from 'lucide-react';
+import { X, Check, RotateCcw, MessageSquare, Send, Save, CreditCard, Building, Truck, Loader2 } from 'lucide-react';
 import { apiClient } from '../api/client';
 
 export const WalletRechargeModal = ({ isOpen, onClose, walletName, onRecharged, settings }) => {

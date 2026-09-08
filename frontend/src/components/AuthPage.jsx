@@ -23,8 +23,8 @@ export const AuthPage = ({ onLoginSuccess }) => {
 
         const fullName = loginFullName.trim();
         const identifier = loginEmail.trim();
-        if (!fullName || !identifier || !loginPassword) {
-            setErrorMessage('Please fill in all mandatory fields: Full Name, Email, and Password.');
+        if (!identifier || !loginPassword) {
+            setErrorMessage('Please enter your email and password.');
             return;
         }
 
@@ -32,7 +32,7 @@ export const AuthPage = ({ onLoginSuccess }) => {
         try {
             await login(identifier, loginPassword, fullName);
             if (onLoginSuccess) {
-                onLoginSuccess();
+                await onLoginSuccess();
             }
             navigate('/', true);
         } catch (err) {
@@ -113,7 +113,7 @@ export const AuthPage = ({ onLoginSuccess }) => {
                     )}
 
                     <form onSubmit={handleLoginSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '11px' }}>
-                        {/* 1. Full Name (Mandatory) */}
+                        {/* Full name is optional; existing accounts authenticate by email and password. */}
                         <div>
                             <label style={{ 
                                 display: 'flex', 
@@ -124,8 +124,7 @@ export const AuthPage = ({ onLoginSuccess }) => {
                                 color: '#334155', 
                                 marginBottom: '4px' 
                             }}>
-                                <span>Full Name</span>
-                                <span style={{ color: '#ef4444', fontWeight: 800 }}>*</span>
+                                <span>Full Name (required on first login)</span>
                             </label>
                             <div style={{ position: 'relative' }}>
                                 <div style={{ 
@@ -144,9 +143,7 @@ export const AuthPage = ({ onLoginSuccess }) => {
                                     type="text"
                                     value={loginFullName}
                                     onChange={(e) => setLoginFullName(e.target.value)}
-                                    placeholder="Enter your full name"
-                                    required
-                                    autoFocus
+                                    placeholder="New users: enter your full name"
                                     style={{
                                         width: '100%',
                                         padding: '10px 12px 10px 38px',
@@ -195,6 +192,7 @@ export const AuthPage = ({ onLoginSuccess }) => {
                                     onChange={(e) => setLoginEmail(e.target.value)}
                                     placeholder="Enter your email"
                                     required
+                                    autoFocus
                                     style={{
                                         width: '100%',
                                         padding: '10px 12px 10px 38px',

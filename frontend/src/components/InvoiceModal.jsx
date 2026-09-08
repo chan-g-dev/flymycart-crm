@@ -3,6 +3,7 @@ import { X, Printer, Mail, CreditCard, CheckCircle2, Loader2 } from 'lucide-reac
 import { apiClient } from '../api/client';
 import { WhatsAppIcon, CourierLogo } from './CourierLogos';
 import { FlyMyCartLogo } from './FlyMyCartLogo';
+import { BLUE_DART_TRACKING_URL, getTrackingUrl, TrackingLink } from './TrackingLink';
 
 const InvoiceModal = ({ isOpen, onClose, invoice, onPaymentRecorded }) => {
     const [isRecordingPayment, setIsRecordingPayment] = useState(false);
@@ -23,7 +24,7 @@ const InvoiceModal = ({ isOpen, onClose, invoice, onPaymentRecorded }) => {
 
     const handleWhatsAppShare = () => {
         const msg = encodeURIComponent(
-            `Dear ${invoice.customer_name},\n\nThank you for choosing Fly My Cart Logistics!\n\n📄 Invoice: ${invoice.invoice_no}\n📦 AWB: ${invoice.awb}\n💰 Total Amount: ₹${invoice.total}\n💳 Amount Paid: ₹${invoice.paid}\n⚠️ Balance: ₹${invoice.balance}\n\nTrack your shipment live: https://track.flymycart.com/${invoice.awb}\n\nFly My Cart Bangalore Hub`
+            `Dear ${invoice.customer_name},\n\nThank you for choosing Fly My Cart Logistics!\n\n📄 Invoice: ${invoice.invoice_no}\n📦 AWB: ${invoice.awb}\n💰 Total Amount: ₹${invoice.total}\n💳 Amount Paid: ₹${invoice.paid}\n⚠️ Balance: ₹${invoice.balance}\n\n${getTrackingUrl(invoice.courier) ? `Track your Blue Dart shipment: ${BLUE_DART_TRACKING_URL}` : `Contact Fly My Cart for tracking assistance.`}\n\nFly My Cart Bangalore Hub`
         );
         window.open(`https://wa.me/?text=${msg}`, '_blank');
     };
@@ -110,7 +111,7 @@ const InvoiceModal = ({ isOpen, onClose, invoice, onPaymentRecorded }) => {
                         </div>
                         <div style={{ background: 'var(--bg-app)', padding: '12px 14px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--card-border)' }}>
                             <div style={{ fontSize: '10.5px', fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Logistics Consignment:</div>
-                            <div style={{ fontSize: '13px', fontWeight: 700, marginTop: '3px' }}>AWB: <span style={{ color: 'var(--primary-blue)', fontFamily: 'monospace' }}>{invoice.awb || '-'}</span></div>
+                            <div style={{ fontSize: '13px', fontWeight: 700, marginTop: '3px' }}>AWB: <TrackingLink awb={invoice.awb} courier={invoice.courier} style={{ fontFamily: 'monospace' }} /></div>
                             <div style={{ fontSize: '11.5px', color: 'var(--text-muted)' }}>Carrier: {invoice.courier} ({invoice.service || 'Express'})</div>
                         </div>
                     </div>
@@ -128,7 +129,7 @@ const InvoiceModal = ({ isOpen, onClose, invoice, onPaymentRecorded }) => {
                         <tbody>
                             <tr>
                                 <td><strong>{invoice.description || 'International Courier & Freight Forwarding'}</strong></td>
-                                <td style={{ fontFamily: 'monospace' }}>{invoice.awb}</td>
+                                <td style={{ fontFamily: 'monospace' }}><TrackingLink awb={invoice.awb} courier={invoice.courier} /></td>
                                 <td><CourierLogo courier={invoice.courier} height={18} /></td>
                                 <td style={{ textAlign: 'right', fontWeight: 800 }}>{formatCurrency(invoice.amount)}</td>
                             </tr>

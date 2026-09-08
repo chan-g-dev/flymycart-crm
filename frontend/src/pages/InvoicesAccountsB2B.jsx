@@ -2,21 +2,18 @@ import React, { useState } from 'react';
 import { 
     Scale, 
     Plus, 
-    Printer, 
-    Send, 
+    Printer,
     CreditCard, 
     FileText, 
     Download, 
     Building2, 
     RotateCcw,
-    CheckCircle2,
-    DollarSign,
-    Shield,
     Upload
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { CourierLogo } from '../components/CourierLogos';
 import { ContentShimmer } from '../components/ContentShimmer';
+import { TrackingLink } from '../components/TrackingLink';
 
 export const Invoices = ({ invoices, onPreviewInvoice }) => {
     const [searchVal, setSearchVal] = useState('');
@@ -93,20 +90,31 @@ export const Invoices = ({ invoices, onPreviewInvoice }) => {
                 </select>
             </div>
 
-            <div className="table-card">
-                <div className="table-wrap">
-                    <table className="data-table">
+            <div className="table-card invoice-table-card">
+                <div className="table-wrap invoice-table-wrap">
+                    <table className="data-table invoice-table">
+                        <colgroup>
+                            <col style={{ width: '14%' }} />
+                            <col style={{ width: '9%' }} />
+                            <col style={{ width: '17%' }} />
+                            <col style={{ width: '16%' }} />
+                            <col style={{ width: '11%' }} />
+                            <col style={{ width: '9%' }} />
+                            <col style={{ width: '9%' }} />
+                            <col style={{ width: '7%' }} />
+                            <col style={{ width: '8%' }} />
+                        </colgroup>
                         <thead>
                             <tr>
-                                <th style={{ minWidth: '150px' }}>Invoice #</th>
-                                <th style={{ minWidth: '100px' }}>Date</th>
-                                <th style={{ minWidth: '180px' }}>Customer Name</th>
-                                <th style={{ minWidth: '130px' }}>AWB</th>
-                                <th style={{ minWidth: '120px' }}>Total Amount</th>
-                                <th style={{ minWidth: '110px' }}>Paid</th>
-                                <th style={{ minWidth: '110px' }}>Balance</th>
-                                <th style={{ minWidth: '100px' }}>Status</th>
-                                <th style={{ minWidth: '140px', textAlign: 'right' }}>Actions</th>
+                                <th>Invoice #</th>
+                                <th>Date</th>
+                                <th>Customer Name</th>
+                                <th>AWB &amp; Courier</th>
+                                <th>Total Amount</th>
+                                <th>Paid</th>
+                                <th>Balance</th>
+                                <th>Status</th>
+                                <th className="invoice-actions-column">Actions</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -119,8 +127,8 @@ export const Invoices = ({ invoices, onPreviewInvoice }) => {
                                         <td style={{ color: 'var(--text-muted)', fontSize: '12px' }}>{formatDate(inv.date)}</td>
                                         <td><strong>{inv.customer_name}</strong></td>
                                         <td>
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                                <span className="status-pill in-transit" style={{ fontFamily: 'monospace' }}>{inv.awb || '-'}</span>
+                                            <div className="invoice-awb-cell">
+                                                <TrackingLink awb={inv.awb} courier={inv.courier} className="status-pill in-transit" style={{ fontFamily: 'monospace' }} />
                                                 {inv.courier && <CourierLogo courier={inv.courier} height={15} />}
                                             </div>
                                         </td>
@@ -134,7 +142,7 @@ export const Invoices = ({ invoices, onPreviewInvoice }) => {
                                                 {inv.status}
                                             </span>
                                         </td>
-                                        <td style={{ textAlign: 'right' }}>
+                                        <td className="invoice-actions-column">
                                             <button className="btn btn-sm btn-primary-blue" onClick={() => onPreviewInvoice(inv)}>
                                                 <Printer size={13} /> View Invoice
                                             </button>
@@ -154,11 +162,27 @@ export const Accounts = ({
     accountsData, 
     reconciliations, 
     onOpenWalletModal, 
-    onOpenReconciliationModal 
+    onOpenReconciliationModal,
+    activeSection,
 }) => {
     const { hasPermission } = useAuth();
     const formatCurrency = (n) => '₹' + Number(n || 0).toLocaleString('en-IN');
     const formatDate = (d) => d ? new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '-';
+
+    React.useEffect(() => {
+        if (!activeSection) return;
+        const targetMap = {
+            customer_money: 'account-collections',
+            aramex_account: 'account-aramex',
+            bluedart_account: 'account-bluedart',
+            reconciliation: 'account-reconciliation',
+        };
+        const targetId = targetMap[activeSection];
+        if (!targetId) return;
+        window.requestAnimationFrame(() => {
+            document.getElementById(targetId)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        });
+    }, [activeSection, accountsData]);
 
     if (!accountsData) {
         return <ContentShimmer message="Synchronizing Bank Ledgers, Provider Wallets & Discrepancy Logs..." />;
@@ -184,7 +208,7 @@ export const Accounts = ({
             </div>
 
             {/* 1. Customer Sales & Collection Highlights */}
-            <div className="dash-stat-cards-grid" style={{ gridTemplateColumns: 'repeat(4, 1fr)', marginBottom: '16px' }}>
+            <div id="account-collections" className="dash-stat-cards-grid account-nav-target" style={{ gridTemplateColumns: 'repeat(4, 1fr)', marginBottom: '16px' }}>
                 <div className="dash-mini-card">
                     <span className="card-label">Total Customer Sales</span>
                     <div className="card-value" style={{ color: 'var(--primary-blue)' }}>{formatCurrency(accountsData.total_sales)}</div>
@@ -235,7 +259,7 @@ export const Accounts = ({
             {/* 2 & 3. Prepaid vs Postpaid Providers */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))', gap: '18px', marginBottom: '22px' }}>
                 {/* Prepaid Wallets */}
-                <div className="dash-box">
+                <div className="dash-box provider-accounts-panel">
                     <div className="dash-box-header">
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                             <CreditCard size={17} color="var(--primary-blue)" />
@@ -245,8 +269,9 @@ export const Accounts = ({
                     <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '14px' }}>
                         Recharge is a bank transfer to wallet. Cost occurs only when the wallet is debited on a shipment.
                     </p>
+                    <div className="provider-accounts-scroll">
                     {accountsData.prepaid_wallets?.map(w => (
-                        <div key={w.name} className="dash-mini-card" style={{ marginBottom: '12px' }}>
+                        <div key={w.name} className="dash-mini-card provider-account-card">
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                                 <div>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
@@ -264,10 +289,11 @@ export const Accounts = ({
                             </div>
                         </div>
                     ))}
+                    </div>
                 </div>
 
                 {/* Postpaid Accounts */}
-                <div className="dash-box">
+                <div className="dash-box provider-accounts-panel">
                     <div className="dash-box-header">
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                             <FileText size={17} color="var(--primary-blue)" />
@@ -277,8 +303,9 @@ export const Accounts = ({
                     <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '14px' }}>
                         Shipments accumulate unbilled predicted charges. Month-end bill upload matches AWB-by-AWB.
                     </p>
+                    <div className="provider-accounts-scroll">
                     {accountsData.postpaid_accounts?.map(p => (
-                        <div key={p.name} className="dash-mini-card" style={{ marginBottom: '12px' }}>
+                        <div id={`account-${p.name.toLowerCase().replace(/[^a-z]/g, '')}`} key={p.name} className="dash-mini-card account-nav-target provider-account-card">
                             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
                                 <CourierLogo courier={p.name} height={16} />
                                 <div className="card-label" style={{ margin: 0 }}>{p.name} Postpaid Account</div>
@@ -290,11 +317,12 @@ export const Accounts = ({
                             </div>
                         </div>
                     ))}
+                    </div>
                 </div>
             </div>
 
             {/* 4. Reconciliation History */}
-            <div className="table-card">
+            <div id="account-reconciliation" className="table-card account-nav-target">
                 <div className="dash-box-header">
                     <h3>Reconciliation Audit Log (Rule 4 & 6)</h3>
                     {hasPermission('runReconciliation') && (

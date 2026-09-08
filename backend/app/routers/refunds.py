@@ -5,7 +5,7 @@
 import uuid
 import datetime
 from typing import List, Dict, Any
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, Query, Response
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
 
@@ -17,6 +17,7 @@ from app.dependencies import (
     require_permission
 )
 from app.auth import create_audit_log
+from app.cache import cache_engine
 
 refunds_router = APIRouter(prefix="/refunds", tags=["Refunds"])
 
@@ -24,11 +25,16 @@ refunds_router = APIRouter(prefix="/refunds", tags=["Refunds"])
 @refunds_router.get("", response_model=List[RefundOut])
 @refunds_router.get("/", response_model=List[RefundOut])
 def get_refunds(
+    response: Response,
+    limit: int = Query(100, ge=1, le=500),
+    offset: int = Query(0, ge=0),
     ctx: Dict[str, Any] = Depends(require_permission("refunds.view")),
     db: Session = Depends(get_db)
 ):
     """Lists all refund requests."""
-    return db.query(Refund).order_by(desc(Refund.created_at)).all()
+    query = db.query(Refund).order_by(desc(Refund.created_at), Refund.id)
+    response.headers["X-Total-Count"] = str(query.count())
+    return query.limit(limit).offset(offset).all()
 
 
 @refunds_router.post("", response_model=RefundOut)
@@ -40,7 +46,7 @@ def create_refund(
     db: Session = Depends(get_db)
 ):
     """Initiates a new refund request."""
-    ref_id = f"ref_{uuid.uuid4().hex[:8]}"
+    ref_id = f"ref_{uuid.uuid4().hex[:16]}"
     ref = Refund(
         id=ref_id,
         customer=payload.customer.strip(),
@@ -93,6 +99,18 @@ def update_refund_status(
     new_status = payload.get("status")
     if not new_status:
         raise HTTPException(status_code=400, detail="Status is required.")
+    if not ctx.get("is_super_admin"):
+        raise HTTPException(status_code=403, detail="Only Super Admin may review, approve or disburse refunds.")
+    transitions = {
+        "Requested": {"Under Review", "Approved", "Rejected"},
+        "Under Review": {"Approved", "Rejected"},
+        "Approved": {"Refunded"},
+        "Rejected": set(), "Refunded": set(),
+    }
+    if new_status not in transitions.get(ref.status, set()):
+        raise HTTPException(status_code=400, detail=f"Cannot change refund from {ref.status} to {new_status}")
+    if new_status == "Refunded" and not (payload.get("refund_method") or ref.refund_method or "").strip():
+        raise HTTPException(status_code=400, detail="Refund payment method is required")
 
     # Guard: Separation of Duties
     if new_status in ["Approved", "Refunded"] and ref.requested_by == ctx["display_name"] and not ctx.get("is_super_admin", False):
@@ -112,6 +130,8 @@ def update_refund_status(
             ref.refund_method = payload.get("refund_method")
 
     db.commit()
+
+    cache_engine.invalidate_prefix("dashboard_summary")
 
     create_audit_log(
         db=db,

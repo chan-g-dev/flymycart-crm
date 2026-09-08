@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, Scale, CheckCheck, Upload, FileSpreadsheet, AlertTriangle, CheckCircle2 } from 'lucide-react';
+import { X, Scale, CheckCheck, Upload } from 'lucide-react';
 import { apiClient } from '../api/client';
 
 const ReconciliationModal = ({ isOpen, onClose, onReconciled, settings }) => {

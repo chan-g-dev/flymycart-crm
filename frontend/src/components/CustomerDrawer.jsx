@@ -4,19 +4,17 @@ import {
     Phone, 
     Mail, 
     MapPin, 
-    Building, 
     Shield, 
     Package, 
     FileText, 
     MessageSquare, 
     RotateCcw, 
-    Calendar, 
     Printer,
-    CheckCircle2,
     Clock
 } from 'lucide-react';
 import { WhatsAppIcon, CourierLogo } from './CourierLogos';
 import { LoadingSpinner, CardSkeleton, TableSkeleton } from './LoadingSpinner';
+import { TrackingLink } from './TrackingLink';
 
 const CustomerDrawer = ({ 
     isOpen, 
@@ -229,7 +227,7 @@ const CustomerDrawer = ({
                                 shipments.map(s => (
                                     <div key={s.id} style={{ background: 'var(--bg-app)', border: '1px solid var(--card-border)', borderRadius: 'var(--radius-sm)', padding: '10px 12px', marginBottom: '8px' }}>
                                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                            <strong style={{ color: 'var(--primary-blue)', fontFamily: 'monospace', fontSize: '13px' }}>{s.awb}</strong>
+                                            <strong><TrackingLink awb={s.awb} courier={s.courier} style={{ fontFamily: 'monospace', fontSize: '13px' }} /></strong>
                                             <span className={`status-pill ${s.status === 'Delivered' ? 'delivered' : s.status === 'Delayed' ? 'delayed' : 'in-transit'}`} style={{ fontSize: '10px' }}>
                                                 {s.status}
                                             </span>

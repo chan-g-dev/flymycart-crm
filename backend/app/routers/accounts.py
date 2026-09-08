@@ -7,10 +7,11 @@ import datetime
 from typing import List, Dict, Any
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
-from sqlalchemy import desc, func, or_
+from sqlalchemy import desc, func, or_, case
 
 from app.database import get_db
 from app.models import Shipment, WalletTransaction, SystemSettings, AuditLog
+from app.collections import collection_totals, shipment_payments_query
 from app.schemas import WalletRechargeCreate, WalletTransactionOut
 from app.auth import get_current_user_context, create_audit_log
 from app.dependencies import require_permission
@@ -40,39 +41,24 @@ def get_accounts_summary(
     ctx: Dict[str, Any] = Depends(require_permission(PermissionCode.ACCOUNTS_VIEW)),
     db: Session = Depends(get_db)
 ):
-    shipments = db.query(Shipment).all()
-
-    total_sales = sum(s.price for s in shipments)
-    total_collected = 0.0
-    cash = 0.0
-    upi = 0.0
-    bank = 0.0
-    b2b_credit = 0.0
-    by_account = {}
-
-    for s in shipments:
-        if s.payment_status == "Paid":
-            total_collected += s.price
-            method = (s.payment_method or "").lower()
-            if "cash" in method:
-                cash += s.price
-            elif any(x in method for x in ["upi", "phonepe", "gpay", "google", "qr"]):
-                upi += s.price
-            elif any(x in method for x in ["bank", "transfer", "neft", "rtgs"]):
-                bank += s.price
-            else:
-                upi += s.price
-
-            acc = s.paid_to or "Office QR"
-            by_account[acc] = by_account.get(acc, 0.0) + s.price
-        elif s.payment_status == "Partial":
-            partial = round(s.price * 0.5)
-            total_collected += partial
-            upi += partial
-            acc = s.paid_to or "Office QR"
-            by_account[acc] = by_account.get(acc, 0.0) + partial
-        elif s.payment_status == "B2B Credit":
-            b2b_credit += s.price
+    paid = shipment_payments_query(db).subquery()
+    balance = case((Shipment.price > func.coalesce(paid.c.paid, 0), Shipment.price - func.coalesce(paid.c.paid, 0)), else_=0)
+    total_sales, total_collected, b2b_credit = db.query(
+        func.coalesce(func.sum(Shipment.price), 0), func.coalesce(func.sum(func.coalesce(paid.c.paid, 0)), 0),
+        func.coalesce(func.sum(case((Shipment.customer_type == "B2B", balance), else_=0)), 0)
+    ).outerjoin(paid, paid.c.shipment_id == Shipment.id).one()
+    collections = collection_totals(db)
+    by_account = collections["by_account"]
+    cash = upi = bank = 0.0
+    for method, amount in collections["by_method"].items():
+        method = method.lower()
+        if "cash" in method:
+            cash += amount
+        elif any(term in method for term in ("bank", "transfer", "neft", "rtgs")):
+            bank += amount
+        elif any(term in method for term in ("upi", "phonepe", "gpay", "google", "qr")):
+            upi += amount
+    can_view_financials = bool(ctx.get("is_super_admin") or ctx.get("permissions", {}).get("*") or ctx.get("permissions", {}).get("reports.view_financial"))
 
     # Prepaid Wallets
     wallets_data = []
@@ -82,12 +68,14 @@ def get_accounts_summary(
         {"name": "BRV", "openingBalance": 30000}
     ]
 
+    wallet_totals = {(name, kind): (amount, count) for name, kind, amount, count in db.query(
+        WalletTransaction.wallet, WalletTransaction.type, func.sum(WalletTransaction.amount), func.count(WalletTransaction.id)
+    ).group_by(WalletTransaction.wallet, WalletTransaction.type).all()}
     for w in prepaid_configs:
         w_name = w["name"]
         opening = float(w.get("openingBalance", 0))
-        txs = db.query(WalletTransaction).filter(WalletTransaction.wallet == w_name).all()
-        recharges = sum(tx.amount for tx in txs if tx.type == "recharge")
-        usage = sum(tx.amount for tx in txs if tx.type == "usage")
+        recharges, recharge_count = wallet_totals.get((w_name, "recharge"), (0, 0))
+        usage, usage_count = wallet_totals.get((w_name, "usage"), (0, 0))
         current_balance = opening + recharges - usage
 
         wallets_data.append({
@@ -96,7 +84,7 @@ def get_accounts_summary(
             "total_recharges": recharges,
             "total_usage": usage,
             "current_balance": current_balance,
-            "transactions_count": len(txs)
+            "transactions_count": recharge_count + usage_count
         })
 
     # Postpaid Accounts
@@ -106,19 +94,21 @@ def get_accounts_summary(
         {"name": "Blue Dart", "deposit": 150000, "paymentTerms": "30 Days"}
     ]
 
+    provider_totals = db.query(Shipment.provider_name, Shipment.courier, func.count(Shipment.id),
+        func.sum(Shipment.provider_cost), func.sum(case((Shipment.cost_reconciled.is_(True), Shipment.actual_provider_cost), else_=0))
+    ).group_by(Shipment.provider_name, Shipment.courier).all()
     for p in postpaid_configs:
         p_name = p["name"]
-        prov_shipments = db.query(Shipment).filter(
-            or_(Shipment.courier == p_name, Shipment.provider_name == p_name)
-        ).all()
-        predicted_cost = sum(s.provider_cost for s in prov_shipments)
-        actual_billed = sum(s.actual_provider_cost for s in prov_shipments)
+        matched = [row for row in provider_totals if row[0] == p_name or row[1] == p_name]
+        count = sum(row[2] for row in matched)
+        predicted_cost = sum(row[3] or 0 for row in matched)
+        actual_billed = sum(row[4] or 0 for row in matched)
 
         postpaid_data.append({
             "name": p_name,
             "deposit": p.get("deposit", 0),
             "payment_terms": p.get("paymentTerms", "30 Days"),
-            "shipments_count": len(prov_shipments),
+            "shipments_count": count,
             "predicted_cost": predicted_cost,
             "actual_billed": actual_billed
         })
@@ -132,8 +122,8 @@ def get_accounts_summary(
         "bank_collected": bank,
         "b2b_credit_sales": b2b_credit,
         "collections_by_account": by_account,
-        "prepaid_wallets": wallets_data,
-        "postpaid_accounts": postpaid_data
+        "prepaid_wallets": wallets_data if can_view_financials else [],
+        "postpaid_accounts": postpaid_data if can_view_financials else []
     }
 
 @accounts_router.get("/wallets/{wallet_name}/transactions", response_model=List[WalletTransactionOut])
@@ -142,6 +132,8 @@ def get_wallet_transactions(
     ctx: Dict[str, Any] = Depends(require_permission(PermissionCode.ACCOUNTS_VIEW)),
     db: Session = Depends(get_db)
 ):
+    if not (ctx.get("is_super_admin") or ctx.get("permissions", {}).get("*") or ctx.get("permissions", {}).get("reports.view_financial")):
+        raise HTTPException(status_code=403, detail="Financial clearance is required to view provider wallet transactions")
     return db.query(WalletTransaction).filter(
         func.lower(WalletTransaction.wallet) == wallet_name.lower().strip()
     ).order_by(desc(WalletTransaction.created_at)).all()
