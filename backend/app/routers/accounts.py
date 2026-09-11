@@ -217,18 +217,21 @@ def get_accounts_summary(
     for p in postpaid_configs:
         p_name = p["name"]
         matched = [row for row in provider_totals if row[0] == p_name]
-        count = sum(row[2] for row in matched)
-        predicted_cost = sum(row[3] or 0 for row in matched)
-        actual_billed = sum(row[4] or 0 for row in matched)
-        unbilled = float(db.query(func.coalesce(func.sum(Shipment.provider_cost), 0)).filter(Shipment.provider_name == p_name, Shipment.provider_type == "postpaid", Shipment.cost_reconciled.is_(False)).scalar())
+        count = sum(int(row[2]) for row in matched)
+        predicted_cost = round(float(sum(float(row[3] or 0) for row in matched)), 2)
+        actual_billed = round(float(sum(float(row[4] or 0) for row in matched)), 2)
+        unbilled = float(db.query(func.coalesce(func.sum(Shipment.provider_cost), 0)).filter(Shipment.provider_name == p_name, Shipment.provider_type == "postpaid", Shipment.cost_reconciled.is_(False)).scalar() or 0)
         ledger = dict(db.query(AccountingEntry.kind, func.sum(AccountingEntry.amount)).filter(AccountingEntry.provider == p_name).group_by(AccountingEntry.kind).all())
+
+        deposit_added = float(ledger.get("provider_deposit", 0) or 0)
+        payments_made = float(ledger.get("provider_payment", 0) or 0)
 
         postpaid_data.append({
             "name": p_name,
-            "deposit": float(p.get("deposit", 0)) + ledger.get("provider_deposit", 0),
-            "unbilled_usage": unbilled,
-            "payments_made": ledger.get("provider_payment", 0),
-            "net_payable": max(0, actual_billed - ledger.get("provider_payment", 0)),
+            "deposit": round(float(p.get("deposit", 0)) + deposit_added, 2),
+            "unbilled_usage": round(unbilled, 2),
+            "payments_made": round(payments_made, 2),
+            "net_payable": round(max(0.0, actual_billed - payments_made), 2),
             "payment_terms": p.get("paymentTerms", "30 Days"),
             "shipments_count": count,
             "predicted_cost": predicted_cost,

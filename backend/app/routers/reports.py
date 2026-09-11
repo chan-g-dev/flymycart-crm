@@ -93,9 +93,9 @@ def get_weekly_operations_report(
             "revenue": revenue if can_view_fin else None,
             "revenue_with_gst": rev_with_gst if can_view_fin else None,
             "gst_total": gst_val if can_view_fin else None,
-            "collections": round(float(daily_collections.get(day, 0)), 2),
+            "collections": round(float(daily_collections.get(day, 0) or 0), 2),
             "provider_cost": cost if can_view_fin else None,
-            "gross_profit": (revenue - cost) if can_view_fin else None,
+            "gross_profit": round(revenue - cost, 2) if can_view_fin else None,
         })
 
     return {
@@ -143,32 +143,35 @@ def get_eod_report(
 
     for s in shipments:
         courier_counts[s.courier] = courier_counts.get(s.courier, 0) + 1
-        sales_total += s.price
-        cost = s.actual_provider_cost if s.actual_provider_cost is not None and s.cost_reconciled else (s.provider_cost or 0)
+        s_price = float(s.price or 0)
+        sales_total += s_price
+        cost = float(s.actual_provider_cost) if s.actual_provider_cost is not None and s.cost_reconciled else float(s.provider_cost or 0)
         total_cost += cost
 
         if s.payment_status == "B2B Credit":
-            credit_total += s.price
+            credit_total += s_price
 
+    sales_total = round(sales_total, 2)
+    total_cost = round(total_cost, 2)
     collections = collection_totals(db, target_date)
     collected_total = collections["total"]
     by_method = collections["by_method"]
     by_employee = collections["by_employee"]
     invoices = db.query(Invoice).filter(Invoice.date == target_date).all()
-    pending = sum(inv.balance for inv in invoices)
-    gst_total = round(sum(inv.gst or 0 for inv in invoices), 2) if invoices else round(sales_total * 0.18, 2)
-    billed_total = round(sum(inv.total for inv in invoices), 2) if invoices else round(sales_total * 1.18, 2)
+    pending = round(float(sum(float(inv.balance or 0) for inv in invoices)), 2)
+    gst_total = round(float(sum(float(inv.gst or 0) for inv in invoices)), 2) if invoices else round(sales_total * 0.18, 2)
+    billed_total = round(float(sum(float(inv.total or 0) for inv in invoices)), 2) if invoices else round(sales_total * 1.18, 2)
     credit_ids = {ship.id for ship in shipments if ship.payment_status == "B2B Credit"}
-    credit_total = round(sum(inv.balance for inv in invoices if inv.shipment_id in credit_ids), 2)
+    credit_total = round(float(sum(float(inv.balance or 0) for inv in invoices if inv.shipment_id in credit_ids)), 2)
 
     refunds = db.query(Refund).filter(
         Refund.approval_date == target_date,
         Refund.status.in_(["Approved", "Refunded"])
     ).all()
-    refunds_amt = sum(r.amount for r in refunds)
+    refunds_amt = round(float(sum(float(r.amount or 0) for r in refunds)), 2)
 
-    gross_profit = sales_total - total_cost
-    net_profit = gross_profit - refunds_amt
+    gross_profit = round(sales_total - total_cost, 2)
+    net_profit = round(gross_profit - refunds_amt, 2)
     can_view_fin = bool(ctx.get("is_super_admin") or ctx.get("permissions", {}).get("*") or ctx.get("permissions", {}).get(PermissionCode.REPORTS_VIEW_FINANCIAL))
 
     return {
@@ -201,29 +204,33 @@ def get_monthly_pl_report(
     shipments = db.query(Shipment).filter(Shipment.date.startswith(target_month)).all()
 
     tax_invoices = db.query(Invoice).filter(Invoice.date.startswith(target_month)).all()
-    revenue = sum(s.price for s in shipments)
-    predicted_cost = sum(s.provider_cost for s in shipments)
-    actual_cost = sum(s.actual_provider_cost if s.actual_provider_cost is not None and s.cost_reconciled else (s.provider_cost or 0) for s in shipments)
+    revenue = round(float(sum(float(s.price or 0) for s in shipments)), 2)
+    predicted_cost = round(float(sum(float(s.provider_cost or 0) for s in shipments)), 2)
+    actual_cost = round(float(sum(
+        float(s.actual_provider_cost) if s.actual_provider_cost is not None and s.cost_reconciled else float(s.provider_cost or 0)
+        for s in shipments
+    )), 2)
 
     provider_breakdown = {}
     for s in shipments:
-        key = f"{s.provider_name} ({s.provider_type.capitalize()})"
-        cost = s.actual_provider_cost if s.actual_provider_cost is not None and s.cost_reconciled else (s.provider_cost or 0)
-        provider_breakdown[key] = provider_breakdown.get(key, 0.0) + cost
+        key = f"{s.provider_name} ({s.provider_type.capitalize()})" if s.provider_name and s.provider_type else (s.courier or "Courier")
+        cost = float(s.actual_provider_cost) if s.actual_provider_cost is not None and s.cost_reconciled else float(s.provider_cost or 0)
+        provider_breakdown[key] = round(provider_breakdown.get(key, 0.0) + cost, 2)
 
     refunds = db.query(Refund).filter(
         Refund.approval_date.startswith(target_month),
         Refund.status.in_(["Approved", "Refunded"])
     ).all()
-    refunds_total = sum(r.amount for r in refunds)
+    refunds_total = round(float(sum(float(r.amount or 0) for r in refunds)), 2)
 
-    gross_profit = revenue - actual_cost
-    expenses = float(db.query(func.coalesce(func.sum(AccountingEntry.amount), 0)).filter(AccountingEntry.kind == "expense", AccountingEntry.date.startswith(target_month)).scalar())
-    net_profit = gross_profit - refunds_total - expenses
+    gross_profit = round(revenue - actual_cost, 2)
+    expenses = float(db.query(func.coalesce(func.sum(AccountingEntry.amount), 0)).filter(AccountingEntry.kind == "expense", AccountingEntry.date.startswith(target_month)).scalar() or 0)
+    expenses = round(expenses, 2)
+    net_profit = round(gross_profit - refunds_total - expenses, 2)
     can_view_fin = bool(ctx.get("is_super_admin") or ctx.get("permissions", {}).get("*") or ctx.get("permissions", {}).get(PermissionCode.REPORTS_VIEW_FINANCIAL))
 
-    gst_total = round(sum(inv.gst or 0 for inv in tax_invoices), 2) if tax_invoices else round(revenue * 0.18, 2)
-    invoice_total = round(sum(inv.total for inv in tax_invoices), 2) if tax_invoices else round(revenue * 1.18, 2)
+    gst_total = round(float(sum(float(inv.gst or 0) for inv in tax_invoices)), 2) if tax_invoices else round(revenue * 0.18, 2)
+    invoice_total = round(float(sum(float(inv.total or 0) for inv in tax_invoices)), 2) if tax_invoices else round(revenue * 1.18, 2)
 
     return {
         "month": target_month,
@@ -237,7 +244,7 @@ def get_monthly_pl_report(
         "provider_cost_breakdown": provider_breakdown if can_view_fin else {},
         "total_predicted_cost": predicted_cost if can_view_fin else None,
         "total_actual_cost": actual_cost if can_view_fin else None,
-        "cost_variance": (actual_cost - predicted_cost) if can_view_fin else None,
+        "cost_variance": round(actual_cost - predicted_cost, 2) if can_view_fin else None,
         "gross_profit": gross_profit if can_view_fin else None,
         "refunds_total": refunds_total if can_view_fin else None,
         "operational_expenses": expenses if can_view_fin else None,

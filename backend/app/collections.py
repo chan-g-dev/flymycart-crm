@@ -27,9 +27,11 @@ def collection_totals(db, date=None):
         PaymentCollection.paid_to, Shipment.center).all()
     result = {"total": 0.0, "by_method": {}, "by_employee": {}, "by_account": {}, "by_center": {}}
     for row in rows:
-        result["total"] += row.amount
+        amt = float(row.amount or 0)
+        result["total"] += amt
         for bucket, key in (("by_method", row.payment_method), ("by_employee", row.collected_by), ("by_account", row.paid_to), ("by_center", row.center or "Unassigned")):
-            result[bucket][key] = round(result[bucket].get(key, 0.0) + row.amount, 2)
+            if key:
+                result[bucket][key] = round(result[bucket].get(key, 0.0) + amt, 2)
     result["total"] = round(result["total"], 2)
     return result
 
