@@ -10,9 +10,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         case_sensitive=True,
-        # `.env.local` is ignored by git and may override `.env` for a developer
-        # workstation. Real process environment variables still take precedence.
-        env_file=None if os.getenv("ENVIRONMENT") == "production" else (".env", ".env.local"),
+        env_file=(".env", ".env.local"),
         extra="ignore"
     )
 
