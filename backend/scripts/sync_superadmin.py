@@ -8,10 +8,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from sqlalchemy import text
 from app.database import engine, SessionLocal
 from app.models import Profile, User
-
-def hash_password(password: str) -> str:
-    salt = "fmc_secret_salt_2026_"
-    return hashlib.sha256((salt + password).encode("utf-8")).hexdigest()
+from app.auth import hash_password
 
 def execute_sql_file(file_path):
     with open(file_path, "r", encoding="utf-8") as f:
