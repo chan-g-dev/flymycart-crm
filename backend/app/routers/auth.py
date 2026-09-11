@@ -4,13 +4,13 @@
 
 import datetime
 import hashlib
+import os
 import uuid
 from typing import Dict, Any, Optional, List
 from fastapi import APIRouter, Depends, HTTPException, status, Request, Response
 from sqlalchemy.orm import Session, joinedload
 
 from app.database import get_db
-from app.config import settings
 from app.models import (
     UserProfile, User, Role, UserRole,
     UserCenterAccess, AppSession, UserInvitation,
@@ -25,9 +25,9 @@ from app.dependencies import (
 )
 from app.auth import (
     verify_password, hash_password, validate_password_strength,
-    create_app_session, get_session_by_token, revoke_app_session,
+    create_app_session, revoke_app_session,
     revoke_all_user_sessions, set_session_cookie, clear_session_cookie,
-    create_audit_log, FALLBACK_COOKIE_NAME, SESSION_COOKIE_NAME
+    create_audit_log
 )
 from app.rate_limiter import login_limiter, check_rate_limit
 from app.cache import cache_engine
