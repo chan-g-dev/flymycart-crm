@@ -53,6 +53,7 @@ export const Dashboard = ({
     const todaySales = safeData.today_sales ?? todayShipments.reduce((acc, s) => acc + (s.price || 0), 0);
     const todayCollected = safeData.today_collected ?? todayShipments.reduce((acc, s) => s.payment_status === 'Paid' ? acc + (s.price || 0) : acc, 0);
     const b2bOutstanding = safeData.b2b_outstanding ?? b2bData?.total_outstanding ?? 0;
+    const b2bOverdueCount = safeData.b2b_overdue_count ?? b2bData?.overdue_count ?? (b2bData?.companies || []).filter(c => (c.outstanding_balance || 0) > 0).length;
     const followupsDue = safeData.followups_due ?? followups.filter(f => f.status === 'Pending').length;
     const refundsPending = safeData.refunds_pending ?? 0;
 
@@ -159,7 +160,9 @@ export const Dashboard = ({
                     </div>
                     <div className="card-value" style={{ color: '#d97706' }}>{formatCurrency(b2bOutstanding)}</div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '4px' }}>
-                        <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>3 Accounts Overdue</span>
+                        <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                            {b2bOverdueCount > 0 ? `${b2bOverdueCount} Account${b2bOverdueCount === 1 ? '' : 's'} Overdue` : 'All accounts settled'}
+                        </span>
                         <a href="javascript:void(0)" onClick={() => onNavigate('b2b')} className="card-link">
                             <span>Manage</span> &rarr;
                         </a>

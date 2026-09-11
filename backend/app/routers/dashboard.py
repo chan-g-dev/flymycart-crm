@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import desc, func, case
 
 from app.database import get_db
-from app.models import Shipment, Followup, Refund, Invoice
+from app.models import Shipment, Followup, Refund, Invoice, B2BCompany
 from app.collections import collection_totals, shipment_payments_query
 from app.auth import mask_shipment_financials
 from app.dependencies import require_permission
@@ -68,9 +68,10 @@ def get_dashboard_summary(
     active_courier_counts = dict(db.query(Shipment.courier, func.count(Shipment.id)).filter(Shipment.courier.isnot(None), active | (Shipment.status == "Delayed")).group_by(Shipment.courier).all())
     courier_breakdown = " | ".join(f"{courier} {count}" for courier, count in courier_counts.items()) or "No bookings today yet"
 
-    # Pending follow-ups & refund requests
+    # Pending follow-ups, refund requests & overdue B2B accounts
     followups_due = db.query(Followup).filter(Followup.status == "Pending", Followup.due_date <= today_str).count()
     refunds_pending = db.query(Refund).filter(Refund.status.in_(["Requested", "Under Review"])).count()
+    b2b_overdue_count = db.query(B2BCompany).filter(B2BCompany.outstanding_balance > 0).count()
 
     # Recent shipments with RBAC financial masking
     recent_shipments_raw = db.query(Shipment).order_by(desc(Shipment.created_at)).limit(10).all()
@@ -133,6 +134,7 @@ def get_dashboard_summary(
         "pending_collection": totals["pending_collection"],
         "center_summaries": centers,
         "b2b_outstanding": b2b_outstanding,
+        "b2b_overdue_count": b2b_overdue_count,
         "followups_due": followups_due,
         "refunds_pending": refunds_pending,
         "recent_shipments": recent_shipments
