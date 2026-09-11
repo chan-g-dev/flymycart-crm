@@ -134,11 +134,16 @@ export const AuthProvider = ({ children }) => {
 
     const parseApiError = (err, fallback = 'Operation failed.') => {
         if (!err) return fallback;
+        const isLocal = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
         if (err.code === 'ECONNABORTED' || err.message?.includes('timeout')) {
-            return 'Server response timed out. Please check that the backend is running.';
+            return isLocal
+                ? 'Server response timed out. Please check that the backend is running on port 8000.'
+                : 'Server response timed out. The server is waking up from sleep; please retry in a few seconds.';
         }
         if (err.code === 'ERR_NETWORK' || !err.response) {
-            return 'Cannot reach backend server. Please make sure backend is running on port 8000.';
+            return isLocal
+                ? 'Cannot reach backend server. Please make sure backend is running on port 8000.'
+                : 'Cannot reach backend server. The cloud server is currently deploying or waking up; please retry in 10-20 seconds.';
         }
         const detail = err.response?.data?.detail || err.message;
         if (typeof detail === 'string') return detail;
