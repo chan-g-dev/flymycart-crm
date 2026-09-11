@@ -80,7 +80,7 @@ async def login(
         try:
             from app.seed import seed_super_admin
             seed_super_admin(db)
-        except Exception as e:
+        except Exception:
             pass
 
     # 1. Flexible lookup with eager loading (loads user, roles, permissions, centers in 1 SQL query)
@@ -136,6 +136,7 @@ async def login(
             raise HTTPException(status_code=400, detail="Enter a valid email address.")
 
         new_uid = str(uuid.uuid4())
+        hashed_pass = hash_password(plain_password)
         profile = UserProfile(
             id=new_uid,
             email=email,
@@ -143,14 +144,31 @@ async def login(
             role="operations_staff",
             requested_role="operations_staff",
             status="active",
-            password_hash=hash_password(plain_password),
+            password_hash=hashed_pass,
             approved_by="First login registration",
             approved_at=datetime.datetime.utcnow(),
         )
-        try:
-            db.add(profile)
-            db.flush()
+        db.add(profile)
 
+        # Also sync to legacy users table so it reflects in Supabase 'users' table editor
+        legacy_u = db.query(User).filter((User.email == email) | (User.username == email)).first()
+        if not legacy_u:
+            legacy_u = User(
+                id=new_uid,
+                username=email,
+                name=full_name,
+                email=email,
+                role="operations_staff",
+                center="Main Hub (Bangalore)",
+                status="Active",
+                is_active=True,
+                password_hash=hashed_pass,
+                approved_by="First login registration",
+                approval_date=datetime.datetime.utcnow(),
+            )
+            db.add(legacy_u)
+
+        try:
             from app.routers.users import resolve_role
             role = resolve_role(db, "operations_staff")
             if role:
@@ -160,18 +178,26 @@ async def login(
                 center_id="Main Hub (Bangalore)",
                 scope="operate",
             ))
+        except Exception:
+            pass
+
+        try:
             db.commit()
         except Exception:
             db.rollback()
-            profile = db.query(UserProfile).filter(UserProfile.email.ilike(email)).first()
 
-        if profile:
-            profile = db.query(UserProfile).options(
-                joinedload(UserProfile.roles).joinedload(Role.permissions),
-                joinedload(UserProfile.centers),
-            ).filter(UserProfile.id == profile.id).first()
+        profile = db.query(UserProfile).options(
+            joinedload(UserProfile.roles).joinedload(Role.permissions),
+            joinedload(UserProfile.centers),
+        ).filter(UserProfile.email.ilike(email)).first()
 
     # 4. Validate status
+    if not profile:
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to initialize user profile. Please retry."
+        )
+
     if profile.status in ["suspended", "archived", "rejected"]:
         create_audit_log(
             db=db, actor_user_id=profile.id, actor_name=profile.display_name,
