@@ -169,6 +169,8 @@ async def login(
     if profile.password_hash:
         if verify_password(plain_password, profile.password_hash):
             password_valid = True
+            if not profile.password_hash.startswith("pbkdf2_sha256$"):
+                profile.password_hash = hash_password(plain_password)
     if not password_valid:
         create_audit_log(
             db=db, actor_user_id=profile.id, actor_name=profile.display_name,
@@ -595,21 +597,9 @@ def step_up_mfa(
     db: Session = Depends(get_db)
 ):
     """
-    Step-up MFA re-authentication for sensitive actions.
+    Compatibility endpoint for older clients; password sessions need no MFA.
     """
-    code = str(payload.get("code", "")).strip()
-    from app.auth import verify_totp_code
-    profile = ctx["raw_profile"]
-    if not profile.mfa_enabled or not profile.mfa_secret:
-        raise HTTPException(status_code=400, detail="An authenticator must be enrolled before MFA verification.")
-    if not verify_totp_code(profile.mfa_secret, code):
-        raise HTTPException(status_code=400, detail="Invalid authenticator code.")
-    session = db.get(AppSession, ctx["session_id"])
-    if not session:
-        raise HTTPException(status_code=401, detail="An active session is required.")
-    session.mfa_verified_at = datetime.datetime.utcnow()
-    db.commit()
-    return {"status": "success", "message": "Step-up MFA verified successfully."}
+    return {"status": "success", "message": "Your password session is authenticated. MFA is disabled."}
 
 
 @auth_router.post("/accept-invite")

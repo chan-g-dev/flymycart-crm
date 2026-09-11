@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useRef } from 'react';
 import { 
     Package, 
     CircleDollarSign, 
@@ -7,12 +7,12 @@ import {
     PhoneCall, 
     RotateCcw, 
     Plus, 
-    UserPlus, 
     FileText, 
     ClipboardList, 
     RefreshCw, 
     Phone,
-    ShieldCheck
+    ShieldCheck,
+    X
 } from 'lucide-react';
 import { CourierLogo } from '../components/CourierLogos';
 import { useAuth } from '../context/AuthContext';
@@ -27,12 +27,16 @@ export const Dashboard = ({
     followups = [], 
     onNavigate, 
     onOpenShipmentModal, 
-    onOpenCustomerModal, 
     onOpenReconciliationModal,
     onOpenCustomerDrawer,
     isLoading = false
 }) => {
     const { currentUser } = useAuth();
+    const quickActionsDialog = useRef(null);
+    const runQuickAction = (action) => {
+        quickActionsDialog.current?.close();
+        action?.();
+    };
     const formatCurrency = (n) => '₹' + Number(n || 0).toLocaleString('en-IN');
     const formatDate = (d) => d ? new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '-';
 
@@ -52,25 +56,17 @@ export const Dashboard = ({
     const followupsDue = safeData.followups_due ?? followups.filter(f => f.status === 'Pending').length;
     const refundsPending = safeData.refunds_pending ?? 0;
 
-    // Courier distribution (prefer today's if exists, else active fleet)
+    // Operational Volume counts only shipments still in the active fleet.
     const courierMap = {};
-    const sourceShipmentsForCouriers = todayShipments.length > 0 ? todayShipments : effectiveShipments;
-    sourceShipmentsForCouriers.forEach(s => {
-        if (s.courier) {
-            courierMap[s.courier] = (courierMap[s.courier] || 0) + 1;
-        }
+    effectiveShipments.filter(s => ['Booked', 'Picked Up', 'In Transit', 'Delayed'].includes(s.status)).forEach(s => {
+        if (s.courier) courierMap[s.courier] = (courierMap[s.courier] || 0) + 1;
     });
-
-    const activeCourierMap = safeData.courier_counts && Object.keys(safeData.courier_counts).length > 0
-        ? safeData.courier_counts
-        : (safeData.active_courier_counts || courierMap);
-
-    const fedexCount = activeCourierMap['FedEx'] || courierMap['FedEx'] || 0;
-    const aramexCount = activeCourierMap['Aramex'] || courierMap['Aramex'] || 0;
-    const delhiveryCount = activeCourierMap['Delhivery'] || courierMap['Delhivery'] || 0;
-    const bluedartCount = activeCourierMap['Blue Dart'] || courierMap['Blue Dart'] || 0;
-    const ltlCount = activeCourierMap['LTL'] || courierMap['LTL'] || 0;
-    const dhlCount = activeCourierMap['DHL'] || courierMap['DHL'] || 0;
+    const activeCourierMap = safeData.active_courier_counts ?? courierMap;
+    const fedexCount = activeCourierMap['FedEx'] ?? 0;
+    const aramexCount = activeCourierMap['Aramex'] ?? 0;
+    const delhiveryCount = activeCourierMap['Delhivery'] ?? 0;
+    const bluedartCount = activeCourierMap['Blue Dart'] ?? 0;
+    const dhlCount = (activeCourierMap['DHL'] ?? 0) + (activeCourierMap['DHL Express'] ?? 0);
 
     const totalFleetVolume = safeData.active_volume ?? effectiveShipments.length;
     const inTransitVolume = safeData.in_transit_count ?? effectiveShipments.filter(s => ['In Transit', 'Picked Up', 'Booked'].includes(s.status)).length;
@@ -101,7 +97,7 @@ export const Dashboard = ({
             {isLoading && !data && effectiveShipments.length === 0 ? (
                 <CardSkeleton count={6} />
             ) : (
-                <div className="dash-stat-cards-grid">
+                <div className="dash-stat-cards-grid dashboard-kpi-grid">
                     {/* 1. Today's Bookings */}
                 <div className="dash-mini-card">
                     <div className="dash-mini-card-header">
@@ -206,10 +202,50 @@ export const Dashboard = ({
                 </div>
             )}
 
-            {/* Middle Row (3 Column Grid) */}
+            <div className="dashboard-actions-toolbar">
+                <button type="button" className="quick-act-btn dashboard-quick-actions-trigger"
+                    aria-label="Quick Actions" title="Quick Actions"
+                    aria-haspopup="dialog" aria-controls="dashboard-quick-actions"
+                    onClick={() => quickActionsDialog.current?.showModal()}>
+                    <Plus size={20} />
+                </button>
+            </div>
+            <dialog ref={quickActionsDialog} id="dashboard-quick-actions"
+                className="dashboard-quick-actions-dialog" aria-labelledby="quick-actions-title"
+                onClick={(event) => {
+                    if (event.target === event.currentTarget) {
+                        const bounds = event.currentTarget.getBoundingClientRect();
+                        if (event.clientX < bounds.left || event.clientX > bounds.right ||
+                            event.clientY < bounds.top || event.clientY > bounds.bottom) {
+                            event.currentTarget.close();
+                        }
+                    }
+                }}>
+                <div className="dash-box-header">
+                    <h3 id="quick-actions-title">Quick Actions</h3>
+                    <button type="button" className="quick-act-btn" aria-label="Close quick actions"
+                        onClick={() => quickActionsDialog.current?.close()}><X size={16} /></button>
+                </div>
+                <div className="quick-actions-2x2">
+                    <button type="button" className="quick-act-btn" onClick={() => runQuickAction(onOpenShipmentModal)}>
+                        <Plus size={14} color="#2563eb" /> New Shipment
+                    </button>
+                    <button type="button" className="quick-act-btn" onClick={() => runQuickAction(() => onNavigate('invoices'))}>
+                        <FileText size={14} color="#d97706" /> Invoices
+                    </button>
+                    <button type="button" className="quick-act-btn" onClick={() => runQuickAction(() => onNavigate('reports'))}>
+                        <ClipboardList size={14} color="#7c3aed" /> EOD Report
+                    </button>
+                </div>
+                <button type="button" className="quick-act-full-btn" onClick={() => runQuickAction(onOpenReconciliationModal)}>
+                    <RefreshCw size={14} /> Carrier Cost Reconciliation
+                </button>
+            </dialog>
+
+            {/* Middle Row (2 Column Grid) */}
             <div className="dash-middle-grid">
                 {/* 1. Today's Bookings Breakdown */}
-                <div className="dash-box" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+                <div className="dash-box dashboard-volume-panel">
                     <div>
                         <div className="dash-box-header">
                             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -256,7 +292,9 @@ export const Dashboard = ({
                                 { name: 'Delhivery', count: delhiveryCount },
                                 { name: 'Blue Dart', count: bluedartCount },
                                 { name: 'DHL', count: dhlCount },
-                                { name: 'LTL', count: ltlCount }
+                                ...Object.entries(activeCourierMap)
+                                    .filter(([name]) => !['FedEx', 'Aramex', 'Delhivery', 'Blue Dart', 'DHL', 'DHL Express'].includes(name))
+                                    .map(([name, count]) => ({ name, count }))
                             ].map(item => {
                                 const total = totalFleetVolume || 1;
                                 const pct = Math.min(100, Math.round((item.count / total) * 100));
@@ -302,32 +340,8 @@ export const Dashboard = ({
                     </div>
                 </div>
 
-                {/* 2. Quick Actions */}
-                <div className="dash-box">
-                    <div className="dash-box-header">
-                        <h3>Quick Actions</h3>
-                    </div>
-                    <div className="quick-actions-2x2">
-                        <button className="quick-act-btn" onClick={onOpenShipmentModal}>
-                            <Plus size={14} color="#2563eb" /> New Shipment
-                        </button>
-                        <button className="quick-act-btn" onClick={onOpenCustomerModal}>
-                            <UserPlus size={14} color="#059669" /> New Customer
-                        </button>
-                        <button className="quick-act-btn" onClick={() => onNavigate('invoices')}>
-                            <FileText size={14} color="#d97706" /> Create Invoice
-                        </button>
-                        <button className="quick-act-btn" onClick={() => onNavigate('reports')}>
-                            <ClipboardList size={14} color="#7c3aed" /> EOD Report
-                        </button>
-                    </div>
-                    <button className="quick-act-full-btn" onClick={onOpenReconciliationModal}>
-                        <RefreshCw size={13} /> Carrier Cost Reconciliation
-                    </button>
-                </div>
-
                 {/* 3. Accounts Snapshot */}
-                <div className="dash-box">
+                <div className="dash-box dashboard-accounts-panel">
                     <div className="dash-box-header">
                         <h3>Accounts Snapshot</h3>
                         <a href="javascript:void(0)" onClick={() => onNavigate('accounts')} className="box-link">
@@ -338,6 +352,7 @@ export const Dashboard = ({
                     <div style={{ fontSize: '11px', fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '4px' }}>
                         Prepaid Wallets
                     </div>
+                    <div className="dashboard-accounts-scroll" tabIndex={0} role="region" aria-label="Prepaid wallets">
                     <table className="acc-mini-table">
                         <thead>
                             <tr>
@@ -361,10 +376,12 @@ export const Dashboard = ({
                             ))}
                         </tbody>
                     </table>
+                    </div>
 
                     <div style={{ fontSize: '11px', fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '4px', marginTop: '8px' }}>
                         Postpaid Accounts
                     </div>
+                    <div className="dashboard-accounts-scroll" tabIndex={0} role="region" aria-label="Postpaid accounts">
                     <table className="acc-mini-table">
                         <thead>
                             <tr>
@@ -388,6 +405,7 @@ export const Dashboard = ({
                             ))}
                         </tbody>
                     </table>
+                    </div>
                 </div>
             </div>
 
@@ -435,18 +453,18 @@ export const Dashboard = ({
                     </a>
                 </div>
 
-                <div className="dash-bookings-scroll-wrap">
+                <div className="dash-bookings-scroll-wrap" role="region" aria-label="Recent bookings" tabIndex={0}>
                     <table className="data-table">
                         <thead>
                             <tr>
-                                <th style={{ width: '15%' }}>AWB No.</th>
+                                <th style={{ width: '16%' }}>AWB No.</th>
                                 <th style={{ width: '12%' }}>Date</th>
                                 <th style={{ width: '22%' }}>Customer</th>
-                                <th style={{ width: '12%' }}>Courier</th>
-                                <th style={{ width: '15%' }}>Destination</th>
-                                <th style={{ width: '8%' }}>Weight</th>
+                                <th style={{ width: '11%' }}>Courier</th>
+                                <th style={{ width: '12%' }}>Destination</th>
+                                <th style={{ width: '7%' }}>Weight</th>
                                 <th style={{ width: '8%' }}>Price</th>
-                                <th style={{ width: '8%' }}>Status</th>
+                                <th style={{ width: '12%' }}>Status</th>
                             </tr>
                         </thead>
                         <tbody>

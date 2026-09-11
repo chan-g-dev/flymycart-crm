@@ -1,14 +1,15 @@
+import { apiClient } from '../api/client';
 import React, { useState } from 'react';
-import { 
-    X, 
-    Phone, 
-    Mail, 
-    MapPin, 
-    Shield, 
-    Package, 
-    FileText, 
-    MessageSquare, 
-    RotateCcw, 
+import {
+    X,
+    Phone,
+    Mail,
+    MapPin,
+    Shield,
+    Package,
+    FileText,
+    MessageSquare,
+    RotateCcw,
     Printer,
     Clock
 } from 'lucide-react';
@@ -16,13 +17,13 @@ import { WhatsAppIcon, CourierLogo } from './CourierLogos';
 import { LoadingSpinner, CardSkeleton, TableSkeleton } from './LoadingSpinner';
 import { TrackingLink } from './TrackingLink';
 
-const CustomerDrawer = ({ 
-    isOpen, 
-    onClose, 
-    data, 
+const CustomerDrawer = ({
+    isOpen,
+    onClose,
+    data,
     onOpenCommModal,
     onPreviewInvoice,
-    isLoading = false 
+    isLoading = false
 }) => {
     const [activeTab, setActiveTab] = useState('shipments');
 
@@ -32,7 +33,7 @@ const CustomerDrawer = ({
         return (
             <>
                 <div className="drawer-overlay" onClick={onClose}></div>
-                <div className="customer-drawer" style={{ width: '580px', display: 'flex', flexDirection: 'column' }}>
+                <div className="customer-drawer" style={{ width: 'min(580px, 100vw)', display: 'flex', flexDirection: 'column' }}>
                     <div className="drawer-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                             <LoadingSpinner size={18} color="#ffffff" />
@@ -58,16 +59,16 @@ const CustomerDrawer = ({
 
     if (!data) return null;
 
-    const { 
-        customer, 
-        total_bookings = 0, 
-        total_spent = 0.0, 
-        outstanding_balance = 0.0, 
-        shipments = [], 
-        invoices = [], 
-        followups = [], 
-        communications = [], 
-        refunds = [] 
+    const {
+        customer,
+        total_bookings = 0,
+        total_spent = 0.0,
+        outstanding_balance = 0.0,
+        shipments = [],
+        invoices = [],
+        followups = [],
+        communications = [],
+        refunds = []
     } = data;
 
     const customerDocuments = customer?.documents || [];
@@ -88,7 +89,7 @@ const CustomerDrawer = ({
     return (
         <>
             <div className="drawer-overlay" onClick={onClose}></div>
-            <div className="customer-drawer" style={{ width: '580px', display: 'flex', flexDirection: 'column' }}>
+            <div className="customer-drawer" style={{ width: 'min(580px, 100vw)', display: 'flex', flexDirection: 'column' }}>
                 {/* Header */}
                 <div className="drawer-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <div>
@@ -126,7 +127,7 @@ const CustomerDrawer = ({
 
                     {/* Profile Information Box */}
                     <div style={{ background: 'var(--bg-app)', padding: '12px 14px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--card-border)', marginBottom: '16px', fontSize: '12px' }}>
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                        <div className="customer-profile-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                                 <Phone size={13} color="var(--emerald)" />
                                 <span><strong>Mobile:</strong> {customer.mobile}</span>
@@ -162,9 +163,9 @@ const CustomerDrawer = ({
 
                     {/* Action Bar */}
                     <div style={{ display: 'flex', gap: '8px', marginBottom: '16px' }}>
-                        <button 
-                            className="btn btn-sm" 
-                            onClick={handleWhatsAppDirect} 
+                        <button
+                            className="btn btn-sm"
+                            onClick={handleWhatsAppDirect}
                             style={{ flex: 1, background: '#25D366', color: '#ffffff', border: 'none', fontWeight: 700, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
                         >
                             <WhatsAppIcon size={14} color="#ffffff" /> WhatsApp
@@ -179,28 +180,28 @@ const CustomerDrawer = ({
 
                     {/* Navigation Tabs */}
                     <div style={{ display: 'flex', borderBottom: '2px solid var(--card-border)', marginBottom: '14px', gap: '4px' }}>
-                        <button 
+                        <button
                             className={`btn btn-sm ${activeTab === 'shipments' ? 'btn-primary-blue' : 'btn-outline'}`}
                             onClick={() => setActiveTab('shipments')}
                             style={{ borderRadius: '6px 6px 0 0', borderBottom: 'none' }}
                         >
                             <Package size={13} /> Shipments ({shipments.length})
                         </button>
-                        <button 
+                        <button
                             className={`btn btn-sm ${activeTab === 'invoices' ? 'btn-primary-blue' : 'btn-outline'}`}
                             onClick={() => setActiveTab('invoices')}
                             style={{ borderRadius: '6px 6px 0 0', borderBottom: 'none' }}
                         >
                             <FileText size={13} /> Invoices ({invoices.length})
                         </button>
-                        <button 
+                        <button
                             className={`btn btn-sm ${activeTab === 'timeline' ? 'btn-primary-blue' : 'btn-outline'}`}
                             onClick={() => setActiveTab('timeline')}
                             style={{ borderRadius: '6px 6px 0 0', borderBottom: 'none' }}
                         >
                             <Clock size={13} /> Comms & Alerts ({communications.length + followups.length})
                         </button>
-                        <button 
+                        <button
                             className={`btn btn-sm ${activeTab === 'documents' ? 'btn-primary-blue' : 'btn-outline'}`}
                             onClick={() => setActiveTab('documents')}
                             style={{ borderRadius: '6px 6px 0 0', borderBottom: 'none' }}
@@ -208,7 +209,7 @@ const CustomerDrawer = ({
                             <Shield size={13} /> KYC Documents ({customerDocuments.length})
                         </button>
                         {refunds.length > 0 && (
-                            <button 
+                            <button
                                 className={`btn btn-sm ${activeTab === 'refunds' ? 'btn-primary-blue' : 'btn-outline'}`}
                                 onClick={() => setActiveTab('refunds')}
                                 style={{ borderRadius: '6px 6px 0 0', borderBottom: 'none' }}
@@ -288,11 +289,11 @@ const CustomerDrawer = ({
                                     ...communications.map(c => ({ type: 'comm', date: c.date, title: `${c.channel} (${c.staff})`, content: c.message, status: c.status })),
                                     ...followups.map(f => ({ type: 'followup', date: f.due_date, title: `Follow-up: ${f.category}`, content: f.notes, status: f.status }))
                                 ].map((ev, idx) => (
-                                    <div key={idx} style={{ 
-                                        padding: '9px 12px', 
-                                        borderLeft: `3px solid ${ev.type === 'comm' ? 'var(--primary-blue)' : 'var(--amber)'}`, 
-                                        background: 'var(--bg-app)', 
-                                        marginBottom: '8px', 
+                                    <div key={idx} style={{
+                                        padding: '9px 12px',
+                                        borderLeft: `3px solid ${ev.type === 'comm' ? 'var(--primary-blue)' : 'var(--amber)'}`,
+                                        background: 'var(--bg-app)',
+                                        marginBottom: '8px',
                                         borderRadius: '0 var(--radius-sm) var(--radius-sm) 0',
                                         fontSize: '12px'
                                     }}>
@@ -337,10 +338,10 @@ const CustomerDrawer = ({
                             ) : (
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                                     {customerDocuments.map((doc, idx) => (
-                                        <div key={idx} style={{ 
-                                            background: 'var(--bg-app)', 
-                                            border: '1px solid var(--card-border)', 
-                                            borderRadius: 'var(--radius-sm)', 
+                                        <div key={idx} style={{
+                                            background: 'var(--bg-app)',
+                                            border: '1px solid var(--card-border)',
+                                            borderRadius: 'var(--radius-sm)',
                                             padding: '12px 14px',
                                             display: 'flex',
                                             alignItems: 'center',
@@ -348,14 +349,14 @@ const CustomerDrawer = ({
                                             gap: '12px'
                                         }}>
                                             <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 }}>
-                                                <div style={{ 
-                                                    width: '32px', 
-                                                    height: '32px', 
-                                                    borderRadius: '6px', 
-                                                    background: 'rgba(37,99,235,0.1)', 
-                                                    color: 'var(--primary-blue)', 
-                                                    display: 'flex', 
-                                                    alignItems: 'center', 
+                                                <div style={{
+                                                    width: '32px',
+                                                    height: '32px',
+                                                    borderRadius: '6px',
+                                                    background: 'rgba(37,99,235,0.1)',
+                                                    color: 'var(--primary-blue)',
+                                                    display: 'flex',
+                                                    alignItems: 'center',
                                                     justifyContent: 'center',
                                                     flexShrink: 0
                                                 }}>
@@ -366,7 +367,7 @@ const CustomerDrawer = ({
                                                         {doc.document_type ? doc.document_type.replace('_', ' ') : 'KYC Document'}
                                                     </div>
                                                     <div style={{ fontSize: '11px', color: 'var(--text-muted)', textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>
-                                                        {doc.filename} • {doc.uploaded_at ? new Date(doc.uploaded_at).toLocaleString('en-IN') : 'Uploaded'}
+                                                        {doc.file_name || doc.filename} • {doc.uploaded_at ? new Date(doc.uploaded_at).toLocaleString('en-IN') : 'Uploaded'}
                                                     </div>
                                                 </div>
                                             </div>
@@ -374,16 +375,24 @@ const CustomerDrawer = ({
                                                 <span className="status-pill delivered" style={{ fontSize: '10px' }}>
                                                     {doc.status || 'Verified'}
                                                 </span>
-                                                {doc.file_url && (
-                                                    <a 
-                                                        href={doc.file_url} 
-                                                        target="_blank" 
-                                                        rel="noopener noreferrer" 
+                                                {(doc.url || doc.file_url) && doc.id && (
+                                                    <button
+                                                        onClick={async () => {
+                                                            try {
+                                                                const blob = await apiClient.downloadCustomerDocument(customer.id, doc.id);
+                                                                const url = URL.createObjectURL(blob);
+                                                                const link = document.createElement('a');
+                                                                link.href = url;
+                                                                link.download = doc.file_name || doc.filename || 'document';
+                                                                link.click();
+                                                                setTimeout(() => URL.revokeObjectURL(url), 1000);
+                                                            } catch { alert('Document download failed. Please retry.'); }
+                                                        }}
                                                         className="btn btn-sm btn-outline"
                                                         style={{ fontSize: '11px', padding: '3px 8px' }}
                                                     >
-                                                        View
-                                                    </a>
+                                                        Download
+                                                    </button>
                                                 )}
                                             </div>
                                         </div>

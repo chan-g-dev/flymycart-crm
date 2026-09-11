@@ -302,7 +302,7 @@ def invite_user(
     """
     Invite-Only Enrollment:
     Super Admin invites new staff member. Generates a secure activation token.
-    If assigning Super Admin role, enforces step-up MFA verification.
+    Assigning Super Admin still requires an authenticated Super Admin.
     """
     email = payload.email.strip().lower()
 
@@ -318,12 +318,10 @@ def invite_user(
     super_role = db.query(Role).filter(Role.name == "SUPER_ADMIN").first()
     selected_roles = [resolve_role(db, role_id) for role_id in payload.role_ids]
     if super_role and any(role and role.id == super_role.id for role in selected_roles):
-        # Require recent MFA check
-        mfa_age = ctx.get("mfa_verified_at")
-        if not mfa_age or (datetime.datetime.utcnow() - mfa_age).total_seconds() > 600:
+        if not ctx.get("is_super_admin"):
             raise HTTPException(
                 status_code=403,
-                detail={"error": "step_up_mfa_required", "message": "Inviting a Super Admin requires recent MFA verification."}
+                detail="Only a Super Admin can invite another Super Admin."
             )
 
     # Generate cryptographic invitation token
@@ -362,7 +360,7 @@ def invite_user(
         status="invited",
         role=requested_role,
         requested_role=requested_role,
-        mfa_required=True,
+        mfa_required=False,
         created_at=datetime.datetime.utcnow()
     )
     db.add(new_profile)

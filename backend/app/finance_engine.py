@@ -156,6 +156,7 @@ def match_provider_bill_entries(
     duplicate_awb_items = []
 
     total_predicted = 0.0
+    total_current = 0.0
     total_actual = 0.0
 
     for entry in bill_entries:
@@ -198,16 +199,19 @@ def match_provider_bill_entries(
             matched_awb_set.add(awb_key)
             predicted_cost = round(float(ship.provider_cost or 0.0), 2)
             total_predicted += predicted_cost
-            variance = round(actual_cost - predicted_cost, 2)
+            current_cost = round(float(ship.actual_provider_cost), 2) if getattr(ship, 'cost_reconciled', False) and getattr(ship, 'actual_provider_cost', None) is not None else predicted_cost
+            total_current += current_cost
+            variance = round(actual_cost - current_cost, 2)
 
             item = {
                 "shipment_id": ship.id,
                 "awb": ship.awb,
                 "customer_name": ship.customer_name,
                 "predicted_cost": predicted_cost,
+                "current_cost": current_cost,
                 "actual_cost": actual_cost,
                 "variance": variance,
-                "notes": "Cost matches predicted" if abs(variance) < 0.01 else f"Discrepancy of {'+' if variance > 0 else ''}{variance}"
+                "notes": "Cost matches net cost" if abs(variance) < 0.01 else f"Discrepancy of {'+' if variance > 0 else ''}{variance}"
             }
 
             if abs(variance) < 0.01:
@@ -220,7 +224,7 @@ def match_provider_bill_entries(
     # CRM shipments for this provider that were not in the bill (Unbilled usage)
     missing_in_bill_items = []
     for awb_key, ship in shipment_by_awb.items():
-        if awb_key not in matched_awb_set:
+        if awb_key not in matched_awb_set and not getattr(ship, 'cost_reconciled', False):
             pred = round(float(ship.provider_cost or 0.0), 2)
             missing_in_bill_items.append({
                 "shipment_id": ship.id,
@@ -233,7 +237,7 @@ def match_provider_bill_entries(
                 "notes": "Unbilled shipment in CRM (Not in carrier bill)"
             })
 
-    total_variance = round(total_actual - total_predicted, 2)
+    total_variance = round(total_actual - total_current, 2)
     discrepancy_count = len(wrong_amount_items) + len(missing_in_crm_items) + len(duplicate_awb_items)
 
     return {
@@ -241,6 +245,7 @@ def match_provider_bill_entries(
         "matched_count": len(matched_items),
         "discrepancy_count": discrepancy_count,
         "total_predicted": round(total_predicted, 2),
+        "total_current": round(total_current, 2),
         "total_actual": round(total_actual, 2),
         "variance": total_variance,
         "matched": matched_items,

@@ -21,8 +21,34 @@ from app.finance_engine import calculate_gross_profit, match_provider_bill_entri
 from app.auth import create_audit_log
 from app.dependencies import require_permission
 from app.permissions import PermissionCode
+from app.bill_import import parse_bill_file, MAX_UPLOAD_BYTES
+from starlette.concurrency import run_in_threadpool
 
 reconciliation_router = APIRouter(prefix="/api/reconciliation", tags=["Reconciliation"])
+
+def parse_bill_text(text):
+    """Read exactly AWB + amount; reject ambiguous rows instead of guessing a price."""
+    entries = []
+    for number, line in enumerate(text.splitlines(), 1):
+        line = line.strip().lstrip("\ufeff")
+        if not line:
+            continue
+        delimiter = "\t" if "\t" in line else ";" if ";" in line else "," if "," in line and not re.search(r"\s", line.split(",")[0]) else None
+        parts = next(csv.reader([line], delimiter=delimiter)) if delimiter else line.split(maxsplit=1)
+        if parts[0].strip().lower() in {"awb", "awb no", "awb number"}:
+            continue
+        if len(parts) != 2:
+            raise HTTPException(status_code=400, detail=f"Line {number}: use exactly AWB and Cost columns; quote amounts containing commas in CSV")
+        awb, amount = [v.strip() for v in parts]
+        amount = amount.removeprefix("?").strip()
+        if not awb or not re.fullmatch(r"(?:[0-9]+|[0-9]{1,3}(?:,[0-9]{2,3})+)(?:\.[0-9]{1,2})?", amount):
+            raise HTTPException(status_code=400, detail=f"Line {number}: invalid AWB or cost; use a non-negative amount with at most two decimals")
+        cost = float(amount.replace(",", ""))
+        if not math.isfinite(cost):
+            raise HTTPException(status_code=400, detail=f"Line {number}: invalid cost")
+        entries.append({"awb": awb, "actual_cost": cost})
+    return entries
+
 
 @reconciliation_router.get("/batches", response_model=List[ReconciliationBatchOut])
 def get_reconciliation_batches(
@@ -54,29 +80,26 @@ def process_reconciliation(
     ctx: Dict[str, Any] = Depends(require_permission(PermissionCode.RECONCILIATION_RUN)),
     db: Session = Depends(get_db)
 ):
-    entries = []
     if payload.bill_entries:
         entries = [{"awb": e.awb.strip(), "actual_cost": float(e.actual_cost)} for e in payload.bill_entries]
-    elif payload.raw_bill_text:
-        lines = [l.strip() for l in payload.raw_bill_text.splitlines() if l.strip()]
-        for l in lines:
-            parts = re.split(r'[\t,;\s]+', l)
-            if len(parts) >= 2:
-                awb = parts[0]
-                cost = next((p for p in parts[1:] if re.match(r'^\d+(\.\d+)?$', p.replace('₹', '').replace(',', ''))), None)
-                if awb and cost and 'awb' not in awb.lower():
-                    entries.append({"awb": awb, "actual_cost": float(cost.replace('₹', '').replace(',', ''))})
+    else:
+        entries = parse_bill_text(payload.raw_bill_text or "")
 
     if not entries:
         raise HTTPException(status_code=400, detail="No valid AWB and Cost rows found in the provider bill data.")
 
     provider_shipments = db.query(Shipment).filter(
-        or_(
-            func.lower(Shipment.courier) == payload.provider.lower().strip(),
-            func.lower(Shipment.provider_name) == payload.provider.lower().strip()
-        )
+        func.lower(Shipment.provider_name) == payload.provider.lower().strip()
     ).all()
 
+    shipment_lookup = {s.awb.strip().upper(): s for s in provider_shipments if s.awb}
+    if entries and all(
+        (ship := shipment_lookup.get(e["awb"].strip().upper())) is not None
+        and ship.cost_reconciled and ship.actual_provider_cost is not None
+        and abs(ship.actual_provider_cost - e["actual_cost"]) < 0.01
+        for e in entries
+    ):
+        raise HTTPException(status_code=409, detail="This bill's provider costs are already saved. View the updated costs in Accounts or Reports.")
     result = match_provider_bill_entries(entries, provider_shipments)
     result["provider"] = payload.provider
     result["bill_reference"] = payload.bill_reference or f"{payload.provider} Monthly Bill"
@@ -92,45 +115,12 @@ async def upload_reconciliation_file(
     db: Session = Depends(get_db)
 ):
     """
-    Upload CSV/billing file from carrier partner (Aramex, Blue Dart, ICL, BRV, etc.).
+    Upload Excel, CSV, or searchable table PDF bills from carrier partners.
     Extracts AWB and Actual Cost, matches row-by-row, and classifies into:
     MATCHED, MISSING AWB, EXTRA AWB, WRONG AMOUNT, DUPLICATE AWB, UNMATCHED.
     """
-    content = await file.read()
-    text = content.decode("utf-8", errors="ignore")
-
-    entries = []
-    # Try CSV reader first
-    try:
-        reader = csv.reader(io.StringIO(text))
-        for row in reader:
-            if not row:
-                continue
-            # Find candidate AWB and candidate cost in the row
-            row_str = " ".join(row).strip()
-            parts = [p.strip() for p in row if p.strip()]
-            if len(parts) >= 2:
-                awb = parts[0]
-                cost_candidate = None
-                for p in parts[1:]:
-                    cleaned = p.replace("₹", "").replace(",", "").replace("$", "").strip()
-                    if re.match(r'^\d+(\.\d+)?$', cleaned):
-                        cost_candidate = float(cleaned)
-                        break
-                if awb and cost_candidate is not None and "awb" not in awb.lower():
-                    entries.append({"awb": awb, "actual_cost": cost_candidate})
-    except Exception:
-        pass
-
-    # Fallback to line-by-line regex if CSV produced no entries
-    if not entries:
-        for line in text.splitlines():
-            parts = re.split(r'[\t,;\s]+', line.strip())
-            if len(parts) >= 2:
-                awb = parts[0]
-                cost = next((p for p in parts[1:] if re.match(r'^\d+(\.\d+)?$', p.replace('₹', '').replace(',', ''))), None)
-                if awb and cost and 'awb' not in awb.lower():
-                    entries.append({"awb": awb, "actual_cost": float(cost.replace('₹', '').replace(',', ''))})
+    content = await file.read(MAX_UPLOAD_BYTES + 1)
+    entries, import_info = await run_in_threadpool(parse_bill_file, content, file.filename, parse_bill_text)
 
     if not entries:
         raise HTTPException(
@@ -139,16 +129,14 @@ async def upload_reconciliation_file(
         )
 
     provider_shipments = db.query(Shipment).filter(
-        or_(
-            func.lower(Shipment.courier) == provider.lower().strip(),
-            func.lower(Shipment.provider_name) == provider.lower().strip()
-        )
+        func.lower(Shipment.provider_name) == provider.lower().strip()
     ).all()
 
     result = match_provider_bill_entries(entries, provider_shipments)
     result["provider"] = provider
     result["bill_reference"] = bill_reference or file.filename or f"{provider} Uploaded Bill"
     result["filename"] = file.filename
+    result["import_info"] = import_info
     return result
 
 
@@ -159,6 +147,8 @@ def apply_reconciliation(
     ctx: Dict[str, Any] = Depends(require_permission(PermissionCode.RECONCILIATION_RUN)),
     db: Session = Depends(get_db)
 ):
+    if payload.get("duplicate_awb") or payload.get("missing_in_crm"):
+        raise HTTPException(status_code=400, detail="Resolve duplicate and unknown AWBs before applying costs")
     matched_items = payload.get("matched", []) + payload.get("wrong_amount", [])
     provider = str(payload.get("provider", "")).strip()
     if not provider or not matched_items:
@@ -175,10 +165,16 @@ def apply_reconciliation(
             raise HTTPException(status_code=400, detail="Bill contains an invalid cost or duplicate AWB")
         seen.add(awb.lower())
         ship = db.query(Shipment).filter(func.lower(Shipment.awb) == awb.lower(),
-            func.lower(Shipment.provider_name) == provider.lower()).first()
+            func.lower(Shipment.provider_name) == provider.lower()).with_for_update().first()
         if not ship:
             raise HTTPException(status_code=400, detail=f"AWB {awb} does not belong to this provider")
+        current_cost = ship.actual_provider_cost if ship.cost_reconciled and ship.actual_provider_cost is not None else ship.provider_cost
+        if "current_cost" in item and round(float(item["current_cost"]), 2) != round(current_cost, 2):
+            raise HTTPException(status_code=409, detail="Shipment costs changed after preview. Match the bill again before applying.")
         verified_items.append((ship, round(cost, 2)))
+    if all(ship.cost_reconciled and ship.actual_provider_cost is not None
+           and abs(ship.actual_provider_cost - cost) < 0.01 for ship, cost in verified_items):
+        raise HTTPException(status_code=409, detail="These provider costs have already been applied. No shipments need updating.")
     predicted_total = round(sum(ship.provider_cost or 0 for ship, cost in verified_items), 2)
     actual_total = round(sum(cost for ship, cost in verified_items), 2)
     matched_count = sum(abs(cost - (ship.provider_cost or 0)) < 0.01 for ship, cost in verified_items)
@@ -200,7 +196,7 @@ def apply_reconciliation(
         status="Applied",
         matched_count=matched_count,
         discrepancy_count=len(verified_items) - matched_count,
-        notes=f"Reconciliation applied. Updated {len(matched_items)} shipments with actual provider costs."
+        notes=f"Reconciliation applied. Updated {len(matched_items)} shipments with provider costs."
     )
     db.add(rec_batch)
 

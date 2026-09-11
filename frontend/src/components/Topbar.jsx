@@ -18,7 +18,6 @@ import {
     X,
     LogOut,
     Menu,
-    Command,
     CheckCircle2,
     Boxes
 } from 'lucide-react';
@@ -110,6 +109,7 @@ const Topbar = ({
     onNavigate,
     settings,
     onToggleSidebar,
+    isSidebarOpen = false,
     selectedCenter = 'All Centers',
     onSelectCenter
 }) => {
@@ -199,6 +199,8 @@ const Topbar = ({
                             onClick={onToggleSidebar}
                             title="Toggle Navigation Menu"
                             aria-label="Toggle Sidebar"
+                            aria-expanded={isSidebarOpen}
+                            aria-controls="main-navigation"
                         >
                             <Menu size={18} />
                         </button>
@@ -239,11 +241,7 @@ const Topbar = ({
                             >
                                 <X size={12} />
                             </button>
-                        ) : (
-                            <div className="fmc-search-kbd-hint">
-                                <Command size={10} style={{ marginRight: '1px' }} /> K
-                            </div>
-                        )}
+                        ) : null}
                     </div>
 
                     {/* Instant Search Results Dropdown */}
@@ -378,6 +376,7 @@ const Topbar = ({
                             type="button"
                             className="fmc-new-shipment-btn" 
                             onClick={onOpenShipmentModal}
+                            aria-label="New Shipment"
                             title="Create new international or domestic booking (Single Entry)"
                         >
                             <Plus size={14} strokeWidth={2.5} />

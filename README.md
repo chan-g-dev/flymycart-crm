@@ -1,366 +1,179 @@
-# ✈️ Fly My Cart CRM - Enterprise Courier Logistics & Financial Engine
+﻿# Fly My Cart CRM
 
-[![FastAPI](https://img.shields.io/badge/Backend-FastAPI_0.115-009688?style=flat&logo=fastapi)](https://fastapi.tiangolo.com/)
-[![React 19](https://img.shields.io/badge/Frontend-React_19_+_Vite_8-61DAFB?style=flat&logo=react)](https://react.dev/)
-[![SQLAlchemy](https://img.shields.io/badge/ORM-SQLAlchemy_2.0-D71F00?style=flat&logo=sqlalchemy)](https://www.sqlalchemy.org/)
-[![Database](https://img.shields.io/badge/Database-SQLite_%7C_PostgreSQL_Ready-003B57?style=flat&logo=sqlite)](https://sqlite.org/)
-[![License](https://img.shields.io/badge/License-Proprietary-blue.svg)]()
+Fly My Cart CRM is a web application for managing domestic and international courier operations. It brings customer records, shipment bookings, invoicing, collections and carrier accounting into one workspace.
 
-A high-performance, single-entry web-based CRM and financial operating system built specifically for **Fly My Cart**, an international and domestic courier booking business.
+A booking connects to its customer, invoice and provider costs, helping staff maintain consistent records without repeating the same information across separate ledgers.
 
-The system eliminates duplicate data entry: a shipment booked once automatically connects with **Customer 360° profiles, GST Tax Invoices, Payment Collections, Provider Costs, Carrier Wallet Deductions, B2B Credit Ledgers, Follow-up Alerts, and Executive P&L Reports**.
+## Business modules
 
----
+| Module | Purpose |
+| --- | --- |
+| Dashboard | View booking activity, sales, collections, outstanding balances and follow-up counts. |
+| Customers | Maintain customer profiles, contact details, documents and shipment history. |
+| Shipments | Record unique AWBs, sender and receiver details, multiple packages, weights and shipment status. |
+| Invoices | Review generated invoices, record payments and print billing documents. |
+| Accounts | Manage prepaid wallets, postpaid provider accounts, deposits, expenses and collection checks. |
+| Reconciliation | Compare carrier bills with recorded shipment costs and apply reviewed adjustments. |
+| B2B credit | Manage corporate accounts, credit limits, payment terms and outstanding balances. |
+| Refunds | Record refund requests and manage authorized approval and payout steps. |
+| Follow-ups | Schedule customer tasks and review payment and retention reminders. |
+| Reports | Review daily operations and weekly or monthly financial summaries. |
+| Users and settings | Manage staff permissions, centers, couriers and payment configuration. |
 
-## 📑 Table of Contents
+The interface includes layouts for desktop and mobile screens. Financial visibility and available actions depend on the signed-in user's permissions.
 
-- [Core Modules & Capabilities](#-core-modules--capabilities)
-- [Architecture & Tech Stack](#-architecture--tech-stack)
-- [Project Directory Structure](#-project-directory-structure)
-- [Quick Start (Local Development)](#-quick-start-local-development)
-- [Automated Verification & Test Suite](#-automated-verification--test-suite)
-- [Production Deployment Guide](#-production-deployment-guide)
-- [Role-Based Access Control (RBAC)](#-role-based-access-control-rbac)
-- [Carrier Partner Network](#-carrier-partner-network)
+## Technology
 
----
+| Layer | Implementation |
+| --- | --- |
+| Frontend | React, Vite, JavaScript, CSS and Lucide icons |
+| Backend | Python, FastAPI, Pydantic and SQLAlchemy |
+| Local database | SQLite |
+| Production database | Supabase PostgreSQL |
+| Document storage | Configured private Supabase Storage bucket |
+| Deployment | Vercel frontend and Docker-based Render backend |
 
-## 🌟 Core Modules & Capabilities
+### Data flow
 
-### 1. 📦 Master Shipment Booking Engine
-- **Single Entry Workflow**: Capture sender, receiver, dimensions, weight, price, and courier in one step.
-- **Volumetric Weight Calculation**: Auto-computes volumetric weight using $(L \times W \times H) / 5000$ (Express) or $/4000$ (Cargo/LTL). Automatically calculates **Chargeable Weight** as $\max(\text{Actual Weight}, \text{Volumetric Weight})$.
-- **Custom Box Manager**: Add multiple package dimensions dynamically with real-time total weight summation.
-- **Permanent Customer Auto-Linking**: Customer mobile number search instantly auto-fills permanent addresses and billing history.
+The browser sends authenticated requests to the FastAPI backend. The backend validates requests and reads or writes the database selected by `DATABASE_URL`.
 
-### 2. 👥 Customer 360° Directory
-- Permanent customer repository with unified lifetime booking history, invoices, payments, and communication logs.
-- Classifies customer tiers: **C2C (Walk-in)**, **B2C (E-commerce)**, and **B2B (Corporate Monthly Credit)**.
-- Quick WhatsApp direct contact and printable Account Statements.
+In production, Vercel serves the frontend, Render runs the API, and Supabase stores application data. Publishing code does not upload local SQLite records to Supabase. Existing production records remain until explicitly changed or removed.
 
-### 3. 🧾 Automated GST Invoicing & WhatsApp Sharing
-- Generates official tax invoices with customer GSTIN, HSN codes, carrier breakdown, and balance due.
-- Instant **1-Click WhatsApp Invoice Dispatch** with pre-composed tracking links.
-- Formal print layout with dedicated `@media print` optimization.
+## Repository structure
 
-### 4. 💳 Financial Ledgers & Carrier Wallets
-- **Prepaid Partner Wallets**: Live tracking of opening balances, auto-debits on bookings, recharges, and alerts for **ICL Wallet** and **BRV Wallet**.
-- **Postpaid Carrier Accounts**: Security deposits and monthly bill logging for **Aramex** and **Blue Dart**.
-- **Multi-Channel Collections**: Cash, PhonePe, Google Pay, Bank NEFT/RTGS, and Office QR tracking mapped to specific staff members.
-
-### 5. 🏢 B2B Corporate Credit & 5-Bucket Aging Schedule
-- Corporate credit limit management, credit period terms (e.g. Net 30), and billing ledgers.
-- Real-time **5-Bucket Receivables Aging Schedule**:
-  - `Not Due`
-  - `1 - 30 Days`
-  - `31 - 60 Days`
-  - `61 - 90 Days`
-  - `90+ Days Overdue`
-
-### 6. ⚖️ Provider Cost Reconciliation Engine
-- Reconciles estimated carrier costs against actual provider invoices.
-- Captures weight discrepancy, extra surcharges, and variance $(\text{Actual} - \text{Estimated})$.
-- Single-click commit updates shipment gross margin and business P&L retroactively.
-
-### 7. 🔄 Customer Refunds & Disputes Lifecycle
-- 5-stage refund workflow: `Requested` &rarr; `Under Review` &rarr; `Approved` &rarr; `Rejected` &rarr; `Refunded`.
-- Strict Super Admin authorization requirement for financial payouts.
-
-### 8. 📊 Executive P&L & Reporting Engine
-- **End-of-Day (EOD) Operations Audit**: Daily booking count, collections by payment mode, staff audit trail, and courier distribution.
-- **Weekly & Monthly P&L Statement**: Real-time revenue, actual provider logistics costs, refund deductions, and Net Profit Margins.
-
----
-
-## 🛠️ Architecture & Tech Stack
-
-```
-                               ┌─────────────────────────────────────────┐
-                               │       React 19 + Vite 8 SPA UI          │
-                               │   (Pure CSS Design System + Lucide)     │
-                               └────────────────────┬────────────────────┘
-                                                    │ REST API / JSON
-                               ┌────────────────────▼────────────────────┐
-                               │           FastAPI Server                │
-                               │   - RBAC Auth & Permission Matrix       │
-                               │   - Volumetric & Financial Engine       │
-                               │   - Global Multi-Entity Search          │
-                               └────────────────────┬────────────────────┘
-                                                    │ SQLAlchemy 2.0 ORM
-                               ┌────────────────────▼────────────────────┐
-                               │           Database Layer                │
-                               │  SQLite (Dev) / PostgreSQL (Production) │
-                               └─────────────────────────────────────────┘
+```text
+backend/
+  app/                  API routes, models, authentication and business logic
+  scripts/              Administrative utilities
+  Dockerfile            Backend production image
+  requirements.txt      Python dependencies
+frontend/
+  src/                  Application screens, components and styles
+  public/               Static assets
+  package.json          Frontend dependencies and commands
+  vercel.json           Frontend hosting configuration
+supabase/
+  migrations/           Database and storage security migrations
+  schema.sql            Database reference schema
+render.yaml             Render service configuration
+README.md               Project overview, setup and deployment
+REQUIREMENTS.md         Detailed product requirements
 ```
 
-| Layer | Technology | Key Libraries / Features |
-| :--- | :--- | :--- |
-| **Frontend** | React 19, Vite 8 | Axios, Lucide React, Custom Responsive CSS Design System |
-| **Backend** | Python 3.10+ / FastAPI | Uvicorn, Pydantic v2, CORS, Background Tasks |
-| **ORM & DB** | SQLAlchemy 2.0 | SQLite (`flymycart.db`), PostgreSQL / MySQL connection support |
-| **Security** | RBAC Engine | Permission gates, API-level financial data masking |
+## Local development
 
----
+Use Python 3.11 and a Node.js version compatible with the installed Vite release. Run the following commands from the repository root in PowerShell.
 
-## 📁 Project Directory Structure
+### Backend
 
-```
-fly_my_cart_crm/
-├── backend/
-│   ├── app/
-│   │   ├── __init__.py
-│   │   ├── main.py                   # FastAPI server entry point & middleware
-│   │   ├── database.py               # SQLAlchemy database session & engine
-│   │   ├── models.py                 # Relational database models
-│   │   ├── schemas.py                # Pydantic request/response validation schemas
-│   │   ├── finance_engine.py         # Volumetric formulas, P&L calculations & aging
-│   │   ├── routers_core.py           # Dashboard, Shipments, Customers, Search APIs
-│   │   ├── routers_finance.py        # Invoices, Accounts, B2B, Refunds, Reports APIs
-│   │   ├── seed.py                   # Initial demo dataset & settings
-│   │   ├── test_finance_engine.py    # Unit test suite for finance math
-│   │   └── verify_full_system.py     # 13-suite end-to-end integration test
-│   └── requirements.txt              # Python production dependencies
-│
-├── frontend/
-│   ├── public/
-│   │   └── logo.png                  # Brand logo asset
-│   ├── src/
-│   │   ├── api/
-│   │   │   └── client.js             # Centralized Axios API client
-│   │   ├── context/
-│   │   │   └── AuthContext.jsx       # RBAC state & role switching provider
-│   │   ├── components/
-│   │   │   ├── Sidebar.jsx           # Left navigation bar with dark mode
-│   │   │   ├── Topbar.jsx            # Global search, centers & staff switcher
-│   │   │   ├── CourierLogos.jsx      # Official vector partner logos & WhatsApp icon
-│   │   │   ├── FlyMyCartLogo.jsx     # High-DPI brand identity vector component
-│   │   │   ├── ShipmentModal.jsx     # Single-entry booking modal with volumetric calc
-│   │   │   ├── CustomerDrawer.jsx    # 360° customer profile sliding drawer
-│   │   │   ├── InvoiceModal.jsx      # GST tax invoice preview & payment recorder
-│   │   │   ├── ReconciliationModal.jsx# Provider cost reconciliation modal
-│   │   │   └── ActionModals.jsx      # Customer, B2B, Status, Refund modals
-│   │   ├── pages/
-│   │   │   ├── Dashboard.jsx         # Executive KPI dashboard & courier volume
-│   │   │   ├── CustomersAndShipments.jsx # Customers directory & Shipments engine
-│   │   │   ├── InvoicesAccountsB2B.jsx   # Invoices, Provider accounts & B2B credit
-│   │   │   └── OperationsAndReports.jsx # Refunds, Follow-ups, P&L reports, Settings
-│   │   ├── App.jsx                   # Main routing and global state manager
-│   │   ├── main.jsx                  # React DOM entry
-│   │   └── index.css                 # Enterprise CSS design system & print styles
-│   ├── package.json
-│   └── vite.config.js
-└── README.md
-```
-
----
-
-## ⚡ Quick Start (Local Development)
-
-### Prerequisites
-- **Python**: 3.10, 3.11, or 3.12
-- **Node.js**: 18.x or 20.x+
-- **Git**
-
-### Step 1: Clone the Repository
-```bash
-git clone https://github.com/your-username/fly_my_cart_crm.git
-cd fly_my_cart_crm
-```
-
-### Step 2: Set Up Backend
-```bash
-# Navigate to backend directory
+```powershell
 cd backend
-
-# Create virtual environment (recommended)
-python -m venv venv
-
-# Activate virtual environment
-# On Windows:
-.\venv\Scripts\activate
-# On Linux/macOS:
-source venv/bin/activate
-
-# Install dependencies
-pip install -r requirements.txt
-
-# Start FastAPI backend server
-python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -r requirements.txt
 ```
-- **Backend API**: `http://127.0.0.1:8000`
-- **Swagger Documentation**: `http://127.0.0.1:8000/docs`
 
-### Step 3: Set Up Frontend
-Open a new terminal window:
-```bash
-# Navigate to frontend directory
+Create `backend/.env.local` with development values:
+
+```dotenv
+ENVIRONMENT=development
+DEBUG=false
+DATABASE_URL=sqlite:///./app.db
+SECRET_KEY=<unique-random-secret-at-least-32-characters>
+BOOTSTRAP_ADMIN_PASSWORD=<unique-initial-admin-password-at-least-16-characters>
+STORAGE_PROVIDER=local
+```
+
+Replace the placeholders before starting. Development reads `.env` and then `.env.local`; process environment variables take precedence. Initial setup creates the required system records and admin account. An existing custom admin password is preserved.
+
+```powershell
+python -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
+```
+
+The API runs at `http://127.0.0.1:8000`. Interactive API documentation is available at `/docs` in development mode, and the database health endpoint is `/api/health`.
+
+### Frontend
+
+Open a second terminal:
+
+```powershell
 cd frontend
-
-# Install Node packages
-npm install
-
-# Start Vite development server
+npm ci
 npm run dev
 ```
-- **Frontend App**: `http://localhost:5173`
 
----
+Set `VITE_API_URL=` in `frontend/.env.local` to use Vite's local `/api` proxy. Alternatively, set it to the local backend origin without the `/api` suffix. Open `http://localhost:5173` and sign in with the configured admin credentials.
 
-## 🧪 Automated Verification & Test Suite
+## Production deployment
 
-The system includes automated unit and integration tests covering the finance math, API endpoints, and database operations.
+### 1. Configure the backend on Render
 
-```bash
-# Run finance math unit tests (Volumetric Weight, P&L, Aging Schedule, Reconciliation)
-python -m app.test_finance_engine
+Use the repository's `render.yaml` Blueprint or configure an existing Docker service with `backend` as its build context. Review the selected hosting plan before creating a service.
 
-# Run the 13-suite full system end-to-end integration test
-python -m app.verify_full_system
-```
+Set the following environment variables in the hosting dashboard:
 
-### Test Suite Coverage:
-1. `GET /api/dashboard/stats` - Metric aggregations
-2. `GET /api/customers/` & `POST /api/customers/` - Customer directory & validation
-3. `POST /api/shipments/` - Booking calculation & volumetric weight engine
-4. `GET /api/invoices/` & `POST /api/invoices/{id}/payment` - GST invoice settlement
-5. `GET /api/accounts/wallets` - Prepaid carrier wallet balance & transactions
-6. `GET /api/b2b/` - Corporate accounts & 5-bucket aging calculation
-7. `POST /api/reconciliation/` - Provider cost discrepancy audit & commit
-8. `GET /api/reports/eod` & `GET /api/reports/monthly-pl` - Financial P&L calculations
-9. `GET /api/search` - Global multi-entity search query
-10. `RBAC Permission Masking` - Financial confidentiality rules for operations staff
+| Variable | Value |
+| --- | --- |
+| `ENVIRONMENT` | `production` |
+| `DEBUG` | `false` |
+| `DATABASE_URL` | Supabase PostgreSQL connection string with SSL |
+| `SECRET_KEY` | Unique random secret of at least 32 characters |
+| `BOOTSTRAP_ADMIN_PASSWORD` | Unique password of at least 16 characters for initial admin creation or replacement of the old default password |
+| `FRONTEND_URL` | Exact HTTPS frontend origin, without a trailing slash |
+| `STORAGE_PROVIDER` | `supabase` |
+| `SUPABASE_URL` | Supabase project URL |
+| `SUPABASE_SERVICE_ROLE_KEY` | Backend-only service role key |
+| `SUPABASE_BUCKET` | Configured private document bucket name |
 
----
+Production uses process environment variables rather than local dotenv files. Keep database credentials and service role keys out of Git and frontend variables. Remove the bootstrap password from hosting configuration after successful initialization when it is no longer needed.
 
-## 🚀 Production Deployment Guide
+Back up an existing database before applying migrations. Apply files in `supabase/migrations` in filename order. For an empty database, initialize application tables before running migrations and admitting users. Create the configured storage bucket before applying its security migration; ensure the migration targets the correct bucket. The private-bucket migration is intended to run once.
 
-### Option 1: Linux VPS (Ubuntu / Debian with Systemd + Nginx)
+### 2. Configure the frontend on Vercel
 
-#### 1. Build the Frontend Production Bundle
-```bash
-cd frontend
-npm install
+Import the repository and select `frontend` as the root directory. Use `npm run build` as the build command and `dist` as the output directory.
+
+Set `VITE_API_URL` to the actual HTTPS Render backend origin, without `/api`. Rebuild whenever this value changes; it is compiled into the frontend. The build rejects HTTP backend URLs. An empty value is appropriate only when the production host provides a same-origin `/api` proxy; Vite's development proxy does not provide one in production.
+
+Set Render's `FRONTEND_URL` to the stable Vercel production origin and redeploy the backend. Preview deployment origins are not automatically authorized.
+
+### 3. Verify the deployment
+
+- Confirm `/api/health` reports a healthy database.
+- Sign in and verify saving and reloading a customer, booking and invoice.
+- Confirm records remain available after a backend redeploy.
+- Check staff permissions and restricted financial fields.
+- Verify private document uploads and authorized downloads.
+- Check navigation, forms and tables on an actual mobile browser.
+- Configure database backups and verify restoration using a separate database.
+
+A custom domain can be added later through the hosting dashboards. Update `FRONTEND_URL` when the frontend origin changes and rebuild with the new `VITE_API_URL` if the backend origin changes. A domain change does not require moving the database.
+
+## Carrier bill reconciliation
+
+Under **Accounts > Reconciliation**, select the provider account and upload an Excel (`.xlsx` or `.xls`), CSV, TSV, TXT or searchable table PDF bill. Review the detected AWB and cost columns before applying changes.
+
+The importer recognizes common carrier export headers, including Aramex, Blue Dart, Delhivery, DHL/BRV and FedEx/ICL. It uses the supplied final total and rounds it to two decimal places without adding GST or surcharges again. Summary rows without AWBs are excluded for review; invalid amounts, duplicate AWBs and unknown shipments must be resolved before costs are applied.
+
+Excel formula totals require saved calculated values. Scanned PDFs require OCR first; PNG and JPG images are not bill-upload inputs. Upload limits are 20 MB per file, 50,000 shipment rows and 100 PDF pages.
+
+## Financial and integration notes
+
+New shipment selling prices are entered excluding GST. The current booking flow adds 18% GST, rounded to paise, to new invoices. Collections and receivables include GST; revenue and gross profit exclude it. Existing invoices retain their saved amounts. Deploy frontend and backend changes together when billing behavior changes.
+
+Carrier bill imports record provider costs; they do not establish customer selling prices or prove customer payment. Communication records and sharing links do not by themselves confirm message delivery. External messaging and delivery confirmation require the appropriate service integration.
+
+## Development checks
+
+Run from `frontend`:
+
+```powershell
+npm run lint
 npm run build
-# Output is generated in frontend/dist/
 ```
 
-#### 2. Configure Systemd Service for Backend (`/etc/systemd/system/flymycart.service`)
-```ini
-[Unit]
-Description=Fly My Cart CRM Backend
-After=network.target
+Use a real HTTPS backend origin for a production build. A successful build does not replace deployment, permission or mobile-browser verification. Local databases, secrets, dependencies and generated build files are excluded from Git.
 
-[Service]
-User=ubuntu
-WorkingDirectory=/var/www/fly_my_cart_crm/backend
-ExecStart=/var/www/fly_my_cart_crm/backend/venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 4
-Restart=always
+## Product requirements
 
-[Install]
-WantedBy=multi-user.target
-```
-
-```bash
-sudo systemctl daemon-reload
-sudo systemctl enable flymycart
-sudo systemctl start flymycart
-```
-
-#### 3. Configure Nginx Reverse Proxy (`/etc/nginx/sites-available/flymycart`)
-```nginx
-server {
-    listen 80;
-    server_name crm.flymycart.com;
-
-    # Serve built React static assets
-    location / {
-        root /var/www/fly_my_cart_crm/frontend/dist;
-        index index.html;
-        try_files $uri $uri/ /index.html;
-    }
-
-    # Proxy API requests to FastAPI
-    location /api/ {
-        proxy_pass http://127.0.0.1:8000/api/;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
-}
-```
-
-```bash
-sudo ln -s /etc/nginx/sites-available/flymycart /etc/nginx/sites-enabled/
-sudo nginx -t
-sudo systemctl restart nginx
-```
-
----
-
-### Option 2: Docker / Container Deployment
-
-Create a `Dockerfile` for backend and frontend, or run with `docker-compose.yml`:
-
-```yaml
-version: '3.8'
-
-services:
-  backend:
-    build: ./backend
-    ports:
-      - "8000:8000"
-    environment:
-      - DATABASE_URL=sqlite:///app/flymycart.db
-    volumes:
-      - ./backend/app/flymycart.db:/app/flymycart.db
-
-  frontend:
-    build: ./frontend
-    ports:
-      - "80:80"
-    depends_on:
-      - backend
-```
-
----
-
-## 🔒 Role-Based Access Control (RBAC)
-
-The CRM enforces strict role-based permission boundaries at both the frontend UI and backend API layers:
-
-| Permission Capability | 👑 Super Admin | 💼 Operations Staff | 📝 Front Counter Staff |
-| :--- | :---: | :---: | :---: |
-| **Book Shipments & Print Invoices** | ✅ Full Access | ✅ Full Access | ✅ Full Access |
-| **Customer Directory & Follow-ups** | ✅ Full Access | ✅ Full Access | ✅ Full Access |
-| **View Provider Costs & Gross Margins** | ✅ Visible | ❌ Masked | ❌ Masked |
-| **View Financial Reports & P&L** | ✅ Full Access | ❌ Masked | ❌ Masked |
-| **Approve & Process Customer Refunds** | ✅ Full Access | ❌ Request Only | ❌ Request Only |
-| **Provider Cost Reconciliation** | ✅ Full Access | ❌ Restricted | ❌ Restricted |
-| **Manage Settings, Wallets & Users** | ✅ Full Access | ❌ Restricted | ❌ Restricted |
-
-*Staff can test live RBAC roles at any time using the interactive role switcher in the top navigation bar.*
-
----
-
-## 🚚 Carrier Partner Network
-
-The platform integrates custom vector brand logos for all supported courier partners:
-
-- **FedEx** (International Express)
-- **DHL Express** (Global Priority)
-- **Aramex** (Middle East & Global)
-- **UPS** (International Freight)
-- **Delhivery** (Domestic Express)
-- **Blue Dart** (Domestic Air & Surface)
-- **ICL** (Prepaid Wallet)
-- **BRV** (Prepaid Wallet)
-- **Sree Maruthi Courier** (Regional)
-- **LTL Heavy Cargo** (Freight Forwarding)
-
----
-
-## 📄 License & Ownership
-
-Copyright © 2026 **Fly My Cart Logistics Pvt. Ltd.** All rights reserved.  
-Unauthorized duplication, distribution, or deployment of this software is strictly prohibited.
+[REQUIREMENTS.md](REQUIREMENTS.md) contains the detailed product scope and workflows. It describes intended requirements; it is not a certification that every requirement or external integration has been implemented and verified.

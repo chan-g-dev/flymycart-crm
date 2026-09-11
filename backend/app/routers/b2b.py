@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models import Customer, Shipment, B2BCompany, AuditLog
 from app.schemas import B2BCompanyCreate, B2BCompanyOut
-from app.collections import shipment_paid_map
+from app.collections import shipment_total_map, shipment_paid_map
 from app.finance_engine import calculate_b2b_aging_buckets
 from app.auth import create_audit_log
 from app.dependencies import require_permission
@@ -35,7 +35,8 @@ def get_b2b_summary(
         ).all()
 
         paid = shipment_paid_map(db)
-        total_credit_sales = round(sum(float(s.price or 0.0) for s in b2b_shipments), 2)
+        billed = shipment_total_map(db, [s.id for s in b2b_shipments])
+        total_credit_sales = round(sum(billed.get(s.id, float(s.price or 0.0)) for s in b2b_shipments), 2)
         collected = round(sum(paid.get(s.id, 0.0) for s in b2b_shipments), 2)
         outstanding = round(total_credit_sales - collected, 2)
 
@@ -57,7 +58,7 @@ def get_b2b_summary(
         aging_items = []
         for s in b2b_shipments:
             if s.payment_status != "Paid":
-                bal = max(0, float(s.price or 0.0) - paid.get(s.id, 0.0))
+                bal = max(0, billed.get(s.id, float(s.price or 0.0)) - paid.get(s.id, 0.0))
                 if bal <= 0:
                     continue
                 # Match to B2BCompany or Customer for credit period
@@ -85,7 +86,7 @@ def get_b2b_summary(
         # 1. Add all registered B2B companies from b2b_companies table
         for comp in b2b_companies:
             c_ships = {**ships_by_company[comp.id], **ships_by_name[(comp.company_name or "").strip().lower()]}.values()
-            c_billed = round(sum(float(s.price or 0.0) for s in c_ships), 2)
+            c_billed = round(sum(billed.get(s.id, float(s.price or 0.0)) for s in c_ships), 2)
             c_paid = round(sum(paid.get(s.id, 0.0) for s in c_ships), 2)
             c_out = round(c_billed - c_paid, 2)
             limit = float(comp.credit_limit or 100000.0)
@@ -114,7 +115,7 @@ def get_b2b_summary(
                 continue
 
             ships = {**ships_by_customer[c.id], **ships_by_name[(c.name or "").strip().lower()]}.values()
-            c_billed = round(sum(float(s.price or 0.0) for s in ships), 2)
+            c_billed = round(sum(billed.get(s.id, float(s.price or 0.0)) for s in ships), 2)
             c_paid = round(sum(paid.get(s.id, 0.0) for s in ships), 2)
             c_out = round(c_billed - c_paid, 2)
             limit = float(c.credit_limit or 100000.0)

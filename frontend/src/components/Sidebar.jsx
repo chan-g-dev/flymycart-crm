@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
     LayoutDashboard, 
     Users, 
@@ -14,14 +14,26 @@ import {
     ChevronDown,
     ChevronRight,
     Moon,
-    Sun
+    Sun,
+    X
 } from 'lucide-react';
 import { FlyMyCartLogo } from './FlyMyCartLogo';
 
-const Sidebar = ({ currentPage, activeSubPage, onNavigate, onSubNavigate, stats, isOpen = false, onClose }) => {
+const Sidebar = ({ currentPage, activeSubPage, onNavigate, onSubNavigate, stats, settings, isOpen = false, onClose }) => {
     const [isAccountsOpen, setIsAccountsOpen] = useState(false);
     const [isReportsOpen, setIsReportsOpen] = useState(false);
+    const [isPrepaidOpen, setIsPrepaidOpen] = useState(false);
+    const [isPostpaidOpen, setIsPostpaidOpen] = useState(false);
     const [isDarkMode, setIsDarkMode] = useState(false);
+
+    useEffect(() => {
+        if (!isOpen) return;
+        const handleKey = (event) => {
+            if (event.key === 'Escape') onClose?.();
+        };
+        window.addEventListener('keydown', handleKey);
+        return () => window.removeEventListener('keydown', handleKey);
+    }, [isOpen, onClose]);
 
     const toggleDarkMode = () => {
         const next = !isDarkMode;
@@ -32,10 +44,13 @@ const Sidebar = ({ currentPage, activeSubPage, onNavigate, onSubNavigate, stats,
     return (
         <>
             {isOpen && <div className="sidebar-mobile-backdrop" onClick={onClose} />}
-            <aside className={`sidebar ${isOpen ? 'mobile-open' : ''}`}>
+            <aside id="main-navigation" aria-label="Main navigation" className={`sidebar ${isOpen ? 'mobile-open' : ''}`}>
+            <button type="button" className="sidebar-mobile-close" onClick={onClose} aria-label="Close navigation"><X size={20} /></button>
             {/* Top Brand Banner */}
             <div className="sidebar-brand-header">
-                <FlyMyCartLogo height={38} width="100%" theme="dark" />
+                <button type="button" className="sidebar-brand-button" aria-label="FlyMyCart dashboard" onClick={() => onNavigate('dashboard')}>
+                    <FlyMyCartLogo height={38} width="100%" theme="dark" />
+                </button>
             </div>
 
             {/* Navigation Menu */}
@@ -102,18 +117,25 @@ const Sidebar = ({ currentPage, activeSubPage, onNavigate, onSubNavigate, stats,
                         <button type="button" className={`sidebar-sublink ${activeSubPage === 'customer_money' ? 'active' : ''}`} onClick={() => onSubNavigate('accounts', 'customer_money')}>
                             Customer Collections
                         </button>
-                        <button type="button" className={`sidebar-sublink ${activeSubPage === 'icl_wallet' ? 'active' : ''}`} onClick={() => onSubNavigate('accounts', 'icl_wallet')}>
-                            ICL Wallet
+                        <button type="button" className="sidebar-sublink sidebar-account-group" aria-expanded={isPrepaidOpen} aria-controls="sidebar-prepaid-wallets" onClick={() => setIsPrepaidOpen(!isPrepaidOpen)}>
+                            <span>Prepaid Wallets</span>{isPrepaidOpen ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
                         </button>
-                        <button type="button" className={`sidebar-sublink ${activeSubPage === 'brv_wallet' ? 'active' : ''}`} onClick={() => onSubNavigate('accounts', 'brv_wallet')}>
-                            BRV Wallet
+                        {isPrepaidOpen && <div id="sidebar-prepaid-wallets" className="sidebar-account-children">
+                        {(settings?.prepaidWallets || [{ name: 'ICL' }, { name: 'BRV' }]).map(wallet => {
+                            const section = `wallet-${encodeURIComponent(wallet.name)}`;
+                            return <button key={section} type="button" className={`sidebar-sublink ${activeSubPage === section ? 'active' : ''}`} onClick={() => onSubNavigate('accounts', section)}>{wallet.name} Wallet</button>;
+                        })}
+                        </div>}
+                        <button type="button" className="sidebar-sublink sidebar-account-group" aria-expanded={isPostpaidOpen} aria-controls="sidebar-postpaid-accounts" onClick={() => setIsPostpaidOpen(!isPostpaidOpen)}>
+                            <span>Postpaid Accounts</span>{isPostpaidOpen ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
                         </button>
-                        <button type="button" className={`sidebar-sublink ${activeSubPage === 'aramex_account' ? 'active' : ''}`} onClick={() => onSubNavigate('accounts', 'aramex_account')}>
-                            Aramex Account
-                        </button>
-                        <button type="button" className={`sidebar-sublink ${activeSubPage === 'bluedart_account' ? 'active' : ''}`} onClick={() => onSubNavigate('accounts', 'bluedart_account')}>
-                            Blue Dart Account
-                        </button>
+                        {isPostpaidOpen && <div id="sidebar-postpaid-accounts" className="sidebar-account-children">
+                        {(settings?.postpaidProviders || [{ name: 'Aramex' }, { name: 'Blue Dart' }]).map(provider => {
+                            const section = `provider-${encodeURIComponent(provider.name)}`;
+                            return <button key={section} type="button" className={`sidebar-sublink ${activeSubPage === section ? 'active' : ''}`} onClick={() => onSubNavigate('accounts', section)}>{provider.name} Account</button>;
+                        })}
+                        </div>}
+                        <button type="button" className={`sidebar-sublink ${activeSubPage === 'account_checks' ? 'active' : ''}`} onClick={() => onSubNavigate('accounts', 'account_checks')}>Receipts &amp; Account Checks</button>
                         <button type="button" className={`sidebar-sublink ${activeSubPage === 'reconciliation' ? 'active' : ''}`} onClick={() => onSubNavigate('accounts', 'reconciliation')}>
                             Reconciliation
                         </button>
@@ -179,6 +201,7 @@ const Sidebar = ({ currentPage, activeSubPage, onNavigate, onSubNavigate, stats,
                         <button type="button" className={`sidebar-sublink ${activeSubPage === 'weekly' ? 'active' : ''}`} onClick={() => onSubNavigate('reports', 'weekly')}>
                             Weekly Trends
                         </button>
+                        <button type="button" className={`sidebar-sublink ${activeSubPage === 'custom' ? 'active' : ''}`} onClick={() => onSubNavigate('reports', 'custom')}>Custom Date Range</button>
                         <button type="button" className={`sidebar-sublink ${activeSubPage === 'monthly' ? 'active' : ''}`} onClick={() => onSubNavigate('reports', 'monthly')}>
                             Monthly P&L
                         </button>

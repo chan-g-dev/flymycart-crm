@@ -184,6 +184,14 @@ export const Users = ({ settings, onDataMutated }) => {
 
         const assignedRole = customRole || pendingRoleAssignments[userId] || 'operations_staff';
 
+
+
+        try {
+            await apiClient.approveStaff(userId, {
+                action: 'approve',
+                role: assignedRole,
+                center: customCenter
+            });
         setStaffList(prev => prev.map(u => u.id === userId ? {
             ...u,
             status: 'Active',
@@ -193,18 +201,10 @@ export const Users = ({ settings, onDataMutated }) => {
             approved_by: currentUser?.name || 'Gangabathina Chanakya',
             approval_date: new Date().toISOString()
         } : u));
-
-        try {
-            await apiClient.approveStaff(userId, {
-                action: 'approve',
-                role: assignedRole,
-                center: customCenter
-            });
             showFeedback(`✓ "${staffName}" accepted & authorized with role ${getRoleConfig(assignedRole).label}!`, 'success');
             if (onDataMutated) onDataMutated();
         } catch (err) {
-            // Even if API fails in demo mode, retain optimistic activation
-            showFeedback(`✓ "${staffName}" activated locally for CRM workspace.`, 'success');
+            showFeedback(err.response?.data?.detail || 'Staff approval failed. Please retry.', 'error');
         } finally {
             setActionLoadingId(null);
         }

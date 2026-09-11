@@ -3,7 +3,10 @@
 # ================================================================
 
 import datetime
-from sqlalchemy import text
+import os
+import secrets
+from app.config import settings
+from sqlalchemy import text, inspect
 from sqlalchemy.orm import Session
 from app.models import (
     SystemSettings, User, UserProfile, Role, Permission, UserRole,
@@ -14,6 +17,15 @@ from app.auth import hash_password
 
 def migrate_database_schema(db: Session):
     """Ensures newly added columns exist in live Postgres or SQLite tables if running against pre-existing tables."""
+    shipment_columns = {column["name"] for column in inspect(db.bind).get_columns("shipments")}
+    for name, definition in {
+        "sender_email": "VARCHAR(150)", "sender_id_proof": "VARCHAR(100)",
+        "receiver_email": "VARCHAR(150)", "receiver_state": "VARCHAR(100)",
+        "boxes": "JSON DEFAULT '[]'",
+    }.items():
+        if name not in shipment_columns:
+            db.execute(text(f"ALTER TABLE shipments ADD COLUMN {name} {definition}"))
+    db.commit()
     is_sqlite = (db.bind.dialect.name == "sqlite") if db.bind else False
     if is_sqlite:
         sqlite_sqls = [
@@ -65,7 +77,11 @@ SUPERADMIN_EMAIL = "chanakyagangabathina77@gmail.com"
 SUPERADMIN_NAME = "Chanakya"
 SUPERADMIN_USERNAME = "Chanakya"
 SUPERADMIN_ID = "055d37da-38d0-4fe9-9ca3-4b956dede81d"
-SUPERADMIN_PASSWORD_HASH = hash_password("Chanu@123")
+def bootstrap_password_hash():
+    password = os.getenv("BOOTSTRAP_ADMIN_PASSWORD", "")
+    if settings.ENVIRONMENT == "production" and (len(password) < 16 or "replace-with" in password.lower()):
+        raise RuntimeError("Set BOOTSTRAP_ADMIN_PASSWORD to at least 16 characters for initial admin creation.")
+    return hash_password(password or secrets.token_urlsafe(32))
 
 STANDARD_PERMISSIONS = [
     # Customers
@@ -179,6 +195,7 @@ def seed_permissions_and_roles(db: Session):
         ops_perms = [
             "customers.view", "customers.add", "customers.edit",
             "shipments.view", "shipments.add", "shipments.edit",
+            "invoices.view",
             "reports.view", "users.view", "settings.view"
         ]
         for code in ops_perms:
@@ -237,8 +254,17 @@ def seed_permissions_and_roles(db: Session):
 
 def seed_super_admin(db: Session):
     """Ensures Super Admin Gangabathina Chanakya is always seeded and active."""
+    # Existing accounts retain their password, suspension and MFA settings.
     # 1. Sync in UserProfile ORM model
     prof = db.query(UserProfile).filter(UserProfile.email == SUPERADMIN_EMAIL).first()
+    password_hash = prof.password_hash if prof and prof.password_hash else bootstrap_password_hash()
+    if settings.ENVIRONMENT == "production" and prof and prof.password_hash:
+        from app.auth import verify_password
+        if verify_password("Chanu@123", prof.password_hash):
+            password_hash = bootstrap_password_hash()
+            prof.password_hash = password_hash
+            from app.auth import revoke_all_user_sessions
+            revoke_all_user_sessions(db, prof.id)
     if not prof:
         prof = UserProfile(
             id=SUPERADMIN_ID,
@@ -248,8 +274,8 @@ def seed_super_admin(db: Session):
             role="super_admin",
             status="active",
             requested_role="super_admin",
-            mfa_required=True,
-            password_hash=SUPERADMIN_PASSWORD_HASH,
+            mfa_required=False,
+            password_hash=password_hash,
             approved_by="System Root",
             approved_at=datetime.datetime.utcnow(),
             created_at=datetime.datetime.utcnow(),
@@ -259,10 +285,7 @@ def seed_super_admin(db: Session):
         db.flush()
     else:
         prof.display_name = SUPERADMIN_NAME
-        prof.role = "super_admin"
-        prof.status = "active"
-        prof.mfa_required = True
-        prof.password_hash = prof.password_hash or SUPERADMIN_PASSWORD_HASH
+        prof.password_hash = prof.password_hash or password_hash
         prof.approved_by = prof.approved_by or "System Root"
         prof.approved_at = prof.approved_at or datetime.datetime.utcnow()
 
@@ -299,7 +322,7 @@ def seed_super_admin(db: Session):
             username=SUPERADMIN_USERNAME,
             name=SUPERADMIN_NAME,
             email=SUPERADMIN_EMAIL,
-            password_hash=SUPERADMIN_PASSWORD_HASH,
+            password_hash=password_hash,
             phone="+91 98765 43210",
             role="super_admin",
             center="Main Hub (Bangalore)",
@@ -313,17 +336,14 @@ def seed_super_admin(db: Session):
     else:
         u_admin.username = SUPERADMIN_USERNAME
         u_admin.name = SUPERADMIN_NAME
-        u_admin.role = "super_admin"
-        u_admin.status = "Active"
-        u_admin.is_active = True
-        u_admin.password_hash = u_admin.password_hash or SUPERADMIN_PASSWORD_HASH
+        u_admin.password_hash = password_hash
 
     db.commit()
 
 
 def seed_system_settings(db: Session):
     """Seeds baseline system settings and provider configurations."""
-    default_couriers = ["FedEx", "Aramex", "DHL", "Blue Dart", "Delhivery", "UPS", "Sree Maruthi", "LTL"]
+    default_couriers = ["FedEx", "Aramex", "DHL", "Blue Dart", "Delhivery", "UPS", "Sree Maruthi"]
     default_centers = [
         "Main Hub (Bangalore)",
         "Delhi Regional Hub",
@@ -388,4 +408,18 @@ def seed_database(db: Session):
     seed_permissions_and_roles(db)
     seed_super_admin(db)
     seed_system_settings(db)
+    from app.carrier_accounts import ensure_carrier_accounts
+    config = db.query(SystemSettings).first()
+    if config:
+        saved_config = dict(config.config_json or {})
+        retired_names = {'ltl', 'ltlcargo', 'ltlheavycargo'}
+        def retired(name):
+            return ''.join(c for c in str(name).lower() if c.isalnum()) in retired_names
+        saved_config['couriers'] = [name for name in saved_config.get('couriers', []) if not retired(name)]
+        # Keep funded accounts available for settling historical transactions.
+        for field, balance_field in [('prepaidWallets', 'openingBalance'), ('postpaidProviders', 'deposit')]:
+            saved_config[field] = [account for account in saved_config.get(field, [])
+                                   if not retired(account.get('name')) or account.get(balance_field, 0)]
+        config.config_json = ensure_carrier_accounts(saved_config)
+        db.commit()
     print("Baseline system initialized with Enterprise RBAC & Super Admin (Gangabathina Chanakya).")

@@ -139,6 +139,8 @@ class ParcelInfo(ParcelBox):
     boxes: List[ParcelBox] = Field(default_factory=list)
 
 class ReceiverInfo(BaseModel):
+    email: Optional[str] = None
+    state: Optional[str] = None
     name: str
     phone: Optional[str] = None
     address: Optional[str] = None
@@ -147,6 +149,8 @@ class ReceiverInfo(BaseModel):
     zip: Optional[str] = None
 
 class SenderInfo(BaseModel):
+    email: Optional[str] = None
+    id_proof: Optional[str] = None
     name: Optional[str] = None
     phone: Optional[str] = None
     address: Optional[str] = None
@@ -158,6 +162,7 @@ class ShipmentCreate(BaseModel):
     delivery_date: Optional[str] = None
 
     customer_id: Optional[str] = None
+    customer_mobile: Optional[str] = None
     customer_name: str
     customer_type: str = "C2C"
     b2b_company_id: Optional[str] = None
@@ -178,6 +183,7 @@ class ShipmentCreate(BaseModel):
     provider_cost: float = Field(ge=0, allow_inf_nan=False)
     amount_received: Optional[float] = Field(default=None, ge=0, allow_inf_nan=False)
 
+    payment_reference: Optional[str] = None
     payment_status: str = "Paid"
     payment_method: str = "PhonePe"
     paid_to: str = "Office QR"
@@ -187,6 +193,11 @@ class ShipmentCreate(BaseModel):
     delay_reason: Optional[str] = None
 
 class ShipmentOut(BaseModel):
+    sender_email: Optional[str] = None
+    sender_id_proof: Optional[str] = None
+    receiver_email: Optional[str] = None
+    receiver_state: Optional[str] = None
+    boxes: List[ParcelBox] = Field(default_factory=list)
     id: str
     awb: str
     date: str
@@ -314,8 +325,8 @@ class WalletTransactionOut(BaseModel):
 
 # --- RECONCILIATION SCHEMAS ---
 class BillEntry(BaseModel):
-    awb: str
-    actual_cost: float
+    awb: str = Field(min_length=1)
+    actual_cost: float = Field(ge=0, allow_inf_nan=False)
     weight: Optional[str] = None
 
 class ReconciliationProcessRequest(BaseModel):

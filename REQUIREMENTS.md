@@ -65,7 +65,7 @@ Keep the dashboard clean, simple, and uncluttered. Avoid visual noise and excess
 Display a concise inline courier distribution bar rather than individual large cards:
 > **Example**:  
 > *Today's Shipments: 16*  
-> `FedEx: 9 | Aramex: 1 | Delhivery: 3 | Blue Dart: 2 | LTL: 1`
+> `FedEx: 9 | Aramex: 1 | Delhivery: 3 | Blue Dart: 2`
 
 ### Quick Actions
 - `+ New Shipment` (Opens single-entry booking modal)
@@ -174,12 +174,12 @@ B2B corporate clients have an extended commercial ledger profile.
 - Dynamic Multi-box dimensions: Length (cm), Width (cm), Height (cm)
 - Actual Physical Weight (kg)
 - Volumetric Weight auto-calculation:
-  $$\text{Volumetric Weight (kg)} = \frac{L \times W \times H}{5000} \quad (\text{Express}) \quad \text{or} \quad \frac{L \times W \times H}{4000} \quad (\text{Cargo / LTL})$$
+  $$\text{Volumetric Weight (kg)} = \frac{L \times W \times H}{5000} \quad (\text{Express}) \quad \text{or} \quad \frac{L \times W \times H}{4000} \quad (\text{Cargo})$$
 - **Chargeable Weight Rule**:
   $$\text{Chargeable Weight} = \max(\text{Actual Weight}, \text{Volumetric Weight})$$
 
 #### F. Courier Partner & Service
-- FedEx, DHL, Aramex, UPS, Delhivery, Blue Dart, Sree Maruthi, LTL Cargo, Other
+- FedEx, DHL, Aramex, UPS, Delhivery, Blue Dart, Sree Maruthi, Other
 - Type: `Domestic` vs. `International`
 - Service Level: Express, Standard, Economy, Cargo
 
@@ -227,6 +227,12 @@ Every customer payment collection captures:
 ## 9. PROVIDER ACCOUNTS (DUAL ACCOUNTING MODEL)
 
 Carrier partners operate under two distinct financial accounting models:
+
+- Direct postpaid bookings must use the selected courier's configured billing account (for example, DHL maps to DHL Express). A DHL booking cannot use Blue Dart's postpaid account.
+- Selecting or changing the courier automatically selects its matching direct account; if none exists, staff must select a configured prepaid wallet or configure the courier account before booking.
+- Billing choices come from Settings. Configured prepaid wallets such as ICL and BRV remain available for wallet-funded bookings.
+- The backend must reject mismatched postpaid accounts. Unbilled costs belong to the validated billing account.
+
 
 ### Model A: Prepaid Carrier Wallets (e.g., ICL, BRV)
 - **Operational Flow**:
@@ -391,7 +397,7 @@ $$\begin{aligned}
 
 - Business Centers & Branches
 - Employees & Staff Profiles
-- Supported Courier Partners (FedEx, DHL, Aramex, UPS, Delhivery, Blue Dart, Sree Maruthi, LTL)
+- Supported Courier Partners (FedEx, DHL, Aramex, UPS, Delhivery, Blue Dart, Sree Maruthi)
 - Provider Accounts & Wallet configurations
 - Company Bank Accounts & Employee UPI handles
 - Payment Methods & Cashier Accounts

@@ -1,3 +1,6 @@
+import { providerCostLabel } from '../utils/costLabels';
+import ScheduleFollowup from '../components/ScheduleFollowup';
+import { dateAfter, followupBuckets } from '../utils/followupDates';
 import React, { useState, useEffect } from 'react';
 import { 
     Plus, 
@@ -98,13 +101,13 @@ export const Refunds = ({ refunds, onOpenRefundModal, onApproveRefund, onProcess
     );
 };
 
-export const Followups = ({ followups, onCompleteFollowup, onOpenCommModal }) => {
-    const todayStr = new Date().toISOString().slice(0, 10);
+export const Followups = ({ followups, customers = [], onRefresh, onCompleteFollowup, onOpenCommModal }) => {
+    const { hasPermission } = useAuth();
+    const [scheduling, setScheduling] = useState(false);
+    const todayStr = dateAfter();
     const formatDate = (d) => d ? new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '-';
 
-    const dueToday = (followups || []).filter(f => f.status === 'Pending' && f.due_date === todayStr);
-    const overdue = (followups || []).filter(f => f.status === 'Pending' && f.due_date < todayStr);
-    const upcoming = (followups || []).filter(f => f.status === 'Pending' && f.due_date > todayStr);
+    const { dueToday, overdue, upcoming } = followupBuckets(followups, todayStr);
 
     const handleWhatsAppFollowup = (customerName, notes) => {
         const msg = encodeURIComponent(`Hello ${customerName}, greeting from Fly My Cart Logistics! Following up regarding: ${notes || 'your recent courier bookings'}. Let us know how we can assist you.`);
@@ -122,6 +125,8 @@ export const Followups = ({ followups, onCompleteFollowup, onOpenCommModal }) =>
                 </div>
             </div>
 
+            {hasPermission('followups.add') && <button className="btn btn-primary-blue" style={{ marginBottom: 16 }} onClick={() => setScheduling(true)}>Schedule follow-up</button>}
+            {scheduling && <ScheduleFollowup customers={customers} onSaved={onRefresh} onClose={() => setScheduling(false)} />}
             <div className="dash-stat-cards-grid" style={{ gridTemplateColumns: 'repeat(3, 1fr)', marginBottom: '18px' }}>
                 <div className="dash-mini-card">
                     <span className="card-label" style={{ color: 'var(--amber)' }}>Due Today</span>
@@ -168,12 +173,12 @@ export const Followups = ({ followups, onCompleteFollowup, onOpenCommModal }) =>
                                         <td><div style={{ fontSize: '12px', lineHeight: 1.4 }}>{f.notes}</div></td>
                                         <td>
                                             <span className={`status-pill ${f.status === 'Done' ? 'delivered' : (f.due_date < todayStr ? 'delayed' : 'in-transit')}`}>
-                                                {f.status === 'Done' ? 'Completed' : (f.due_date < todayStr ? 'Overdue' : 'Pending')}
+                                                {f.status === 'Done' ? 'Completed' : f.status !== 'Pending' ? f.status : (f.due_date < todayStr ? 'Overdue' : 'Pending')}
                                             </span>
                                         </td>
                                         <td style={{ textAlign: 'right' }}>
                                             <div style={{ display: 'inline-flex', gap: '6px' }}>
-                                                {f.status !== 'Done' && (
+                                                {f.status === 'Pending' && hasPermission('followups.edit') && (
                                                     <button className="btn btn-sm btn-success" onClick={() => onCompleteFollowup(f.id)} title="Mark as completed">
                                                         <Check size={12} /> Done
                                                     </button>
@@ -197,7 +202,7 @@ export const Followups = ({ followups, onCompleteFollowup, onOpenCommModal }) =>
     );
 };
 
-export const Reports = ({ activeTab }) => {
+export const Reports = ({ activeTab, refreshKey }) => {
     const { hasPermission } = useAuth();
     const canViewFinancials = hasPermission('viewFinancials');
 
@@ -207,10 +212,13 @@ export const Reports = ({ activeTab }) => {
     const [eodReport, setEodReport] = useState(null);
     const [weeklyReport, setWeeklyReport] = useState(null);
     const [monthlyReport, setMonthlyReport] = useState(null);
+    const [rangeStart, setRangeStart] = useState(new Date().toLocaleDateString('en-CA').slice(0, 7) + '-01');
+    const [rangeEnd, setRangeEnd] = useState(new Date().toLocaleDateString('en-CA'));
+    const [reportError, setReportError] = useState('');
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
-        if (!activeTab || !['eod', 'weekly', 'monthly'].includes(activeTab)) return;
+        if (!activeTab || !['eod', 'weekly', 'monthly', 'custom'].includes(activeTab)) return;
         setTab(activeTab === 'monthly' && !canViewFinancials ? 'eod' : activeTab);
     }, [activeTab, canViewFinancials]);
 
@@ -222,26 +230,22 @@ export const Reports = ({ activeTab }) => {
             setTab('eod');
             return;
         }
-        setLoading(true);
-        if (tab === 'eod') {
-                apiClient.getEODReport(eodDate).then(data => {
-                    setEodReport(data);
-                    setLoading(false);
-                }).catch(() => setLoading(false));
-            } else if (tab === 'weekly') {
-                apiClient.getWeeklyReport(eodDate).then(data => {
-                    setWeeklyReport(data);
-                    setLoading(false);
-                }).catch(() => setLoading(false));
-            } else if (tab === 'monthly' && canViewFinancials) {
-                apiClient.getMonthlyPLReport(monthVal).then(data => {
-                    setMonthlyReport(data);
-                    setLoading(false);
-                }).catch(() => setLoading(false));
-            } else {
-                setLoading(false);
-            }
-    }, [tab, eodDate, monthVal, canViewFinancials]);
+        let current = true;
+        setLoading(true); setReportError('');
+        const request = tab === 'eod' ? apiClient.getEODReport(eodDate)
+            : tab === 'weekly' ? apiClient.getWeeklyReport(eodDate)
+            : tab === 'custom' ? apiClient.getDateRangeReport(rangeStart, rangeEnd)
+            : apiClient.getMonthlyPLReport(monthVal);
+        request.then(data => {
+            if (!current) return;
+            if (tab === 'eod') setEodReport(data);
+            else if (tab === 'monthly') setMonthlyReport(data);
+            else setWeeklyReport(data);
+        }).catch(error => {
+            if (current) setReportError(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Unable to load this report. Check the dates and try again.');
+        }).finally(() => { if (current) setLoading(false); });
+        return () => { current = false; };
+    }, [tab, eodDate, monthVal, rangeStart, rangeEnd, canViewFinancials, refreshKey]);
 
     const handlePrintEOD = () => {
         window.print();
@@ -263,7 +267,7 @@ export const Reports = ({ activeTab }) => {
 
             {/* Sub-tabs & Controls Capsule */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
-                <div className="fmc-segmented-capsule">
+                <div className="fmc-segmented-capsule report-tabs">
                     <button 
                         className={`fmc-segmented-btn ${tab === 'eod' ? 'active' : ''}`}
                         onClick={() => {
@@ -286,6 +290,7 @@ export const Reports = ({ activeTab }) => {
                     >
                         <Calendar size={14} /> Weekly Trends
                     </button>
+                    <button className={`fmc-segmented-btn ${tab === 'custom' ? 'active' : ''}`} onClick={() => setTab('custom')}><Calendar size={14} /> Custom Date Range</button>
                     {canViewFinancials ? (
                         <button 
                             className={`fmc-segmented-btn ${tab === 'monthly' ? 'active' : ''}`}
@@ -310,7 +315,11 @@ export const Reports = ({ activeTab }) => {
                 </div>
 
                 {/* Target Date / Period Quick Capsule */}
-                {tab !== 'monthly' ? (
+                {tab === 'custom' ? <div className="report-range-controls">
+                    <label>From <input aria-label="Report start date" type="date" value={rangeStart} max={rangeEnd} onChange={e => setRangeStart(e.target.value)} /></label>
+                    <label>To <input aria-label="Report end date" type="date" value={rangeEnd} min={rangeStart} onChange={e => setRangeEnd(e.target.value)} /></label>
+                    <small>Up to 366 days</small>
+                </div> : tab !== 'monthly' ? (
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '7px', background: 'var(--card-bg)', padding: '4px 10px', borderRadius: '8px', border: '1px solid var(--card-border)', boxShadow: '0 2px 6px rgba(0,0,0,0.06)' }}>
                             <Calendar size={14} color="var(--primary-blue)" />
@@ -341,7 +350,7 @@ export const Reports = ({ activeTab }) => {
                 )}
             </div>
 
-            {loading ? (
+            {reportError ? <p role="alert">{reportError}</p> : loading ? (
                 <ContentShimmer 
                     message={
                         tab === 'eod' 
@@ -353,6 +362,9 @@ export const Reports = ({ activeTab }) => {
                 />
             ) : (
                 <>
+                    {canViewFinancials && ((tab === 'eod' ? eodReport : tab === 'monthly' ? monthlyReport : weeklyReport)?.estimated_cost_shipments > 0) && <p className="report-estimate-notice" role="status">
+                        Provisional profit: {(tab === 'eod' ? eodReport : tab === 'monthly' ? monthlyReport : weeklyReport).estimated_cost_shipments} shipment(s) still use estimated provider costs. Reconcile their bills to update profit.
+                    </p>}
                     {/* Tab 1: EOD Operations Audit */}
                     {tab === 'eod' && eodReport && (
                         <div className="fmc-report-hero-card">
@@ -393,6 +405,7 @@ export const Reports = ({ activeTab }) => {
                                         <div className="fmc-kpi-badge-icon" style={{ background: 'rgba(99, 102, 241, 0.15)', color: '#6366f1' }}>💵</div>
                                     </div>
                                     <div className="fmc-kpi-val" style={{ color: '#6366f1' }}>{formatCurrency(eodReport.total_sales)}</div>
+                                    <small>Excl. GST; GST charged: {formatCurrency(eodReport.gst_total)}</small>
                                     <div className="fmc-kpi-sub">Gross Billed Value</div>
                                 </div>
 
@@ -511,37 +524,37 @@ export const Reports = ({ activeTab }) => {
                         </div>
                     )}
 
-                    {tab === 'weekly' && weeklyReport && (
+                    {(tab === 'weekly' || tab === 'custom') && weeklyReport && (
                         <div className="fmc-report-hero-card weekly-report-card">
                             <div className="weekly-report-heading">
                                 <div>
-                                    <span className="weekly-report-eyebrow">7-day operational overview</span>
-                                    <h3>Weekly Operations Report</h3>
+                                    <span className="weekly-report-eyebrow">{weeklyReport.period_days || 7}-day operational overview</span>
+                                    <h3>{tab === 'custom' ? 'Custom Date Range Report' : 'Weekly Operations Report'}</h3>
                                     <p>{formatDate(weeklyReport.period_start)} – {formatDate(weeklyReport.period_end)}</p>
                                 </div>
                                 <button className="btn btn-outline" onClick={() => window.print()}><Printer size={14} /> Print Report</button>
                             </div>
 
                             <div className="weekly-kpi-grid">
-                                <div className="weekly-kpi blue"><span>Total bookings</span><strong>{weeklyReport.shipments_count}</strong><small>Across the selected week</small></div>
-                                <div className="weekly-kpi violet"><span>Active booking days</span><strong>{weeklyReport.active_days}<em>/7</em></strong><small>Days with shipment activity</small></div>
+                                <div className="weekly-kpi blue"><span>Total bookings</span><strong>{weeklyReport.shipments_count}</strong><small>Across the selected period</small></div>
+                                <div className="weekly-kpi violet"><span>Active booking days</span><strong>{weeklyReport.active_days}<em>/{weeklyReport.period_days || 7}</em></strong><small>Days with shipment activity</small></div>
                                 <div className="weekly-kpi amber"><span>Couriers used</span><strong>{Object.keys(weeklyReport.courier_counts || {}).length}</strong><small>Active logistics partners</small></div>
                                 <div className="weekly-kpi green"><span>Delivered</span><strong>{weeklyReport.status_counts?.Delivered || 0}</strong><small>Completed shipments</small></div>
                             </div>
 
-                            {weeklyReport.shipments_count === 0 ? (
+                            {weeklyReport.shipments_count === 0 && !weeklyReport.daily.some(day => day.collections !== 0) ? (
                                 <div className="weekly-empty-state">
                                     <Calendar size={30} />
-                                    <strong>No bookings in this week</strong>
-                                    <span>Choose another week-ending date to review previous shipment activity.</span>
+                                    <strong>No bookings or receipts in this period</strong>
+                                    <span>Choose another date range to review previous activity.</span>
                                 </div>
                             ) : (
                                 <div className="weekly-report-layout">
                                     <div className="weekly-table-panel">
                                         <div className="weekly-panel-title"><strong>Daily booking trend</strong><span>Day-by-day activity</span></div>
                                         <div className="table-container">
-                                            <table className="data-table weekly-data-table"><thead><tr><th>Date</th><th>Bookings</th>{weeklyReport.financials_visible && <><th>Revenue</th><th>Gross Profit</th></>}</tr></thead>
-                                                <tbody>{weeklyReport.daily.map(day => <tr key={day.date}><td>{formatDate(day.date)}</td><td><strong>{day.shipments_count}</strong></td>{weeklyReport.financials_visible && <><td>{formatCurrency(day.revenue)}</td><td className="weekly-profit">{formatCurrency(day.gross_profit)}</td></>}</tr>)}</tbody>
+                                            <table className="data-table weekly-data-table"><thead><tr><th>Date</th><th>Bookings</th><th>Collections</th>{weeklyReport.financials_visible && <><th>Revenue</th><th>Provider cost</th><th>Gross Profit</th></>}</tr></thead>
+                                                <tbody>{weeklyReport.daily.map(day => <tr key={day.date}><td>{formatDate(day.date)}</td><td><strong>{day.shipments_count}</strong></td><td>{formatCurrency(day.collections)}</td>{weeklyReport.financials_visible && <><td>{formatCurrency(day.revenue)}</td><td>{formatCurrency(day.provider_cost)}</td><td className="weekly-profit">{formatCurrency(day.gross_profit)}</td></>}</tr>)}</tbody>
                                             </table>
                                         </div>
                                     </div>
@@ -563,7 +576,7 @@ export const Reports = ({ activeTab }) => {
                                         Monthly Executive Profit & Loss (P&L) Statement
                                     </h3>
                                     <div style={{ color: 'var(--text-muted)', fontSize: '12.5px', marginTop: '3px' }}>
-                                        Financial Period: <strong>{monthlyReport.period}</strong> • Verified Against Single-Entry DB
+                                        Financial Period: <strong>{monthlyReport.month}</strong>
                                     </div>
                                 </div>
                                 <button className="btn btn-outline" onClick={() => window.print()} style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontWeight: 700, padding: '7px 16px', borderRadius: '8px' }}>
@@ -574,19 +587,21 @@ export const Reports = ({ activeTab }) => {
                             {/* Waterfall P&L Breakdown Card */}
                             <div style={{ background: 'var(--bg-app)', padding: '24px', borderRadius: '14px', border: '1px solid var(--card-border)', maxWidth: '720px' }}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 0', borderBottom: '1.5px solid var(--card-border)', fontSize: '15px', fontWeight: 800 }}>
-                                    <span>1. Total Customer Sales (Revenue)</span>
+                                    <span>1. Customer sales (excluding GST)</span>
                                     <span style={{ color: 'var(--primary-blue)', fontSize: '16px' }}>{formatCurrency(monthlyReport.total_revenue || monthlyReport.revenue)}</span>
                                 </div>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 0' }}><span>GST charged</span><strong>{formatCurrency(monthlyReport.gst_total)}</strong></div>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 0' }}><span>Invoice total (including GST)</span><strong>{formatCurrency(monthlyReport.invoice_total)}</strong></div>
 
                                 <div style={{ padding: '14px 0 6px', fontSize: '13px', color: 'var(--text-muted)', fontWeight: 700 }}>
-                                    2. Less: Actual Logistics Provider Costs (By Carrier)
+                                    2. Less: Provider Costs (By Carrier)
                                 </div>
 
                                 {Object.entries(monthlyReport.carrier_costs || monthlyReport.provider_cost_breakdown || {}).map(([k, v]) => (
                                     <div key={k} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0 6px 18px', fontSize: '12.5px' }}>
                                         <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
                                             <span style={{ color: 'var(--text-muted)' }}>&bull;</span>
-                                            <CourierLogo courier={k} height={15} />
+                                            <CourierLogo courier={k} height={15} /><span>{providerCostLabel(k)}</span>
                                         </div>
                                         <strong>{formatCurrency(v)}</strong>
                                     </div>
@@ -598,14 +613,14 @@ export const Reports = ({ activeTab }) => {
                                 </div>
 
                                 <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', fontSize: '12px', color: 'var(--text-muted)' }}>
-                                    <span>Predicted vs Actual Cost Variance:</span>
+                                    <span>Predicted vs Provider Cost Difference:</span>
                                     <span style={{ color: monthlyReport.cost_variance > 0 ? 'var(--rose)' : 'var(--emerald)', fontWeight: 700 }}>
                                         {monthlyReport.cost_variance > 0 ? '+' : ''}{formatCurrency(monthlyReport.cost_variance)}
                                     </span>
                                 </div>
 
                                 <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 0', borderTop: '2px solid var(--card-border)', fontSize: '15.5px', fontWeight: 800 }}>
-                                    <span>3. Gross Profit (Revenue &minus; Actual Provider Costs)</span>
+                                    <span>3. Gross Profit (Revenue &minus; Provider Costs)</span>
                                     <span style={{ color: 'var(--emerald)' }}>{formatCurrency(monthlyReport.gross_profit)}</span>
                                 </div>
 
@@ -615,7 +630,7 @@ export const Reports = ({ activeTab }) => {
                                 </div>
 
                                 <div style={{ display: 'flex', justifyContent: 'space-between', padding: '16px 0 8px', borderTop: '2.5px solid var(--primary-blue)', fontSize: '19px', fontWeight: 900, color: 'var(--primary-blue)' }}>
-                                    <span>5. Net Business Profit</span>
+                                    <span>Net Business Profit <small style={{display: 'block', fontSize: 12}}>After operating expenses: {formatCurrency(monthlyReport.operational_expenses)}</small></span>
                                     <span style={{ color: '#10b981' }}>{formatCurrency(monthlyReport.net_profit)} ({monthlyReport.net_profit_margin}%)</span>
                                 </div>
                             </div>
@@ -634,7 +649,7 @@ export const Settings = ({ settings, onUpdateSettings }) => {
     const canManageSettings = Boolean(currentUser?.isSuperAdmin || currentUser?.roleId === 'super_admin');
     const visibleCouriers = settings?.couriers?.length
         ? settings.couriers
-        : ['FedEx', 'Aramex', 'DHL', 'Blue Dart', 'Delhivery', 'UPS', 'Sree Maruthi', 'LTL'];
+        : ['FedEx', 'Aramex', 'DHL', 'Blue Dart', 'Delhivery', 'UPS', 'Sree Maruthi'];
     const visibleCenters = settings?.centers?.length
         ? settings.centers
         : [
@@ -685,7 +700,7 @@ export const Settings = ({ settings, onUpdateSettings }) => {
                 </div>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '16px', marginBottom: '22px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 320px), 1fr))', gap: '16px', marginBottom: '22px' }}>
                 {/* 1. Couriers */}
                 <div className="dash-box">
                     <h4 style={{ fontSize: '13.5px', fontWeight: 800, marginBottom: '10px', color: 'var(--text-main)' }}>📦 Configurable Couriers</h4>

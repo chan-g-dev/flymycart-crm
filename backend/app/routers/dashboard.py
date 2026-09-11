@@ -29,7 +29,7 @@ def get_dashboard_summary(
     """
     today_str = datetime.date.today().isoformat()
     paid = shipment_payments_query(db).subquery()
-    balance = case((Shipment.price > func.coalesce(paid.c.paid, 0), Shipment.price - func.coalesce(paid.c.paid, 0)), else_=0)
+    balance = case((func.coalesce(paid.c.total, Shipment.price) > func.coalesce(paid.c.paid, 0), func.coalesce(paid.c.total, Shipment.price) - func.coalesce(paid.c.paid, 0)), else_=0)
     today = Shipment.date == today_str
     active = Shipment.status.in_(["In Transit", "Picked Up", "Booked"])
     rows = db.query(
@@ -65,7 +65,7 @@ def get_dashboard_summary(
     active_volume = int(totals["active_volume"])
     can_view_financials = bool(ctx.get("is_super_admin") or ctx.get("permissions", {}).get("*") or ctx.get("permissions", {}).get(PermissionCode.REPORTS_VIEW_FINANCIAL))
     courier_counts = dict(db.query(Shipment.courier, func.count(Shipment.id)).filter(today).group_by(Shipment.courier).all())
-    active_courier_counts = dict(db.query(Shipment.courier, func.count(Shipment.id)).filter(Shipment.courier.isnot(None)).group_by(Shipment.courier).all())
+    active_courier_counts = dict(db.query(Shipment.courier, func.count(Shipment.id)).filter(Shipment.courier.isnot(None), active | (Shipment.status == "Delayed")).group_by(Shipment.courier).all())
     courier_breakdown = " | ".join(f"{courier} {count}" for courier, count in courier_counts.items()) or "No bookings today yet"
 
     # Pending follow-ups & refund requests
@@ -109,6 +109,11 @@ def get_dashboard_summary(
             "delay_reason": s.delay_reason
         }
         recent_shipments.append(mask_shipment_financials(s_dict, ctx))
+
+    if not can_view_financials:
+        for values in centers.values():
+            values["total_provider_cost"] = None
+            values["total_gross_profit"] = None
 
     summary_data = {
         "today_shipments_count": today_count,

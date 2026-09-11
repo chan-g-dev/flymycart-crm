@@ -25,11 +25,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /root/.local /root/.local
-COPY . /app
+COPY app /app/app
 
 ENV PATH=/root/.local/bin:$PATH
 ENV PYTHONUNBUFFERED=1
 ENV PORT=8000
+ENV ENVIRONMENT=production
 
 EXPOSE 8000
 

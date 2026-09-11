@@ -9,12 +9,12 @@ import ShipmentModal from './components/ShipmentModal';
 import CustomerModal from './components/CustomerModal';
 import InvoiceModal from './components/InvoiceModal';
 import ReconciliationModal from './components/ReconciliationModal';
-import { 
-    WalletRechargeModal, 
-    RefundModal, 
-    CommunicationModal, 
-    B2BCompanyModal, 
-    ShipmentStatusModal 
+import {
+    WalletRechargeModal,
+    RefundModal,
+    CommunicationModal,
+    B2BCompanyModal,
+    ShipmentStatusModal
 } from './components/ActionModals';
 
 import { Dashboard } from './pages/Dashboard';
@@ -22,11 +22,10 @@ import { Customers, Shipments } from './pages/CustomersAndShipments';
 import { Invoices, Accounts, B2B } from './pages/InvoicesAccountsB2B';
 import { Refunds, Followups, Reports, Users, Settings } from './pages/OperationsAndReports';
 import { AuthPage } from './components/AuthPage';
-import { StepUpModal } from './components/StepUpModal';
 import { getCurrentPath, navigate } from './utils/navigation';
 
 const VALID_PAGES = [
-    'dashboard', 'customers', 'shipments', 'invoices', 
+    'dashboard', 'customers', 'shipments', 'invoices',
     'accounts', 'b2b', 'refunds', 'followups', 'reports', 'users', 'settings'
 ];
 
@@ -196,9 +195,9 @@ export function App() {
                 apiClient.getPendingStaffCount().catch(() => ({ pending_count: 0 }))
             ]);
 
-            if (dash) { 
-                setDashboardData(dash); 
-                setCached('dashboard', dash); 
+            if (dash) {
+                setDashboardData(dash);
+                setCached('dashboard', dash);
             }
             if (Array.isArray(custs)) { setCustomers(custs); setCached('customers', custs); }
             if (Array.isArray(ships)) { setShipments(ships); setCached('shipments', ships); }
@@ -206,7 +205,7 @@ export function App() {
             setPendingStaffCount(pCount?.pending_count || 0);
 
             // Phase 2: Asynchronous secondary stream in background
-            Promise.all([
+            await Promise.all([
                 apiClient.getInvoices().catch(() => []),
                 apiClient.getAccountsSummary().catch(() => null),
                 apiClient.getReconciliationBatches().catch(() => []),
@@ -217,9 +216,9 @@ export function App() {
                 if (Array.isArray(invs)) { setInvoices(invs); setCached('invoices', invs); }
                 if (acc) { setAccountsData(acc); setCached('accounts', acc); }
                 if (Array.isArray(recons)) { setReconciliations(recons); setCached('reconciliations', recons); }
-                if (b2b) { 
-                    setB2BData(b2b); 
-                    setCached('b2b', b2b); 
+                if (b2b) {
+                    setB2BData(b2b);
+                    setCached('b2b', b2b);
                 } else {
                     setB2BData(prev => prev || {
                         total_credit_sales: 0,
@@ -450,7 +449,7 @@ export function App() {
         }, 0);
         const centerB2BOutstanding = filteredShipments
             .filter(s => s.customer_type === 'B2B' && s.payment_status !== 'Paid')
-            .reduce((acc, s) => acc + Math.max(0, (s.price || 0) - filteredInvoices.filter(inv => inv.shipment_id === s.id).reduce((total, inv) => total + (inv.paid || 0), 0)), 0);
+            .reduce((acc, s) => acc + Math.max(0, filteredInvoices.filter(inv => inv.shipment_id === s.id).reduce((total, inv) => total + (inv.balance || 0), 0)), 0);
 
         return {
             ...dashboardData,
@@ -501,7 +500,7 @@ export function App() {
 
     if (!isAuthenticated || !currentUser) {
         return (
-            <AuthPage 
+            <AuthPage
                 onLoginSuccess={handleLoginSuccess}
             />
         );
@@ -512,8 +511,9 @@ export function App() {
     }
 
     return (
-        <div style={{ display: 'flex', width: '100vw', height: '100vh', overflow: 'hidden' }}>
-            <Sidebar 
+        <div className="app-shell">
+            <Sidebar
+                settings={settings}
                 currentPage={currentPage}
                 activeSubPage={activeSubPage}
                 onNavigate={(page) => {
@@ -548,8 +548,8 @@ export function App() {
                                 </span>
                             </div>
                         </div>
-                        <button 
-                            type="button" 
+                        <button
+                            type="button"
                             className="fmc-welcome-dismiss"
                             onClick={() => setWelcomeGreeting(null)}
                             title="Dismiss greeting"
@@ -558,7 +558,7 @@ export function App() {
                         </button>
                     </div>
                 )}
-                <Topbar 
+                <Topbar
                     currentPage={currentPage}
                     onOpenShipmentModal={() => setIsShipmentModalOpen(true)}
                     onOpenCustomerDrawer={handleOpenCustomerDrawer}
@@ -566,14 +566,15 @@ export function App() {
                     onNavigate={navigateToPage}
                     settings={settings}
                     onDataMutated={refreshAll}
-                    onToggleSidebar={() => setIsMobileSidebarOpen(!isMobileSidebarOpen)}
+                    onToggleSidebar={() => setIsMobileSidebarOpen(open => !open)}
+                    isSidebarOpen={isMobileSidebarOpen}
                     selectedCenter={selectedCenter}
                     onSelectCenter={setSelectedCenter}
                 />
 
                 <main className="page-content">
                     {currentPage === 'dashboard' && (
-                        <Dashboard 
+                        <Dashboard
                             data={filteredDashboardData}
                             shipments={filteredShipments}
                             accountsData={filteredAccountsData}
@@ -590,7 +591,7 @@ export function App() {
                     )}
 
                     {currentPage === 'customers' && (
-                        <Customers 
+                        <Customers
                             customers={filteredCustomers}
                             selectedCenter={selectedCenter}
                             onOpenCustomerModal={() => setIsCustomerModalOpen(true)}
@@ -605,7 +606,7 @@ export function App() {
                     )}
 
                     {currentPage === 'shipments' && (
-                        <Shipments 
+                        <Shipments
                             shipments={filteredShipments}
                             selectedCenter={selectedCenter}
                             onOpenShipmentModal={() => setIsShipmentModalOpen(true)}
@@ -625,7 +626,7 @@ export function App() {
                     )}
 
                     {currentPage === 'invoices' && (
-                        <Invoices 
+                        <Invoices
                             invoices={filteredInvoices}
                             selectedCenter={selectedCenter}
                             onPreviewInvoice={setPreviewInvoice}
@@ -633,7 +634,8 @@ export function App() {
                     )}
 
                     {currentPage === 'accounts' && (
-                        <Accounts 
+                        <Accounts
+                            onRefresh={refreshAll}
                             accountsData={filteredAccountsData}
                             reconciliations={reconciliations}
                             selectedCenter={selectedCenter}
@@ -645,7 +647,7 @@ export function App() {
                     )}
 
                     {currentPage === 'b2b' && (
-                        <B2B 
+                        <B2B
                             b2bData={filteredB2BData}
                             selectedCenter={selectedCenter}
                             onOpenCustomerDrawer={handleOpenCustomerDrawer}
@@ -655,7 +657,7 @@ export function App() {
                     )}
 
                     {currentPage === 'refunds' && (
-                        <Refunds 
+                        <Refunds
                             refunds={filteredRefunds}
                             selectedCenter={selectedCenter}
                             onOpenRefundModal={() => setIsRefundModalOpen(true)}
@@ -666,27 +668,29 @@ export function App() {
                     )}
 
                     {currentPage === 'followups' && (
-                        <Followups 
+                        <Followups
                             followups={filteredFollowups}
                             selectedCenter={selectedCenter}
+                            customers={filteredCustomers}
+                            onRefresh={() => refreshAll(false)}
                             onCompleteFollowup={handleCompleteFollowup}
                             onOpenCommModal={handleOpenCommModal}
                         />
                     )}
 
                     {currentPage === 'reports' && (
-                        <Reports activeTab={activeSubPage} />
+                        <Reports activeTab={activeSubPage} refreshKey={dashboardData} />
                     )}
 
                     {currentPage === 'users' && (
-                        <Users 
-                            settings={settings} 
+                        <Users
+                            settings={settings}
                             onDataMutated={refreshAll}
                         />
                     )}
 
                     {currentPage === 'settings' && (
-                        <Settings 
+                        <Settings
                             settings={settings}
                             onUpdateSettings={async (newSetts) => {
                                 await apiClient.updateSettings(newSetts);
@@ -698,7 +702,7 @@ export function App() {
             </div>
 
             {/* Modals & Customer 360 Drawer */}
-            <CustomerDrawer 
+            <CustomerDrawer
                 isOpen={isDrawerOpen || isDrawerLoading}
                 isLoading={isDrawerLoading}
                 onClose={() => {
@@ -710,34 +714,34 @@ export function App() {
                 onPreviewInvoice={setPreviewInvoice}
             />
 
-            <ShipmentModal 
+            <ShipmentModal
                 isOpen={isShipmentModalOpen}
                 onClose={() => setIsShipmentModalOpen(false)}
                 onCreated={refreshAll}
                 settings={settings}
             />
 
-            <CustomerModal 
+            <CustomerModal
                 isOpen={isCustomerModalOpen}
                 onClose={() => setIsCustomerModalOpen(false)}
                 onCreated={refreshAll}
             />
 
-            <InvoiceModal 
+            <InvoiceModal
                 isOpen={!!previewInvoice}
                 onClose={() => setPreviewInvoice(null)}
                 invoice={previewInvoice}
                 onPaymentRecorded={refreshAll}
             />
 
-            <ReconciliationModal 
+            {isReconModalOpen && <ReconciliationModal
                 isOpen={isReconModalOpen}
                 onClose={() => setIsReconModalOpen(false)}
                 onReconciled={refreshAll}
                 settings={settings}
-            />
+            />}
 
-            <WalletRechargeModal 
+            <WalletRechargeModal
                 isOpen={isWalletModalOpen}
                 onClose={() => setIsWalletModalOpen(false)}
                 walletName={activeWalletName}
@@ -745,13 +749,13 @@ export function App() {
                 settings={settings}
             />
 
-            <RefundModal 
+            <RefundModal
                 isOpen={isRefundModalOpen}
                 onClose={() => setIsRefundModalOpen(false)}
                 onCreated={refreshAll}
             />
 
-            <CommunicationModal 
+            <CommunicationModal
                 isOpen={isCommModalOpen}
                 onClose={() => setIsCommModalOpen(false)}
                 customerName={activeCommCustomer}
@@ -759,21 +763,19 @@ export function App() {
                 settings={settings}
             />
 
-            <B2BCompanyModal 
+            <B2BCompanyModal
                 isOpen={isB2BModalOpen}
                 onClose={() => setIsB2BModalOpen(false)}
                 onCreated={refreshAll}
             />
 
-            <ShipmentStatusModal 
+            <ShipmentStatusModal
                 isOpen={!!selectedStatusShipment}
                 onClose={() => setSelectedStatusShipment(null)}
                 shipment={selectedStatusShipment}
                 onUpdated={refreshAll}
             />
 
-            {/* Enterprise Step-Up MFA Dialog */}
-            <StepUpModal />
 
             {/* Floating Toast Notification */}
             {toast && (

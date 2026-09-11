@@ -1,11 +1,14 @@
 import React, { useState } from 'react';
 import { X, Printer, Mail, CreditCard, CheckCircle2, Loader2 } from 'lucide-react';
 import { apiClient } from '../api/client';
+import { useAuth } from '../context/AuthContext';
 import { WhatsAppIcon, CourierLogo } from './CourierLogos';
 import { FlyMyCartLogo } from './FlyMyCartLogo';
-import { BLUE_DART_TRACKING_URL, getTrackingUrl, TrackingLink } from './TrackingLink';
+import { getTrackingUrl, TrackingLink } from './TrackingLink';
 
 const InvoiceModal = ({ isOpen, onClose, invoice, onPaymentRecorded }) => {
+    const { hasPermission } = useAuth();
+    const canRecordPayment = hasPermission('invoices.edit');
     const [isRecordingPayment, setIsRecordingPayment] = useState(false);
     const [isSubmittingPayment, setIsSubmittingPayment] = useState(false);
     const [paymentAmount, setPaymentAmount] = useState('');
@@ -24,7 +27,7 @@ const InvoiceModal = ({ isOpen, onClose, invoice, onPaymentRecorded }) => {
 
     const handleWhatsAppShare = () => {
         const msg = encodeURIComponent(
-            `Dear ${invoice.customer_name},\n\nThank you for choosing Fly My Cart Logistics!\n\n📄 Invoice: ${invoice.invoice_no}\n📦 AWB: ${invoice.awb}\n💰 Total Amount: ₹${invoice.total}\n💳 Amount Paid: ₹${invoice.paid}\n⚠️ Balance: ₹${invoice.balance}\n\n${getTrackingUrl(invoice.courier) ? `Track your Blue Dart shipment: ${BLUE_DART_TRACKING_URL}` : `Contact Fly My Cart for tracking assistance.`}\n\nFly My Cart Bangalore Hub`
+            `Dear ${invoice.customer_name},\n\nThank you for choosing Fly My Cart Logistics!\n\n📄 Invoice: ${invoice.invoice_no}\n📦 AWB: ${invoice.awb}\n💰 Total Amount: ₹${invoice.total}\n💳 Amount Paid: ₹${invoice.paid}\n⚠️ Balance: ₹${invoice.balance}\n\n${getTrackingUrl(invoice.courier) ? `Track your ${invoice.courier} shipment: ${getTrackingUrl(invoice.courier)}` : `Contact Fly My Cart for tracking assistance.`}\n\nFly My Cart Bangalore Hub`
         );
         window.open(`https://wa.me/?text=${msg}`, '_blank');
     };
@@ -39,6 +42,7 @@ const InvoiceModal = ({ isOpen, onClose, invoice, onPaymentRecorded }) => {
 
     const handleSubmitPayment = async (e) => {
         e.preventDefault();
+        if (!canRecordPayment || isSubmittingPayment) return;
         const amt = parseFloat(paymentAmount);
         if (!amt || amt <= 0) {
             alert('Please enter a valid payment amount');
@@ -104,7 +108,7 @@ const InvoiceModal = ({ isOpen, onClose, invoice, onPaymentRecorded }) => {
                     </div>
 
                     {/* Metadata Grid */}
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px', marginBottom: '18px' }}>
+                    <div className="invoice-metadata-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px', marginBottom: '18px' }}>
                         <div style={{ background: 'var(--bg-app)', padding: '12px 14px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--card-border)' }}>
                             <div style={{ fontSize: '10.5px', fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Billed Customer:</div>
                             <div style={{ fontSize: '14px', fontWeight: 800, color: 'var(--text-main)', marginTop: '3px' }}>{invoice.customer_name}</div>
@@ -139,12 +143,15 @@ const InvoiceModal = ({ isOpen, onClose, invoice, onPaymentRecorded }) => {
                     {/* Total Box */}
                     <div style={{ marginLeft: 'auto', maxWidth: '300px', background: 'var(--bg-app)', padding: '14px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--card-border)' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12.5px', marginBottom: '6px' }}>
-                            <span>Subtotal:</span><strong>{formatCurrency(invoice.total)}</strong>
+                            <span>Subtotal:</span><strong>{formatCurrency(invoice.amount)}</strong>
                         </div>
                         <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: 'var(--text-muted)', marginBottom: '6px' }}>
-                            <span>GST (18% inclusive):</span><span>₹0.00</span>
+                            <span>GST{invoice.gst > 0 ? " (18%)" : ""}:</span><span>{formatCurrency(invoice.gst)}</span>
                         </div>
                         <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12.5px', color: 'var(--emerald)', marginBottom: '6px' }}>
+                            <span>Invoice total:</span><strong>{formatCurrency(invoice.total)}</strong>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
                             <span>Amount Collected:</span><strong>{formatCurrency(invoice.paid)}</strong>
                         </div>
                         <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '15px', fontWeight: 800, borderTop: '2px solid var(--card-border)', paddingTop: '8px', color: invoice.balance > 0 ? 'var(--rose)' : 'var(--emerald)' }}>
@@ -154,10 +161,10 @@ const InvoiceModal = ({ isOpen, onClose, invoice, onPaymentRecorded }) => {
                 </div>
 
                 {/* Record Payment Drawer Form if toggled */}
-                {isRecordingPayment && (
+                {canRecordPayment && isRecordingPayment && (
                     <form onSubmit={handleSubmitPayment} style={{ background: 'var(--bg-app)', padding: '14px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--primary-blue)', marginTop: '14px' }}>
                         <h4 style={{ fontSize: '13px', fontWeight: 800, marginBottom: '10px', color: 'var(--primary-blue)' }}>💳 Record Payment Settlement</h4>
-                        <div className="form-grid" style={{ gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '8px' }}>
+                        <div className="form-grid invoice-payment-grid" style={{ gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '8px' }}>
                             <div className="form-group">
                                 <label>Amount (₹)</label>
                                 <input type="number" min="1" max={invoice.balance} value={paymentAmount} onChange={e => setPaymentAmount(e.target.value)} placeholder={`Max ${invoice.balance}`} required />
@@ -213,7 +220,7 @@ const InvoiceModal = ({ isOpen, onClose, invoice, onPaymentRecorded }) => {
                 {/* Footer Action Bar */}
                 <div className="form-actions" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '18px', paddingTop: '14px', borderTop: '1px solid var(--card-border)' }}>
                     <div>
-                        {invoice.balance > 0 && !isRecordingPayment && (
+                        {canRecordPayment && invoice.balance > 0 && !isRecordingPayment && (
                             <button 
                                 className="btn btn-sm btn-outline" 
                                 style={{ color: 'var(--emerald)', borderColor: 'var(--emerald)', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: '6px' }} 

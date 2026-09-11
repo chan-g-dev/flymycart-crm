@@ -15,6 +15,7 @@ from app.models import UserProfile, Profile, AppSession, Role, Permission, RoleP
 from app.auth import (
     get_session_by_token, FALLBACK_COOKIE_NAME, SESSION_COOKIE_NAME
 )
+from app import scoping  # Register request-scoped ORM access guards.
 
 # Initialize Supabase Clients safely
 supabase_anon: Optional[Client] = None
@@ -173,7 +174,7 @@ def require_permission(permission_code: str, minimum_scope: str = "own"):
     Reusable FastAPI dependency ensuring user holds specific granular permission and adequate scope.
     Deny-by-default: If permission is not explicitly granted, returns 403 Forbidden.
     """
-    def permission_checker(ctx: Dict[str, Any] = Depends(get_current_session_context)) -> Dict[str, Any]:
+    def permission_checker(ctx: Dict[str, Any] = Depends(get_current_session_context), db: Session = Depends(get_db)) -> Dict[str, Any]:
         if ctx.get("status") not in {"active", "approved"}:
             raise HTTPException(status_code=403, detail="Your account is awaiting Super Admin approval.")
         if ctx.get("is_super_admin", False):
@@ -190,6 +191,10 @@ def require_permission(permission_code: str, minimum_scope: str = "own"):
             )
 
         granted_scope = user_perms[permission_code]
+        if granted_scope != "all":
+            # "own" means the user's primary assigned center (DataScope.OWN_CENTER).
+            centers = ctx.get("centers", [])
+            db.info["allowed_centers"] = centers[:1] if granted_scope == "own" else centers
         if not scope_satisfies(granted_scope, minimum_scope):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,

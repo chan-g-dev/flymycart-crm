@@ -36,7 +36,7 @@ def own_booking(db, booking_id, ctx):
 def submit_booking(payload: BookingRequestCreate, ctx=Depends(customer_context), db: Session = Depends(get_db)):
     customer = db.get(Customer, ctx["customer_id"])
     values = payload.model_dump(exclude={"parcels"})
-    divisor = 4000 if any(t in (payload.preferred_service or "").lower() for t in ("cargo", "ltl")) else 5000
+    divisor = 4000 if any(t in (payload.preferred_service or "").lower() for t in ("cargo",)) else 5000
     vol, chargeable = calculate_volumetric_and_chargeable_weight(payload.length, payload.width, payload.height, payload.actual_weight, divisor)
     booking = BookingRequest(**values, request_no=f"REQ-{uuid.uuid4().hex[:12].upper()}",
         customer_id=customer.id, customer_name=customer.name, customer_phone=customer.mobile,
@@ -115,9 +115,9 @@ def convert_booking(booking_id: str, payload: BookingConvertToShipmentRequest, r
         customer_id=booking.customer_id, customer_name=booking.customer_name, customer_type=booking.customer_type,
         b2b_company_id=booking.b2b_company_id, pickup_date=booking.pickup_date,
         domestic_international=booking.shipment_type, status="Booked",
-        sender={"name": booking.sender_name, "phone": booking.sender_phone, "address": booking.sender_address},
+        sender={"name": booking.sender_name, "phone": booking.sender_phone, "address": booking.sender_address, "email": booking.sender_email},
         receiver={"name": booking.receiver_name, "phone": booking.receiver_phone, "address": booking.receiver_address,
-            "city": booking.receiver_city, "country": booking.receiver_country, "zip": booking.receiver_zip},
+            "city": booking.receiver_city, "country": booking.receiver_country, "zip": booking.receiver_zip, "email": booking.receiver_email, "state": booking.receiver_state},
         parcel={"description": booking.parcel_description, "packages_count": booking.packages_count,
             "actual_weight": booking.actual_weight, "length": booking.length, "width": booking.width, "height": booking.height,
             "boxes": [{"length": p.length, "width": p.width, "height": p.height, "actual_weight": p.actual_weight} for p in booking.parcels]})

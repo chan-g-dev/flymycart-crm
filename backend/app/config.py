@@ -12,7 +12,7 @@ class Settings(BaseSettings):
         case_sensitive=True,
         # `.env.local` is ignored by git and may override `.env` for a developer
         # workstation. Real process environment variables still take precedence.
-        env_file=(".env", ".env.local"),
+        env_file=None if os.getenv("ENVIRONMENT") == "production" else (".env", ".env.local"),
         extra="ignore"
     )
 
@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     API_V1_PREFIX: str = "/api"
     ENVIRONMENT: str = os.getenv("ENVIRONMENT", "development")
     DEBUG: bool = False
+    REMINDERS_ENABLED: bool = True
 
     @field_validator("DEBUG", mode="before")
     @classmethod

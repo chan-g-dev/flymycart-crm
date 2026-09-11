@@ -3,6 +3,8 @@
 # ================================================================
 
 import uuid
+from pathlib import PurePosixPath
+from urllib.parse import quote
 import datetime
 from typing import List, Optional, Dict, Any
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, File, UploadFile, Form, Response
@@ -11,10 +13,10 @@ from sqlalchemy import desc, func, or_, case
 
 from app.database import get_db
 from app.models import (
-    Customer, Shipment, Invoice, Refund,
+    Customer, B2BCompany, Shipment, Invoice, Refund,
     Followup, CommunicationLog, AuditLog
 )
-from app.collections import shipment_paid_map, shipment_payments_query
+from app.collections import shipment_total_map, shipment_paid_map, shipment_payments_query
 from app.schemas import CustomerCreate, CustomerOut
 from app.auth import get_current_user_context, create_audit_log, mask_shipment_financials
 from app.dependencies import require_permission, get_current_session_context
@@ -73,7 +75,7 @@ def get_customers(
     customer_rows = query.all()
     ids = [customer.id for customer in customer_rows]
     paid = shipment_payments_query(db).subquery()
-    balance = case((Shipment.price > func.coalesce(paid.c.paid, 0), Shipment.price - func.coalesce(paid.c.paid, 0)), else_=0)
+    balance = case((func.coalesce(paid.c.total, Shipment.price) > func.coalesce(paid.c.paid, 0), func.coalesce(paid.c.total, Shipment.price) - func.coalesce(paid.c.paid, 0)), else_=0)
     stats = db.query(Shipment.customer_id, func.count(Shipment.id), func.sum(Shipment.price), func.sum(balance)).outerjoin(
         paid, paid.c.shipment_id == Shipment.id).filter(Shipment.customer_id.in_(ids)).group_by(Shipment.customer_id).all() if ids else []
     by_customer = {row[0]: row[1:] for row in stats}
@@ -123,12 +125,27 @@ def get_customer_360(
     customer = db.query(Customer).filter(Customer.id == customer_id).first()
     if not customer:
         customer = db.query(Customer).filter(Customer.name == customer_id).first()
+    company = None
     if not customer:
+        company = db.query(B2BCompany).filter(B2BCompany.id == customer_id).first()
+    if not customer and not company:
         raise HTTPException(status_code=404, detail="Customer profile not found")
 
-    shipments_raw = db.query(Shipment).filter(
-        Shipment.customer_id == customer.id
-    ).order_by(desc(Shipment.created_at)).all()
+    customer_ids = [customer.id] if customer else [row.id for row in db.query(Customer).filter(
+        or_(Customer.b2b_company_id == company.id,
+            func.lower(Customer.company) == company.company_name.strip().lower(),
+            func.lower(Customer.name) == company.company_name.strip().lower())
+    ).all()]
+    shipment_filter = Shipment.customer_id.in_(customer_ids)
+    if company:
+        shipment_filter = or_(shipment_filter, Shipment.b2b_company_id == company.id)
+    shipments_raw = db.query(Shipment).filter(shipment_filter).order_by(desc(Shipment.created_at)).all()
+    customer_profile = customer if customer else {
+        "id": company.id, "name": company.company_name, "company": company.company_name,
+        "mobile": company.mobile, "customer_type": "B2B",
+        "credit_limit": company.credit_limit, "credit_period_days": company.credit_period_days,
+        "documents": [],
+    }
 
     shipments = []
     for s in shipments_raw:
@@ -157,27 +174,28 @@ def get_customer_360(
         shipments.append(mask_shipment_financials(s_dict, ctx))
 
     invoices = db.query(Invoice).filter(
-        Invoice.customer_id == customer.id
+        or_(Invoice.customer_id.in_(customer_ids), Invoice.b2b_company_id == company.id) if company else Invoice.customer_id.in_(customer_ids)
     ).order_by(desc(Invoice.created_at)).all()
 
     followups = db.query(Followup).filter(
-        Followup.customer_id == customer.id
+        Followup.customer_id.in_(customer_ids)
     ).order_by(desc(Followup.created_at)).all()
 
     comms = db.query(CommunicationLog).filter(
-        CommunicationLog.customer_id == customer.id
+        CommunicationLog.customer_id.in_(customer_ids)
     ).order_by(desc(CommunicationLog.created_at)).all()
 
     refunds = db.query(Refund).filter(
-        Refund.customer_id == customer.id
+        Refund.customer_id.in_(customer_ids)
     ).order_by(desc(Refund.created_at)).all()
 
     total_spent = sum(s.price for s in shipments_raw)
     paid = shipment_paid_map(db)
-    total_outstanding = sum(max(0, s.price - paid.get(s.id, 0)) for s in shipments_raw)
+    billed = shipment_total_map(db, [s.id for s in shipments_raw])
+    total_outstanding = sum(max(0, billed.get(s.id, s.price) - paid.get(s.id, 0)) for s in shipments_raw)
 
     return {
-        "customer": customer,
+        "customer": customer_profile,
         "total_bookings": len(shipments_raw),
         "total_spent": total_spent,
         "outstanding_balance": total_outstanding,
@@ -337,11 +355,13 @@ async def upload_customer_document(
     doc_url = None
     file_name = None
     if file:
-        file_bytes = await file.read()
-        clean_fname = file.filename.replace(" ", "_") if file.filename else f"doc_{uuid.uuid4().hex[:6]}.pdf"
+        file_bytes = await file.read(10 * 1024 * 1024 + 1)
+        if len(file_bytes) > 10 * 1024 * 1024:
+            raise HTTPException(413, "Documents must be at most 10 MB")
+        clean_fname = PurePosixPath((file.filename or "document").replace("\\", "/")).name.replace(" ", "_")
         file_name = clean_fname
         content_type = file.content_type or "application/pdf"
-        doc_url = storage_manager.upload_file(file_bytes, f"kyc/{customer.id}_{clean_fname}", content_type)
+        doc_url = storage_manager.upload_file(file_bytes, f"kyc/{customer.id}/{uuid.uuid4().hex}/{clean_fname}", content_type)
 
     doc_record = {
         "id": f"doc_{uuid.uuid4().hex[:8]}",
@@ -386,3 +406,20 @@ def get_customer_documents(
         raise HTTPException(status_code=404, detail="Customer not found.")
     return customer.documents or []
 
+
+
+@customers_router.get("/{customer_id}/documents/{document_id}/download")
+def download_customer_document(customer_id: str, document_id: str,
+    ctx: Dict[str, Any] = Depends(require_permission("customers.view")),
+    db: Session = Depends(get_db)):
+    customer = db.query(Customer).filter(Customer.id == customer_id).first()
+    if not customer:
+        raise HTTPException(404, "Customer not found")
+    document = next((d for d in (customer.documents or []) if d.get('id') == document_id), None)
+    if not document or not (document.get('url') or document.get('file_url')):
+        raise HTTPException(404, "Document not found")
+    content = storage_manager.download_file(document.get('url') or document.get('file_url'))
+    name = quote(document.get('file_name') or document.get('filename') or 'document', safe='')
+    return Response(content, media_type='application/octet-stream', headers={
+        'Content-Disposition': "attachment; filename*=UTF-8''" + name,
+        'Cache-Control': 'no-store'})

@@ -107,6 +107,7 @@ export const apiClient = {
 
     // Dashboard
     getDashboardSummary: () => api.get('/dashboard/summary').then(res => res.data),
+    recordAccountingEntry: (data) => api.post('/accounts/entries', data).then(res => res.data),
 
     // Customers
     getCustomers: (params) => api.get('/customers/', { params }).then(res => res.data),
@@ -118,6 +119,7 @@ export const apiClient = {
     uploadCustomerDocument: (id, formData) => api.post(`/customers/${id}/documents`, formData, {
         headers: { 'Content-Type': 'multipart/form-data' }
     }).then(res => res.data),
+    downloadCustomerDocument: (id, docId) => api.get(`/customers/${id}/documents/${docId}/download`, { responseType: 'blob' }).then(res => res.data),
     getCustomerDocuments: (id) => api.get(`/customers/${id}/documents`).then(res => res.data),
 
     // Shipments
@@ -133,6 +135,11 @@ export const apiClient = {
 
     // Accounts & Wallets
     getAccountsSummary: () => api.get('/accounts/summary').then(res => res.data),
+    getDateRangeReport: (date_from, date_to) => api.get('/reports/range', { params: { date_from, date_to } }).then(res => res.data),
+    getAccountReceipts: params => api.get('/accounts/receipts', { params }).then(res => res.data),
+    getAccountCheckOptions: () => api.get('/accounts/check-options').then(res => res.data),
+    getAccountChecks: params => api.get('/accounts/checks', { params }).then(res => res.data),
+    recordAccountCheck: data => api.post('/accounts/checks', data).then(res => res.data),
     getWalletTransactions: (walletName) => api.get(`/accounts/wallets/${walletName}/transactions`).then(res => res.data),
     rechargeWallet: (data) => api.post('/accounts/wallets/recharge', data).then(res => res.data),
 

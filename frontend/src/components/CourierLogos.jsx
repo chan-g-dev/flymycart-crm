@@ -73,13 +73,6 @@ export const SreeMaruthiLogo = ({ height = 16 }) => (
     </svg>
 );
 
-export const LTLLogo = ({ height = 16 }) => (
-    <svg height={height} viewBox="0 0 80 24" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ verticalAlign: 'middle', display: 'inline-block' }}>
-        <rect width="80" height="24" rx="4" fill="#334155" />
-        <text x="40" y="16.5" fontFamily="'Arial Black', sans-serif" fontSize="12" fontWeight="900" fill="#38BDF8" textAnchor="middle" letterSpacing="0.8">LTL CARGO</text>
-    </svg>
-);
-
 // Official WhatsApp Vector Icon
 export const WhatsAppIcon = ({ size = 15, color = '#25D366' }) => (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ verticalAlign: 'middle', display: 'inline-block' }}>
@@ -110,8 +103,7 @@ export const CourierLogo = ({ courier, height = 17, showLabel = false }) => {
         logoComponent = <ICLLogo height={height} />;
     } else if (c.includes('brv')) {
         logoComponent = <BRVLogo height={height} />;
-    } else if (c.includes('ltl') || c.includes('cargo')) {
-        logoComponent = <LTLLogo height={height} />;
+
     } else {
         logoComponent = (
             <span style={{ 

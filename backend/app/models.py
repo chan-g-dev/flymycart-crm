@@ -252,6 +252,8 @@ class Shipment(Base):
     sender_name = Column(String(100), nullable=True)
     sender_phone = Column(String(20), nullable=True)
     sender_address = Column(Text, nullable=True)
+    sender_email = Column(String(150), nullable=True)
+    sender_id_proof = Column(String(100), nullable=True)
 
     # Receiver info
     receiver_name = Column(String(100), nullable=False)
@@ -260,6 +262,9 @@ class Shipment(Base):
     receiver_city = Column(String(100), nullable=False)
     receiver_country = Column(String(100), nullable=False)
     receiver_zip = Column(String(20), nullable=True)
+    receiver_email = Column(String(150), nullable=True)
+    receiver_state = Column(String(100), nullable=True)
+    boxes = Column(JSON, default=list)
 
     # Parcel & weights
     description = Column(Text, nullable=True)
@@ -363,6 +368,35 @@ class PaymentCollection(Base):
     paid_to = Column(String(100), nullable=False)
     collected_by = Column(String(100), nullable=False)
     reference = Column(String(200), nullable=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+
+class AccountCheck(Base):
+    __tablename__ = "account_checks"
+    id = Column(String(50), primary_key=True, default=lambda: f"check_{uuid.uuid4().hex[:16]}")
+    date = Column(String(20), nullable=False, index=True)
+    account = Column(String(100), nullable=False, index=True)
+    center = Column(String(100), nullable=True, index=True)
+    expected_amount = Column(Float, nullable=False)
+    counted_amount = Column(Float, nullable=False)
+    difference = Column(Float, nullable=False)
+    receipt_count = Column(Integer, nullable=False)
+    notes = Column(String(1000), nullable=True)
+    checked_by = Column(String(100), nullable=False)
+    created_by = Column(String(50), nullable=False)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+
+class AccountingEntry(Base):
+    __tablename__ = "accounting_entries"
+    id = Column(String(50), primary_key=True, default=lambda: f"entry_{uuid.uuid4().hex[:16]}")
+    date = Column(String(20), nullable=False, index=True)
+    kind = Column(String(30), nullable=False)
+    provider = Column(String(100), nullable=True, index=True)
+    amount = Column(Float, nullable=False)
+    reference = Column(String(200), nullable=False)
+    account = Column(String(100), nullable=False)
+    created_by = Column(String(50), nullable=False)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
 
 

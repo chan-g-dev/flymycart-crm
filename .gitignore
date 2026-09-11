@@ -53,3 +53,7 @@ pnpm-debug.log*
 *.swo
 .DS_Store
 Thumbs.db
+
+# Local QA artifacts
+/qa-results/
+/.local-python/

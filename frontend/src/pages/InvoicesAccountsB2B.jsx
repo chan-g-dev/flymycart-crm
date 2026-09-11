@@ -1,3 +1,5 @@
+import { providerCostLabel } from '../utils/costLabels';
+import AccountChecks from '../components/AccountChecks';
 import React, { useState } from 'react';
 import { 
     Scale, 
@@ -14,6 +16,7 @@ import { useAuth } from '../context/AuthContext';
 import { CourierLogo } from '../components/CourierLogos';
 import { ContentShimmer } from '../components/ContentShimmer';
 import { TrackingLink } from '../components/TrackingLink';
+import { apiClient } from '../api/client';
 
 export const Invoices = ({ invoices, onPreviewInvoice }) => {
     const [searchVal, setSearchVal] = useState('');
@@ -59,7 +62,7 @@ export const Invoices = ({ invoices, onPreviewInvoice }) => {
     };
 
     return (
-        <div>
+        <div className="invoice-directory-page">
             <div className="page-header">
                 <div>
                     <h2 className="page-title">🧾 Invoices & Billing</h2>
@@ -73,15 +76,16 @@ export const Invoices = ({ invoices, onPreviewInvoice }) => {
                 </div>
             </div>
 
-            <div className="filter-bar">
+            <div className="filter-bar invoice-filters">
                 <input 
                     type="text" 
                     className="filter-input" 
+                    aria-label="Search invoices"
                     placeholder="Search by Invoice #, Customer or AWB..." 
                     value={searchVal}
                     onChange={e => setSearchVal(e.target.value)}
                 />
-                <select className="filter-select" value={statusVal} onChange={e => setStatusVal(e.target.value)}>
+                <select className="filter-select" aria-label="Payment status" value={statusVal} onChange={e => setStatusVal(e.target.value)}>
                     <option value="">All Payment Statuses</option>
                     <option value="Paid">Paid</option>
                     <option value="Partial">Partial</option>
@@ -91,19 +95,8 @@ export const Invoices = ({ invoices, onPreviewInvoice }) => {
             </div>
 
             <div className="table-card invoice-table-card">
-                <div className="table-wrap invoice-table-wrap">
+                <div className="table-wrap invoice-table-wrap" tabIndex={0} role="region" aria-label="Invoices table, scroll to view more invoices">
                     <table className="data-table invoice-table">
-                        <colgroup>
-                            <col style={{ width: '14%' }} />
-                            <col style={{ width: '9%' }} />
-                            <col style={{ width: '17%' }} />
-                            <col style={{ width: '16%' }} />
-                            <col style={{ width: '11%' }} />
-                            <col style={{ width: '9%' }} />
-                            <col style={{ width: '9%' }} />
-                            <col style={{ width: '7%' }} />
-                            <col style={{ width: '8%' }} />
-                        </colgroup>
                         <thead>
                             <tr>
                                 <th>Invoice #</th>
@@ -124,7 +117,7 @@ export const Invoices = ({ invoices, onPreviewInvoice }) => {
                                 filtered.map(inv => (
                                     <tr key={inv.id}>
                                         <td><strong style={{ color: 'var(--primary-blue)' }}>{inv.invoice_no}</strong></td>
-                                        <td style={{ color: 'var(--text-muted)', fontSize: '12px' }}>{formatDate(inv.date)}</td>
+                                        <td style={{ color: 'var(--text-muted)' }}>{formatDate(inv.date)}</td>
                                         <td><strong>{inv.customer_name}</strong></td>
                                         <td>
                                             <div className="invoice-awb-cell">
@@ -143,8 +136,8 @@ export const Invoices = ({ invoices, onPreviewInvoice }) => {
                                             </span>
                                         </td>
                                         <td className="invoice-actions-column">
-                                            <button className="btn btn-sm btn-primary-blue" onClick={() => onPreviewInvoice(inv)}>
-                                                <Printer size={13} /> View Invoice
+                                            <button className="btn btn-sm btn-primary-blue" title="View invoice" aria-label={`View invoice ${inv.invoice_no}`} onClick={() => onPreviewInvoice(inv)}>
+                                                <Printer size={12} style={{flexShrink: 0}} /> View
                                             </button>
                                         </td>
                                     </tr>
@@ -159,13 +152,30 @@ export const Invoices = ({ invoices, onPreviewInvoice }) => {
 };
 
 export const Accounts = ({ 
+    onRefresh,
     accountsData, 
     reconciliations, 
     onOpenWalletModal, 
     onOpenReconciliationModal,
     activeSection,
 }) => {
-    const { hasPermission } = useAuth();
+    const { hasPermission, currentUser } = useAuth();
+    const [entry, setEntry] = useState({kind: 'expense', date: new Date().toLocaleDateString('en-CA'), provider: '', amount: '', reference: '', account: ''});
+    const [saving, setSaving] = useState(false);
+    const [entryMessage, setEntryMessage] = useState('');
+    const submitEntry = async e => {
+        e.preventDefault();
+        setSaving(true);
+        setEntryMessage('');
+        try {
+            await apiClient.recordAccountingEntry({...entry, amount: Number(entry.amount), provider: entry.kind === 'expense' ? null : entry.provider});
+            setEntry(prev => ({...prev, amount: '', reference: ''}));
+            setEntryMessage('Entry recorded successfully.');
+            await onRefresh();
+        } catch (error) {
+            setEntryMessage(error.response?.data?.detail || 'Unable to record entry.');
+        } finally { setSaving(false); }
+    };
     const formatCurrency = (n) => '₹' + Number(n || 0).toLocaleString('en-IN');
     const formatDate = (d) => d ? new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '-';
 
@@ -173,23 +183,28 @@ export const Accounts = ({
         if (!activeSection) return;
         const targetMap = {
             customer_money: 'account-collections',
-            aramex_account: 'account-aramex',
-            bluedart_account: 'account-bluedart',
+            account_checks: 'account-checks',
+            aramex_account: 'provider-Aramex',
+            bluedart_account: 'provider-Blue%20Dart',
             reconciliation: 'account-reconciliation',
         };
-        const targetId = targetMap[activeSection];
+        const targetId = targetMap[activeSection] || (/^(wallet|provider)-/.test(activeSection) ? activeSection : null);
         if (!targetId) return;
         window.requestAnimationFrame(() => {
             document.getElementById(targetId)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
         });
     }, [activeSection, accountsData]);
 
+    if (!hasPermission('accounts.view')) {
+        return <div className="dash-box" role="status"><h2>Accounts access required</h2><p>Your role does not have permission to view accounts. Contact your administrator if you need access.</p></div>;
+    }
+
     if (!accountsData) {
         return <ContentShimmer message="Synchronizing Bank Ledgers, Provider Wallets & Discrepancy Logs..." />;
     }
 
     return (
-        <div>
+        <div className="accounts-page">
             <div className="page-header">
                 <div>
                     <h2 className="page-title">💰 Financial Accounts & Provider Ledgers</h2>
@@ -197,8 +212,8 @@ export const Accounts = ({
                 </div>
                 {hasPermission('runReconciliation') && (
                     <div style={{ display: 'flex', gap: '8px' }}>
-                        <button className="btn btn-outline" onClick={onOpenReconciliationModal} title="Upload carrier billing statement (CSV/TXT)">
-                            <Upload size={14} /> Upload Carrier CSV
+                        <button className="btn btn-outline" onClick={onOpenReconciliationModal} title="Upload carrier billing statement (Excel, CSV or PDF)">
+                            <Upload size={14} /> Upload Carrier Bill
                         </button>
                         <button className="btn btn-primary-blue" onClick={onOpenReconciliationModal}>
                             <Scale size={15} /> Run Provider Reconciliation
@@ -208,7 +223,7 @@ export const Accounts = ({
             </div>
 
             {/* 1. Customer Sales & Collection Highlights */}
-            <div id="account-collections" className="dash-stat-cards-grid account-nav-target" style={{ gridTemplateColumns: 'repeat(4, 1fr)', marginBottom: '16px' }}>
+            <div id="account-collections" className="dash-stat-cards-grid account-nav-target" style={{ gridTemplateColumns: 'repeat(4, 1fr)', marginBottom: '10px' }}>
                 <div className="dash-mini-card">
                     <span className="card-label">Total Customer Sales</span>
                     <div className="card-value" style={{ color: 'var(--primary-blue)' }}>{formatCurrency(accountsData.total_sales)}</div>
@@ -228,10 +243,10 @@ export const Accounts = ({
             </div>
 
             {/* Collections by Payment Method and Account Destination */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '14px', marginBottom: '20px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 280px), 1fr))', gap: '14px', marginBottom: '12px' }}>
                 <div className="dash-box">
-                    <h4 style={{ fontSize: '13px', fontWeight: 800, color: 'var(--text-main)', marginBottom: '10px' }}>💳 Collections by Payment Mode</h4>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '12.5px' }}>
+                    <h4 style={{ fontSize: '11.5px', fontWeight: 800, color: 'var(--text-main)', marginBottom: '10px' }}>💳 Collections by Payment Mode</h4>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '11px' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', borderBottom: '1px solid var(--card-border)' }}>
                             <span>💵 Cash at Counter:</span><strong>{formatCurrency(accountsData.cash_collected)}</strong>
                         </div>
@@ -245,8 +260,8 @@ export const Accounts = ({
                 </div>
 
                 <div className="dash-box">
-                    <h4 style={{ fontSize: '13px', fontWeight: 800, color: 'var(--text-main)', marginBottom: '10px' }}>🏦 Collections by Destination Account (paid_to)</h4>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '12.5px' }}>
+                    <h4 style={{ fontSize: '11.5px', fontWeight: 800, color: 'var(--text-main)', marginBottom: '10px' }}>🏦 Collections by Destination Account (paid_to)</h4>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '11px' }}>
                         {Object.entries(accountsData.collections_by_account || {}).map(([acc, amt]) => (
                             <div key={acc} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', borderBottom: '1px solid var(--card-border)' }}>
                                 <span>{acc}:</span><strong style={{ color: 'var(--emerald)' }}>{formatCurrency(amt)}</strong>
@@ -257,7 +272,20 @@ export const Accounts = ({
             </div>
 
             {/* 2 & 3. Prepaid vs Postpaid Providers */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))', gap: '18px', marginBottom: '22px' }}>
+            {(currentUser?.isSuperAdmin || currentUser?.roleId === 'super_admin') && <form className="dash-box account-transaction-form" onSubmit={submitEntry} style={{marginBottom: 12}}>
+                <h3>Record account transaction</h3>
+                <div className="form-grid">
+                    <div className="form-group"><label>Transaction</label><select value={entry.kind} onChange={e => setEntry({...entry, kind: e.target.value})}><option value="expense">Operating expense</option><option value="provider_payment">Provider payment</option><option value="provider_deposit">Security deposit</option></select></div>
+                    <div className="form-group"><label>Date</label><input required type="date" value={entry.date} onChange={e => setEntry({...entry, date: e.target.value})} /></div>
+                    {entry.kind !== 'expense' && <div className="form-group"><label>Provider</label><select required value={entry.provider} onChange={e => setEntry({...entry, provider: e.target.value})}><option value="">Select provider</option>{accountsData.postpaid_accounts?.map(p => <option key={p.name}>{p.name}</option>)}</select></div>}
+                    <div className="form-group"><label>Amount (₹)</label><input required type="number" min="0.01" step="0.01" value={entry.amount} onChange={e => setEntry({...entry, amount: e.target.value})} /></div>
+                    <div className="form-group"><label>Payment account</label><input required value={entry.account} onChange={e => setEntry({...entry, account: e.target.value})} /></div>
+                    <div className="form-group"><label>Reference / description</label><input required value={entry.reference} onChange={e => setEntry({...entry, reference: e.target.value})} /></div>
+                </div>
+                <button className="btn btn-primary-blue" disabled={saving}>{saving ? 'Recording…' : 'Record transaction'}</button>
+                {entryMessage && <p role="status">{typeof entryMessage === 'string' ? entryMessage : 'Please check the transaction details.'}</p>}
+            </form>}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 320px), 1fr))', gap: '12px', marginBottom: '10px' }}>
                 {/* Prepaid Wallets */}
                 <div className="dash-box provider-accounts-panel">
                     <div className="dash-box-header">
@@ -266,12 +294,12 @@ export const Accounts = ({
                             <h3>Prepaid Provider Wallets (Rule 1 & 2)</h3>
                         </div>
                     </div>
-                    <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '14px' }}>
+                    <p style={{ fontSize: '10.5px', color: 'var(--text-muted)', marginBottom: '10px' }}>
                         Recharge is a bank transfer to wallet. Cost occurs only when the wallet is debited on a shipment.
                     </p>
-                    <div className="provider-accounts-scroll">
+                    <div className="provider-accounts-scroll" tabIndex={0} role="region" aria-label="Provider accounts">
                     {accountsData.prepaid_wallets?.map(w => (
-                        <div key={w.name} className="dash-mini-card provider-account-card">
+                        <div id={`wallet-${encodeURIComponent(w.name)}`} key={w.name} className="dash-mini-card account-nav-target provider-account-card">
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                                 <div>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
@@ -284,7 +312,7 @@ export const Accounts = ({
                                     <Plus size={13} /> Top-up Wallet
                                 </button>
                             </div>
-                            <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '8px', borderTop: '1px solid var(--card-border)', paddingTop: '6px' }}>
+                            <div style={{ fontSize: '10.5px', color: 'var(--text-muted)', marginTop: '8px', borderTop: '1px solid var(--card-border)', paddingTop: '6px' }}>
                                 Opening: {formatCurrency(w.opening_balance)} • Recharges: {formatCurrency(w.total_recharges)} • Used: {formatCurrency(w.total_usage)}
                             </div>
                         </div>
@@ -300,19 +328,20 @@ export const Accounts = ({
                             <h3>Postpaid Provider Accounts (Rule 3 & 4)</h3>
                         </div>
                     </div>
-                    <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '14px' }}>
+                    <p style={{ fontSize: '10.5px', color: 'var(--text-muted)', marginBottom: '10px' }}>
                         Shipments accumulate unbilled predicted charges. Month-end bill upload matches AWB-by-AWB.
                     </p>
-                    <div className="provider-accounts-scroll">
+                    <div className="provider-accounts-scroll" tabIndex={0} role="region" aria-label="Provider accounts">
                     {accountsData.postpaid_accounts?.map(p => (
-                        <div id={`account-${p.name.toLowerCase().replace(/[^a-z]/g, '')}`} key={p.name} className="dash-mini-card account-nav-target provider-account-card">
+                        <div id={`provider-${encodeURIComponent(p.name)}`} key={p.name} className="dash-mini-card account-nav-target provider-account-card">
                             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
                                 <CourierLogo courier={p.name} height={16} />
                                 <div className="card-label" style={{ margin: 0 }}>{p.name} Postpaid Account</div>
                             </div>
-                            <div className="card-value" style={{ color: 'var(--rose)', margin: '4px 0' }}>{formatCurrency(p.predicted_cost)}</div>
-                            <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Unbilled Usage ({p.shipments_count} Shipments)</div>
-                            <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '8px', borderTop: '1px solid var(--card-border)', paddingTop: '6px' }}>
+                            <div className="card-value" style={{ color: 'var(--rose)', margin: '4px 0' }}>{formatCurrency(p.unbilled_usage)}</div>
+                            <p>{providerCostLabel(p.name)}: {formatCurrency(p.actual_billed)} · Paid: {formatCurrency(p.payments_made)} · Payable: {formatCurrency(p.net_payable)}</p>
+                            <div style={{ fontSize: '10.5px', color: 'var(--text-muted)' }}>Unbilled Usage ({p.shipments_count} Shipments)</div>
+                            <div style={{ fontSize: '10.5px', color: 'var(--text-muted)', marginTop: '8px', borderTop: '1px solid var(--card-border)', paddingTop: '6px' }}>
                                 Security Deposit: <strong>{formatCurrency(p.deposit)}</strong> • Terms: {p.payment_terms}
                             </div>
                         </div>
@@ -321,6 +350,7 @@ export const Accounts = ({
                 </div>
             </div>
 
+            <AccountChecks />
             {/* 4. Reconciliation History */}
             <div id="account-reconciliation" className="table-card account-nav-target">
                 <div className="dash-box-header">
@@ -331,16 +361,16 @@ export const Accounts = ({
                         </button>
                     )}
                 </div>
-                <div className="table-wrap">
-                    <table className="data-table">
+                <div className="table-wrap reconciliation-history-scroll" tabIndex={0} role="region" aria-label="Reconciliation audit log">
+                    <table className="data-table reconciliation-history-table">
                         <thead>
                             <tr>
                                 <th style={{ minWidth: '150px' }}>Batch #</th>
                                 <th style={{ minWidth: '100px' }}>Date</th>
                                 <th style={{ minWidth: '110px' }}>Provider</th>
-                                <th style={{ minWidth: '130px' }}>Predicted Total</th>
-                                <th style={{ minWidth: '130px' }}>Actual Billed</th>
-                                <th style={{ minWidth: '110px' }}>Cost Variance</th>
+                                <th style={{ minWidth: '130px' }}>Predicted Cost</th>
+                                <th style={{ minWidth: '130px' }}>Provider Cost</th>
+                                <th style={{ minWidth: '110px' }}>Difference</th>
                                 <th style={{ minWidth: '100px' }}>Status</th>
                             </tr>
                         </thead>
@@ -351,10 +381,10 @@ export const Accounts = ({
                                 reconciliations?.map(r => (
                                     <tr key={r.id}>
                                         <td><strong>{r.batch_no}</strong></td>
-                                        <td style={{ color: 'var(--text-muted)', fontSize: '12px' }}>{formatDate(r.date)}</td>
+                                        <td style={{ color: 'var(--text-muted)', fontSize: '10.5px' }}>{formatDate(r.date)}</td>
                                         <td><span className="status-pill in-transit">{r.provider}</span></td>
                                         <td>{formatCurrency(r.predicted_total)}</td>
-                                        <td><strong>{formatCurrency(r.actual_bill)}</strong></td>
+                                        <td><div className="text-muted" style={{ fontSize: '9.5px' }}>{providerCostLabel(r.provider)}</div><strong>{formatCurrency(r.actual_bill)}</strong></td>
                                         <td style={{ fontWeight: 800, color: r.variance > 0 ? 'var(--rose)' : 'var(--emerald)' }}>
                                             {r.variance > 0 ? '+' : ''}{formatCurrency(r.variance)}
                                         </td>
@@ -437,7 +467,7 @@ export const B2B = ({ b2bData, onOpenCustomerDrawer, onOpenB2BModal, onRefresh }
     };
 
     return (
-        <div>
+        <div className="b2b-directory-page">
             <div className="page-header">
                 <div>
                     <h2 className="page-title">🏢 B2B Corporate Credit & Aging Receivables</h2>
@@ -464,7 +494,7 @@ export const B2B = ({ b2bData, onOpenCustomerDrawer, onOpenB2BModal, onRefresh }
             </div>
 
             {/* KPI Cards */}
-            <div className="dash-stat-cards-grid" style={{ gridTemplateColumns: 'repeat(5, 1fr)', marginBottom: '18px' }}>
+            <div className="dash-stat-cards-grid" style={{ gridTemplateColumns: 'repeat(5, 1fr)', marginBottom: '10px' }}>
                 <div className="dash-mini-card"><span className="card-label">Total Credit Sales</span><div className="card-value">{formatCurrency(activeData.total_credit_sales)}</div></div>
                 <div className="dash-mini-card"><span className="card-label">Collected</span><div className="card-value" style={{ color: 'var(--emerald)' }}>{formatCurrency(activeData.collected)}</div></div>
                 <div className="dash-mini-card"><span className="card-label">Total Outstanding</span><div className="card-value" style={{ color: 'var(--amber)' }}>{formatCurrency(activeData.outstanding)}</div></div>
@@ -473,28 +503,28 @@ export const B2B = ({ b2bData, onOpenCustomerDrawer, onOpenB2BModal, onRefresh }
             </div>
 
             {/* 5-Bucket Aging Schedule */}
-            <div className="dash-box" style={{ marginBottom: '20px' }}>
-                <h4 style={{ fontSize: '13.5px', fontWeight: 800, color: 'var(--text-main)', marginBottom: '12px' }}>📊 5-Bucket Receivables Aging Schedule</h4>
+            <div className="dash-box" style={{ marginBottom: '12px' }}>
+                <h4 style={{ fontSize: '12px', fontWeight: 800, color: 'var(--text-main)', marginBottom: '12px' }}>📊 5-Bucket Receivables Aging Schedule</h4>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '10px' }}>
-                    <div style={{ background: 'var(--bg-app)', padding: '12px', borderRadius: 'var(--radius-sm)', textAlign: 'center', border: '1px solid var(--card-border)' }}>
-                        <div style={{ fontSize: '11px', fontWeight: 800, color: 'var(--emerald)' }}>NOT DUE</div>
-                        <div style={{ fontSize: '18px', fontWeight: 900, marginTop: '4px' }}>{formatCurrency(activeData.aging?.not_due)}</div>
+                    <div style={{ background: 'var(--bg-app)', padding: '8px', borderRadius: 'var(--radius-sm)', textAlign: 'center', border: '1px solid var(--card-border)' }}>
+                        <div style={{ fontSize: '10px', fontWeight: 800, color: 'var(--emerald)' }}>NOT DUE</div>
+                        <div style={{ fontSize: '16px', fontWeight: 900, marginTop: '4px' }}>{formatCurrency(activeData.aging?.not_due)}</div>
                     </div>
-                    <div style={{ background: 'var(--bg-app)', padding: '12px', borderRadius: 'var(--radius-sm)', textAlign: 'center', border: '1px solid var(--card-border)' }}>
-                        <div style={{ fontSize: '11px', fontWeight: 800, color: 'var(--sky)' }}>1 - 30 DAYS</div>
-                        <div style={{ fontSize: '18px', fontWeight: 900, marginTop: '4px' }}>{formatCurrency(activeData.aging?.days1_30)}</div>
+                    <div style={{ background: 'var(--bg-app)', padding: '8px', borderRadius: 'var(--radius-sm)', textAlign: 'center', border: '1px solid var(--card-border)' }}>
+                        <div style={{ fontSize: '10px', fontWeight: 800, color: 'var(--sky)' }}>1 - 30 DAYS</div>
+                        <div style={{ fontSize: '16px', fontWeight: 900, marginTop: '4px' }}>{formatCurrency(activeData.aging?.days1_30)}</div>
                     </div>
-                    <div style={{ background: 'var(--bg-app)', padding: '12px', borderRadius: 'var(--radius-sm)', textAlign: 'center', border: '1px solid var(--card-border)' }}>
-                        <div style={{ fontSize: '11px', fontWeight: 800, color: 'var(--amber)' }}>31 - 60 DAYS</div>
-                        <div style={{ fontSize: '18px', fontWeight: 900, marginTop: '4px' }}>{formatCurrency(activeData.aging?.days31_60)}</div>
+                    <div style={{ background: 'var(--bg-app)', padding: '8px', borderRadius: 'var(--radius-sm)', textAlign: 'center', border: '1px solid var(--card-border)' }}>
+                        <div style={{ fontSize: '10px', fontWeight: 800, color: 'var(--amber)' }}>31 - 60 DAYS</div>
+                        <div style={{ fontSize: '16px', fontWeight: 900, marginTop: '4px' }}>{formatCurrency(activeData.aging?.days31_60)}</div>
                     </div>
-                    <div style={{ background: 'var(--bg-app)', padding: '12px', borderRadius: 'var(--radius-sm)', textAlign: 'center', border: '1px solid var(--card-border)' }}>
-                        <div style={{ fontSize: '11px', fontWeight: 800, color: '#8b5cf6' }}>61 - 90 DAYS</div>
-                        <div style={{ fontSize: '18px', fontWeight: 900, marginTop: '4px' }}>{formatCurrency(activeData.aging?.days61_90)}</div>
+                    <div style={{ background: 'var(--bg-app)', padding: '8px', borderRadius: 'var(--radius-sm)', textAlign: 'center', border: '1px solid var(--card-border)' }}>
+                        <div style={{ fontSize: '10px', fontWeight: 800, color: '#8b5cf6' }}>61 - 90 DAYS</div>
+                        <div style={{ fontSize: '16px', fontWeight: 900, marginTop: '4px' }}>{formatCurrency(activeData.aging?.days61_90)}</div>
                     </div>
-                    <div style={{ background: 'var(--bg-app)', padding: '12px', borderRadius: 'var(--radius-sm)', textAlign: 'center', border: '1px solid var(--card-border)' }}>
-                        <div style={{ fontSize: '11px', fontWeight: 800, color: 'var(--rose)' }}>90+ DAYS OVERDUE</div>
-                        <div style={{ fontSize: '18px', fontWeight: 900, marginTop: '4px', color: 'var(--rose)' }}>{formatCurrency(activeData.aging?.days90_plus)}</div>
+                    <div style={{ background: 'var(--bg-app)', padding: '8px', borderRadius: 'var(--radius-sm)', textAlign: 'center', border: '1px solid var(--card-border)' }}>
+                        <div style={{ fontSize: '10px', fontWeight: 800, color: 'var(--rose)' }}>90+ DAYS OVERDUE</div>
+                        <div style={{ fontSize: '16px', fontWeight: 900, marginTop: '4px', color: 'var(--rose)' }}>{formatCurrency(activeData.aging?.days90_plus)}</div>
                     </div>
                 </div>
             </div>
@@ -504,8 +534,8 @@ export const B2B = ({ b2bData, onOpenCustomerDrawer, onOpenB2BModal, onRefresh }
                 <div className="dash-box-header">
                     <h3>Registered B2B Corporate Clients</h3>
                 </div>
-                <div className="table-wrap">
-                    <table className="data-table">
+                <div className="table-wrap b2b-directory-scroll" tabIndex={0} role="region" aria-label="B2B corporate clients">
+                    <table className="data-table b2b-directory-table">
                         <thead>
                             <tr>
                                 <th style={{ minWidth: '180px' }}>Company / Contact</th>
@@ -515,7 +545,7 @@ export const B2B = ({ b2bData, onOpenCustomerDrawer, onOpenB2BModal, onRefresh }
                                 <th style={{ minWidth: '120px' }}>Limit Utilized</th>
                                 <th style={{ minWidth: '100px' }}>Terms</th>
                                 <th style={{ minWidth: '110px' }}>Status</th>
-                                <th style={{ minWidth: '100px', textAlign: 'right' }}>Action</th>
+                                <th style={{ minWidth: '100px', textAlign: 'center' }}>Action</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -526,7 +556,7 @@ export const B2B = ({ b2bData, onOpenCustomerDrawer, onOpenB2BModal, onRefresh }
                                         <tr key={c.id}>
                                             <td>
                                                 <strong style={{ color: 'var(--text-main)' }}>{c.company}</strong>
-                                                <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>{c.contact_name}</div>
+                                                <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginTop: '2px' }}>{c.contact_name}</div>
                                             </td>
                                             <td>{c.mobile}</td>
                                             <td>{formatCurrency(c.credit_limit)}</td>
@@ -536,7 +566,7 @@ export const B2B = ({ b2bData, onOpenCustomerDrawer, onOpenB2BModal, onRefresh }
                                                     <div style={{ flex: 1, height: '6px', background: 'var(--bg-app)', borderRadius: '3px', overflow: 'hidden' }}>
                                                         <div style={{ width: `${Math.min(100, util)}%`, height: '100%', background: util > 85 ? 'var(--rose)' : (util > 50 ? 'var(--amber)' : 'var(--emerald)') }}></div>
                                                     </div>
-                                                    <span style={{ fontSize: '11px', fontWeight: 700 }}>{util}%</span>
+                                                    <span style={{ fontSize: '10px', fontWeight: 700 }}>{util}%</span>
                                                 </div>
                                             </td>
                                             <td><span className="status-pill in-transit">{c.credit_period_days} Days</span></td>
@@ -545,7 +575,7 @@ export const B2B = ({ b2bData, onOpenCustomerDrawer, onOpenB2BModal, onRefresh }
                                                     {c.status}
                                                 </span>
                                             </td>
-                                            <td style={{ textAlign: 'right' }}>
+                                            <td style={{ textAlign: 'center' }}>
                                                 <button className="btn btn-sm btn-outline" onClick={() => onOpenCustomerDrawer(c.id)}>
                                                     Statement
                                                 </button>

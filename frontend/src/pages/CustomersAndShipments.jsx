@@ -74,7 +74,7 @@ export const Customers = ({
     const c2cCount = (customers || []).filter(c => c.customer_type === 'C2C').length;
 
     return (
-        <div>
+        <div className="customer-directory-page">
             {/* Header with KPI chips */}
             <div className="page-header">
                 <div>
@@ -99,7 +99,7 @@ export const Customers = ({
 
             {/* Filter Search Bar */}
             <div className="filter-bar">
-                <div style={{ position: 'relative', flex: 1, minWidth: '260px' }}>
+                <div style={{ position: 'relative', flex: 1, minWidth: 'min(260px, 100%)' }}>
                     <Search size={15} color="var(--text-muted)" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)' }} />
                     <input 
                         type="text" 
@@ -120,17 +120,17 @@ export const Customers = ({
 
             {/* Customers Table */}
             <div className="table-card">
-                <div className="table-wrap">
-                    <table className="data-table">
+                <div className="table-wrap customer-directory-scroll" role="region" aria-label="Customer directory" tabIndex={0}>
+                    <table className="data-table customer-directory-table">
                         <thead>
                             <tr>
-                                <th style={{ width: '22%' }}>Customer Name</th>
-                                <th style={{ width: '20%' }}>Contact Info</th>
-                                <th style={{ width: '8%', textAlign: 'center' }}>Type</th>
+                                <th style={{ width: '18%' }}>Customer Name</th>
+                                <th style={{ width: '24%' }}>Contact Info</th>
+                                <th style={{ width: '7%' }}>Type</th>
                                 <th style={{ width: '16%' }}>Center</th>
-                                <th style={{ width: '10%' }}>Shipments</th>
-                                <th style={{ width: '12%' }}>Total Spend</th>
-                                <th style={{ width: '12%', textAlign: 'right' }}>Actions</th>
+                                <th style={{ width: '9%' }}>Shipments</th>
+                                <th style={{ width: '10%' }}>Total Spend</th>
+                                <th style={{ width: '16%' }}>Actions</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -142,17 +142,17 @@ export const Customers = ({
                                 customers?.map(c => (
                                     <tr key={c.id}>
                                         <td>
-                                            <div style={{ fontWeight: 800, color: 'var(--text-main)', fontSize: '13px' }}>{c.name}</div>
-                                            <div style={{ fontSize: '11px', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '4px', marginTop: '1px' }}>
+                                            <div style={{ fontWeight: 700, color: 'var(--text-main)', fontSize: '10.5px' }}>{c.name}</div>
+                                            <div style={{ fontSize: '10px', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '4px', marginTop: '1px' }}>
                                                 {c.company ? <><Building size={11} /> {c.company}</> : 'Individual Walk-in'}
                                             </div>
                                         </td>
                                         <td>
-                                            <div style={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: '5px', fontSize: '12.5px' }}>
+                                            <div style={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: '5px', fontSize: '11.5px' }}>
                                                 <Phone size={12} color="var(--emerald)" /> {c.mobile}
                                             </div>
                                             {c.email && (
-                                                <div style={{ fontSize: '11px', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '4px', marginTop: '1px' }}>
+                                                <div style={{ fontSize: '10px', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '4px', marginTop: '1px' }}>
                                                     <Mail size={11} /> {c.email}
                                                 </div>
                                             )}
@@ -168,16 +168,18 @@ export const Customers = ({
                                             </span>
                                         </td>
                                         <td>
-                                            <strong style={{ fontSize: '13px', color: 'var(--text-main)' }}>{c.total_bookings || 0}</strong> <span style={{ color: 'var(--text-muted)', fontSize: '11px' }}>{c.total_bookings === 1 ? 'booking' : 'bookings'}</span>
+                                            <strong style={{ fontSize: '11.5px', color: 'var(--text-main)' }}>{c.total_bookings || 0}</strong> <span style={{ color: 'var(--text-muted)', fontSize: '10px' }}>{c.total_bookings === 1 ? 'booking' : 'bookings'}</span>
                                         </td>
-                                        <td style={{ fontWeight: 800, color: 'var(--text-main)', fontSize: '13px' }}>
+                                        <td style={{ fontWeight: 800, color: 'var(--text-main)', fontSize: '11.5px' }}>
                                             {formatCurrency(c.total_spend || 0)}
                                         </td>
-                                        <td style={{ textAlign: 'right' }}>
-                                            <div style={{ display: 'inline-flex', alignItems: 'center', gap: '5px' }}>
-                                                <button className="btn-action-360" onClick={() => onOpenCustomerDrawer(c.id)}>
-                                                    <History size={12} />
-                                                    <span>360° Profile</span>
+                                        <td className="customer-actions-cell">
+                                            <div className="customer-actions-stack">
+                                                <button className="btn-action-customer" onClick={() => onOpenCustomerDrawer(c.id)}>
+                                                    <History size={13} />
+                                                    <span>
+                                                        <strong>View customer</strong>
+                                                    </span>
                                                 </button>
                                                 {hasPermission('deleteShipment') && (
                                                     <button 
@@ -322,6 +324,8 @@ export const Shipments = ({
     const [searchVal, setSearchVal] = useState('');
     const [statusVal, setStatusVal] = useState('');
     const [courierVal, setCourierVal] = useState('');
+    const [billingType, setBillingType] = useState('');
+    const visibleShipments = (shipments || []).filter(s => !billingType || s.provider_type === billingType);
     const [shipmentToDelete, setShipmentToDelete] = useState(null);
     const [isDeleting, setIsDeleting] = useState(false);
 
@@ -334,13 +338,15 @@ export const Shipments = ({
 
     const exportToCSV = () => {
         if (!shipments || shipments.length === 0) return;
-        const headers = ['AWB', 'Date', 'Customer', 'Type', 'Courier', 'Destination City', 'Destination Country', 'Actual Wt (kg)', 'Chargeable Wt (kg)', 'Price (INR)', 'Provider Cost (INR)', 'Gross Profit (INR)', 'Payment Status', 'Status'];
-        const rows = shipments.map(s => [
+        const headers = ['AWB', 'Date', 'Customer', 'Type', 'Courier', 'Carrier Billing', 'Billing Account', 'Destination City', 'Destination Country', 'Actual Wt (kg)', 'Chargeable Wt (kg)', 'Price (INR)', 'Provider Cost (INR)', 'Gross Profit (INR)', 'Payment Status', 'Status'];
+        const rows = visibleShipments.map(s => [
             `"${s.awb}"`,
             `"${s.date}"`,
             `"${s.customer_name}"`,
             `"${s.customer_type}"`,
             `"${s.courier}"`,
+            s.provider_type,
+            s.provider_name,
             `"${s.receiver_city || ''}"`,
             `"${s.receiver_country}"`,
             s.actual_weight || 0,
@@ -393,7 +399,7 @@ export const Shipments = ({
     return (
         <div>
             <div className="page-header">
-                <div>
+                <div className="shipment-directory-page">
                     <h2 className="page-title">📦 Shipment Master Engine</h2>
                     <p className="page-subtitle">Track parcel volumetric weights, selling prices, provider costs, and delivery statuses</p>
                 </div>
@@ -411,7 +417,7 @@ export const Shipments = ({
             </div>
 
             <div className="filter-bar">
-                <div style={{ position: 'relative', flex: 1, minWidth: '220px' }}>
+                <div style={{ position: 'relative', flex: 1, minWidth: 'min(220px, 100%)' }}>
                     <Search size={14} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
                     <input 
                         type="text" 
@@ -455,34 +461,36 @@ export const Shipments = ({
                     <option value="Aramex">Aramex</option>
                     <option value="Blue Dart">Blue Dart</option>
                     <option value="Delhivery">Delhivery</option>
-                    <option value="LTL">LTL Heavy Cargo</option>
+                </select>
+                <select className="filter-select" aria-label="Carrier billing type" value={billingType} onChange={e => setBillingType(e.target.value)}>
+                    <option value="">All billing types</option><option value="prepaid">Prepaid</option><option value="postpaid">Postpaid</option>
                 </select>
             </div>
 
             <div className="table-card">
-                <div className="table-wrap">
-                    <table className="data-table">
+                <div className="table-wrap shipment-directory-scroll" tabIndex={0} role="region" aria-label="Shipment directory">
+                    <table className="data-table shipment-directory-table">
                         <thead>
                             <tr>
-                                <th style={{ width: '15%' }}>AWB & Payment</th>
-                                <th style={{ width: '10%' }}>Date</th>
-                                <th style={{ width: '18%' }}>Customer</th>
-                                <th style={{ width: '10%', textAlign: 'center' }}>Courier</th>
-                                <th style={{ width: '14%' }}>Destination</th>
-                                <th style={{ width: '8%', textAlign: 'center' }}>Weight</th>
-                                <th style={{ width: '9%', textAlign: 'right' }}>Price (INR)</th>
-                                <th style={{ width: '8%', textAlign: 'right' }}>Profit</th>
-                                <th style={{ width: '9%', textAlign: 'center' }}>Status</th>
-                                <th style={{ width: '9%', textAlign: 'right' }}>Actions</th>
+                                <th>AWB & Payment</th>
+                                <th>Date</th>
+                                <th>Customer</th>
+                                <th>Courier</th>
+                                <th>Carrier Billing</th><th>Destination</th>
+                                <th>Weight</th>
+                                <th>Price (INR)</th>
+                                <th>Profit</th>
+                                <th>Status</th>
+                                <th>Actions</th>
                             </tr>
                         </thead>
                         <tbody>
                             {isLoading && (!shipments || shipments.length === 0) ? (
-                                <TableSkeleton rows={6} cols={10} />
-                            ) : shipments?.length === 0 ? (
-                                <tr><td colSpan="10" style={{ textAlign: 'center', padding: '32px', color: 'var(--text-muted)' }}>No shipments found matching filters.</td></tr>
+                                <TableSkeleton rows={6} cols={11} />
+                            ) : visibleShipments.length === 0 ? (
+                                <tr><td colSpan="11" style={{ textAlign: 'center', padding: '32px', color: 'var(--text-muted)' }}>No shipments found matching filters.</td></tr>
                             ) : (
-                                shipments?.map(s => {
+                                visibleShipments.map(s => {
                                     const profit = s.gross_profit !== undefined && s.gross_profit !== null
                                         ? s.gross_profit 
                                         : (s.price || 0) - (s.actual_provider_cost || s.provider_cost || 0);
@@ -491,7 +499,7 @@ export const Shipments = ({
                                     return (
                                         <tr key={s.id}>
                                             <td>
-                                                <strong><TrackingLink awb={s.awb} courier={s.courier} style={{ fontFamily: 'monospace', fontSize: '13px' }} /></strong>
+                                                <strong><TrackingLink awb={s.awb} courier={s.courier} style={{ fontFamily: 'monospace', fontSize: '11px' }} /></strong>
                                                 <div style={{ fontSize: '10.5px', color: 'var(--text-muted)', marginTop: '2px', whiteSpace: 'nowrap' }}>
                                                     <span className={`status-pill ${s.payment_status === 'Paid' ? 'delivered' : 'delayed'}`} style={{ fontSize: '9.5px', padding: '1px 6px', marginRight: '4px' }}>
                                                         {s.payment_status}
@@ -506,7 +514,7 @@ export const Shipments = ({
                                                 <a 
                                                     href="javascript:void(0)" 
                                                     onClick={() => onOpenCustomerDrawer(s.customer_id || s.customer_name)}
-                                                    style={{ fontWeight: 800, color: 'var(--text-main)', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '3px', fontSize: '12.5px' }}
+                                                    style={{ fontWeight: 800, color: 'var(--text-main)', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '3px', fontSize: '10.5px' }}
                                                 >
                                                     {s.customer_name} <ArrowUpRight size={11} color="var(--primary-blue)" />
                                                 </a>
@@ -516,19 +524,19 @@ export const Shipments = ({
                                             </td>
                                             <td style={{ textAlign: 'center' }}>
                                                 {getCourierBadge(s.courier)}
-                                            </td>
+                                            </td><td><span className={`status-pill ${s.provider_type === 'prepaid' ? 'delivered' : 'picked-up'}`}>{s.provider_type === 'prepaid' ? 'Prepaid' : s.provider_type === 'postpaid' ? 'Postpaid' : 'Not set'}</span><small style={{display:'block', color:'var(--text-muted)'}}>{s.provider_name}</small></td>
                                             <td>
                                                 {getCountryBadge(s.receiver_country, s.receiver_city)}
                                             </td>
                                             <td style={{ textAlign: 'center' }}>
-                                                <strong style={{ fontSize: '12.5px' }}>{s.chargeable_weight || s.actual_weight}</strong> <span style={{ fontSize: '10.5px', color: 'var(--text-muted)' }}>kg</span>
+                                                <strong style={{ fontSize: '10.5px' }}>{s.chargeable_weight || s.actual_weight}</strong> <span style={{ fontSize: '10.5px', color: 'var(--text-muted)' }}>kg</span>
                                             </td>
                                             <td style={{ fontWeight: 800, color: 'var(--text-main)', textAlign: 'right', whiteSpace: 'nowrap' }}>
                                                 {formatCurrency(s.price)}
                                             </td>
                                             <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
                                                 {isProfitVisible ? (
-                                                    <strong style={{ color: profit >= 0 ? 'var(--emerald)' : 'var(--rose)', fontSize: '12px' }}>
+                                                    <strong style={{ color: profit >= 0 ? 'var(--emerald)' : 'var(--rose)', fontSize: '11px' }}>
                                                         {formatCurrency(profit)}
                                                     </strong>
                                                 ) : (

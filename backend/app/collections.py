@@ -4,7 +4,7 @@ from sqlalchemy import func
 
 
 def shipment_payments_query(db):
-    return db.query(Invoice.shipment_id.label("shipment_id"), func.sum(Invoice.paid).label("paid")).filter(
+    return db.query(Invoice.shipment_id.label("shipment_id"), func.sum(Invoice.paid).label("paid"), func.sum(Invoice.total).label("total")).filter(
         Invoice.shipment_id.isnot(None)).group_by(Invoice.shipment_id)
 
 
@@ -14,7 +14,7 @@ def shipment_paid_map(db, shipment_ids=None):
         if not shipment_ids:
             return {}
         query = query.filter(Invoice.shipment_id.in_(shipment_ids))
-    return {shipment_id: float(paid or 0) for shipment_id, paid in query.all()}
+    return {shipment_id: float(paid or 0) for shipment_id, paid, total in query.all()}
 
 
 def collection_totals(db, date=None):
@@ -32,3 +32,9 @@ def collection_totals(db, date=None):
             result[bucket][key] = round(result[bucket].get(key, 0.0) + row.amount, 2)
     result["total"] = round(result["total"], 2)
     return result
+
+
+def shipment_total_map(db, shipment_ids):
+    if not shipment_ids:
+        return {}
+    return {sid: float(total or 0) for sid, paid, total in shipment_payments_query(db).filter(Invoice.shipment_id.in_(shipment_ids)).all()}

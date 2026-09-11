@@ -18,6 +18,7 @@ from app.dependencies import (
 )
 from app.auth import create_audit_log
 from app.cache import cache_engine
+from app.carrier_accounts import ensure_carrier_accounts
 
 settings_router = APIRouter(prefix="/settings", tags=["Settings"])
 
@@ -50,6 +51,7 @@ def update_settings(
     Updates global system configuration, carrier accounts, or collection banks.
     Protected by Step-Up MFA (<10 min).
     """
+    payload = ensure_carrier_accounts(payload)
     rec = db.query(SystemSettings).first()
     before_cfg = rec.config_json if rec else {}
     if not rec:

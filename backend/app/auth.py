@@ -78,15 +78,27 @@ COMMON_WEAK_PASSWORDS = {
 
 def hash_password(password: str) -> str:
     """PBKDF2-HMAC-SHA256 password hashing with salt."""
-    salt = "fmc_secret_salt_2026_"
-    return hashlib.sha256((salt + password).encode("utf-8")).hexdigest()
+    salt = secrets.token_hex(16)
+    digest = hashlib.pbkdf2_hmac("sha256", password.encode(), salt.encode(), 600000).hex()
+    return f"pbkdf2_sha256$600000${salt}${digest}"
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """Verifies plain password against hashed password."""
     if not hashed_password:
         return False
-    return hmac.compare_digest(hash_password(plain_password), hashed_password)
+    if hashed_password.startswith("pbkdf2_sha256$"):
+        try:
+            _, rounds, salt, expected = hashed_password.split("$")
+            iterations = int(rounds)
+            if not 100000 <= iterations <= 1000000:
+                return False
+            actual = hashlib.pbkdf2_hmac("sha256", plain_password.encode(), salt.encode(), iterations).hex()
+            return hmac.compare_digest(actual, expected)
+        except (ValueError, TypeError):
+            return False
+    legacy = hashlib.sha256(("fmc_secret_salt_2026_" + plain_password).encode()).hexdigest()
+    return hmac.compare_digest(legacy, hashed_password)
 
 
 def validate_password_strength(password: str) -> Tuple[bool, Optional[str]]:

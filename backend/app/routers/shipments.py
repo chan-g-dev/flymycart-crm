@@ -2,6 +2,7 @@
 # FLY MY CART CRM - SHIPMENTS ROUTER (routers/shipments.py)
 # ================================================================
 
+from decimal import Decimal, ROUND_HALF_UP
 import uuid
 import datetime
 from typing import List, Optional, Dict, Any
@@ -13,7 +14,7 @@ from sqlalchemy.exc import IntegrityError
 from app.database import get_db
 from app.models import (
     Customer, Shipment, Invoice, WalletTransaction,
-    Refund, AuditLog
+    Refund, AuditLog, SystemSettings
 )
 from app.schemas import ShipmentCreate, ShipmentOut
 from app.finance_engine import (
@@ -97,9 +98,28 @@ def create_shipment(
     if not awb_clean:
         raise HTTPException(status_code=400, detail="AWB is required")
     validate_shipment_status(payload.status, payload.delay_reason)
-    paid_amt = payload.price if payload.payment_status == "Paid" else (payload.amount_received or 0.0)
-    if payload.payment_status == "Partial" and not 0 < paid_amt < payload.price:
-        raise HTTPException(status_code=400, detail="Partial payment must specify an amount between zero and the selling price")
+    # Direct postpaid bookings must use the selected courier's configured account.
+    def courier_key(name):
+        key = ''.join(ch for ch in name.lower() if ch.isalnum())
+        return {'dhlexpress': 'dhl'}.get(key, key)
+
+    config = db.query(SystemSettings).first()
+    settings = config.config_json if config else {}
+    if payload.provider_type not in {'prepaid', 'postpaid'}:
+        raise HTTPException(status_code=400, detail="Select prepaid or postpaid billing")
+    accounts = settings.get('prepaidWallets' if payload.provider_type == 'prepaid' else 'postpaidProviders', [])
+    if not any(account['name'] == payload.provider_name for account in accounts):
+        raise HTTPException(status_code=400, detail="Select a configured billing account")
+    if payload.provider_type == 'postpaid' and courier_key(payload.courier) != courier_key(payload.provider_name):
+        raise HTTPException(status_code=400, detail="Direct postpaid billing must match the courier. Select its account or a prepaid wallet.")
+
+    base_amount = Decimal(str(payload.price)).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+    gst_amount = (base_amount * Decimal('0.18')).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+    invoice_total = float(base_amount + gst_amount)
+    payload.price = float(base_amount)
+    paid_amt = invoice_total if payload.payment_status == "Paid" else (payload.amount_received or 0.0)
+    if payload.payment_status == "Partial" and not 0 < paid_amt < invoice_total:
+        raise HTTPException(status_code=400, detail="Partial payment must specify an amount between zero and the GST-inclusive invoice total")
     if payload.payment_status not in ["Paid", "Partial"] and paid_amt:
         raise HTTPException(status_code=400, detail="Amount received requires Paid or Partial payment status")
     if db.query(Shipment).filter(func.lower(Shipment.awb) == awb_clean.lower()).first():
@@ -109,21 +129,25 @@ def create_shipment(
     customer = None
     if payload.customer_id:
         customer = db.query(Customer).filter(Customer.id == payload.customer_id).first()
-    if not customer and payload.sender and payload.sender.phone:
-        customer = db.query(Customer).filter(Customer.mobile == payload.sender.phone.strip()).first()
+    customer_mobile = payload.customer_mobile or (payload.sender.phone if payload.sender else "") or ""
+    if not customer and customer_mobile:
+        customer = db.query(Customer).filter(Customer.mobile == customer_mobile.strip()).first()
     if payload.customer_id and not customer:
         raise HTTPException(status_code=404, detail="Customer not found")
 
     if not customer:
-        if not payload.sender or not payload.sender.phone or not payload.sender.phone.strip():
+        if not customer_mobile.strip():
             raise HTTPException(status_code=400, detail="A mobile number is required for a new customer")
         cust_id = f"cust_{uuid.uuid4().hex[:16]}"
         customer = Customer(
             id=cust_id,
             name=payload.customer_name.strip(),
             company=payload.customer_name.strip() if payload.customer_type == "B2B" else None,
-            mobile=payload.sender.phone.strip() if payload.sender and payload.sender.phone else "9800000000",
-            whatsapp=payload.sender.phone.strip() if payload.sender and payload.sender.phone else "9800000000",
+            mobile=customer_mobile.strip(),
+            whatsapp=customer_mobile.strip(),
+            email=payload.sender.email.strip() if payload.sender and payload.sender.email else None,
+            id_proof=payload.sender.id_proof.strip() if payload.sender and payload.sender.id_proof else None,
+            b2b_company_id=payload.b2b_company_id,
             customer_type=payload.customer_type,
             center=payload.center,
             assigned_employee=payload.employee,
@@ -138,12 +162,12 @@ def create_shipment(
         payload.parcel.width,
         payload.parcel.height,
         payload.parcel.actual_weight,
-        divisor=4000.0 if any(term in f"{payload.service_type} {payload.courier}".lower() for term in ("cargo", "ltl")) else 5000.0
+        divisor=4000.0 if any(term in f"{payload.service_type} {payload.courier}".lower() for term in ("cargo",)) else 5000.0
     )
 
     # 4. Authoritative Gross Profit calculation
     if payload.parcel.boxes:
-        divisor = 4000.0 if any(term in f"{payload.service_type} {payload.courier}".lower() for term in ("cargo", "ltl")) else 5000.0
+        divisor = 4000.0 if any(term in f"{payload.service_type} {payload.courier}".lower() for term in ("cargo",)) else 5000.0
         vol_wt = round(sum(box.length * box.width * box.height / divisor for box in payload.parcel.boxes), 2)
         payload.parcel.actual_weight = round(sum(box.actual_weight for box in payload.parcel.boxes), 2)
         payload.parcel.packages_count = len(payload.parcel.boxes)
@@ -172,6 +196,11 @@ def create_shipment(
         employee=payload.employee,
 
         sender_name=payload.sender.name if payload.sender else customer.name,
+        sender_email=payload.sender.email if payload.sender else customer.email,
+        sender_id_proof=payload.sender.id_proof if payload.sender else customer.id_proof,
+        receiver_email=payload.receiver.email,
+        receiver_state=payload.receiver.state,
+        boxes=[box.model_dump() for box in payload.parcel.boxes],
         sender_phone=payload.sender.phone if payload.sender else customer.mobile,
         sender_address=payload.sender.address if payload.sender else customer.address,
 
@@ -230,7 +259,7 @@ def create_shipment(
 
     # 6. Auto-generate Official Invoice
     inv_no = f"FMC-{datetime.date.today().strftime('%Y%m')}-{uuid.uuid4().hex[:12].upper()}"
-    bal_amt = payload.price - paid_amt
+    bal_amt = round(invoice_total - paid_amt, 2)
 
     new_invoice = Invoice(
         id=f"inv_{uuid.uuid4().hex[:16]}",
@@ -245,8 +274,8 @@ def create_shipment(
         service=payload.service_type,
         description=f"Logistics Courier Service - {payload.courier} ({chargeable_wt} kg)",
         amount=payload.price,
-        gst=0.0,
-        total=payload.price,
+        gst=float(gst_amount),
+        total=invoice_total,
         paid=paid_amt,
         balance=bal_amt,
         status="Paid" if bal_amt == 0 else ("Partial" if paid_amt > 0 else "Due")
@@ -257,8 +286,11 @@ def create_shipment(
         from app.models import PaymentCollection
         db.add(PaymentCollection(invoice_id=new_invoice.id, shipment_id=ship_id,
             date=payload.date, amount=paid_amt, payment_method=payload.payment_method,
-            paid_to=payload.paid_to, collected_by=payload.collected_by))
+            paid_to=payload.paid_to, collected_by=payload.collected_by, reference=payload.payment_reference))
 
+    if payload.provider_type == "prepaid":
+        from app.wallets import rebuild_wallet_balances
+        rebuild_wallet_balances(db, payload.provider_name)
     try:
         db.commit()
     except IntegrityError as exc:

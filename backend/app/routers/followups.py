@@ -3,12 +3,13 @@
 # ================================================================
 
 import uuid
+import datetime
 from typing import List, Dict, Any
 from fastapi import APIRouter, Depends, HTTPException, Request, Query, Response
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import Followup, CommunicationLog
+from app.models import Followup, CommunicationLog, Customer
 from app.schemas import FollowupCreate, FollowupOut, CommunicationCreate, CommunicationOut
 from app.auth import create_audit_log
 from app.dependencies import require_permission
@@ -35,12 +36,24 @@ def create_followup(
     ctx: Dict[str, Any] = Depends(require_permission(PermissionCode.FOLLOWUPS_ADD)),
     db: Session = Depends(get_db)
 ):
+    try:
+        due_date = datetime.date.fromisoformat(payload.due_date).isoformat()
+    except ValueError:
+        raise HTTPException(400, "Enter a valid follow-up date")
+    customer_name = payload.customer.strip()
+    if payload.customer_id:
+        customer = db.query(Customer).filter(Customer.id == payload.customer_id).first()
+        if not customer:
+            raise HTTPException(404, "Customer not found in your assigned access")
+        customer_name = customer.name
+    if not customer_name:
+        raise HTTPException(400, "Customer is required")
     fu = Followup(
         id=f"fu_{uuid.uuid4().hex[:16]}",
         customer_id=payload.customer_id,
-        customer=payload.customer.strip(),
+        customer=customer_name,
         category=payload.category,
-        due_date=payload.due_date,
+        due_date=due_date,
         priority=payload.priority,
         status="Pending",
         channel_action=payload.channel_action,
@@ -107,7 +120,7 @@ def log_communication(
         channel=payload.channel,
         staff=ctx["display_name"],
         message=payload.message.strip(),
-        status="Delivered"
+        status="Logged"
     )
     db.add(comm)
     db.commit()

@@ -263,26 +263,6 @@ export const AuthProvider = ({ children }) => {
         return !!currentUser?.permissions?.[aliases[permKey]];
     };
 
-    // Quick switch staff role for testing / demo
-    const switchUserRole = (roleId) => {
-        if (!currentUser?.isSuperAdmin || !ROLES[roleId]) return;
-        setActiveRoleOverride(roleId);
-        localStorage.setItem('fmc_user_role', roleId);
-        const name = roleId === 'super_admin' 
-            ? 'Gangabathina Chanakya' 
-            : (roleId === 'operations_staff' 
-                ? 'Lata (Operations)' 
-                : 'Uma (Counter Staff)');
-        localStorage.setItem('fmc_user_name', name);
-        setCurrentUser(prev => ({
-            ...(prev || {}),
-            roleId: roleId,
-            name: name,
-            isSuperAdmin: roleId === 'super_admin',
-            avatar: getAvatarForRole(roleId)
-        }));
-    };
-
     // Direct Self-Registration & Immediate Login
     const registerStaff = async (payload) => {
         setAuthLoading(true);
@@ -361,7 +341,6 @@ export const AuthProvider = ({ children }) => {
             registerStaff,
             logout,
             logoutAll,
-            switchUserRole,
             hasPermission,
             roles: ROLES
         }}>

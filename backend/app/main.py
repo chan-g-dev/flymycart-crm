@@ -36,6 +36,9 @@ from app.routers.bookings import bookings_router
 
 from contextlib import asynccontextmanager
 import asyncio
+import logging
+from contextlib import suppress
+from app.reminders import generate_reminders
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -59,7 +62,25 @@ async def lifespan(app: FastAPI):
             raise RuntimeError("Database initialization failed") from e
 
     await asyncio.to_thread(_init_db)
-    yield
+    async def reminder_loop():
+        while True:
+            try:
+                def run_reminders():
+                    with SessionLocal() as db:
+                        generate_reminders(db)
+                await asyncio.to_thread(run_reminders)
+            except Exception:
+                logging.getLogger(__name__).exception("Follow-up generation failed; retrying on next interval")
+            await asyncio.sleep(3600)
+
+    reminder_task = asyncio.create_task(reminder_loop()) if settings.REMINDERS_ENABLED else None
+    try:
+        yield
+    finally:
+        if reminder_task:
+            reminder_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await reminder_task
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
@@ -196,8 +217,8 @@ def health_check():
     try:
         with engine.connect() as conn:
             conn.execute(text("SELECT 1"))
-    except Exception as e:
-        db_status = f"unhealthy: {str(e)}"
+    except Exception:
+        return JSONResponse(status_code=503, content={"status": "unavailable", "database": "unhealthy"})
 
     return {
         "status": "operational",

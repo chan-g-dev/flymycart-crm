@@ -84,7 +84,7 @@ def record_invoice_payment(
     ctx: Dict[str, Any] = Depends(require_permission(PermissionCode.INVOICES_EDIT)),
     db: Session = Depends(get_db)
 ):
-    inv = db.query(Invoice).filter((Invoice.id == invoice_id) | (Invoice.invoice_no == invoice_id)).first()
+    inv = db.query(Invoice).filter((Invoice.id == invoice_id) | (Invoice.invoice_no == invoice_id)).with_for_update().first()
     if not inv:
         raise HTTPException(status_code=404, detail="Invoice not found")
 
