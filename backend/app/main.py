@@ -181,6 +181,7 @@ if settings.ENVIRONMENT == "production":
         os.getenv("FRONTEND_URL", "https://crm.flymycart.in"),
         "https://crm.flymycart.in",
         "https://www.crm.flymycart.in",
+        "https://flymycart-crm.vercel.app",
         *base_allowed_origins,
     ]
 elif settings.ENVIRONMENT == "staging":
@@ -188,6 +189,7 @@ elif settings.ENVIRONMENT == "staging":
     allowed_origins = [
         os.getenv("FRONTEND_URL", "https://staging-crm.flymycart.in"),
         "https://staging-crm.flymycart.in",
+        "https://flymycart-crm.vercel.app",
         *base_allowed_origins,
     ]
 else:
@@ -195,6 +197,7 @@ else:
     allowed_origins = [
         *base_allowed_origins,
         os.getenv("FRONTEND_URL", "http://localhost:3000"),
+        "https://flymycart-crm.vercel.app",
     ]
 
 allowed_origins = list(dict.fromkeys([origin for origin in allowed_origins if origin]))
@@ -202,6 +205,7 @@ allowed_origins = list(dict.fromkeys([origin for origin in allowed_origins if or
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins,
+    allow_origin_regex=r"https://.*\.vercel\.app|https://.*\.pages\.dev|https://.*\.render\.com",
     allow_credentials=True,  # Required for HttpOnly cookies
     allow_methods=["*"],
     allow_headers=["*"],
