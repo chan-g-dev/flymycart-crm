@@ -29,77 +29,50 @@ def execute_sql_file(file_path):
         raw_conn.close()
 
 def sync_superadmin():
-    admin_email = "chanakyagangabathina77@gmail.com"
-    admin_name = "Gangabathina Chanakya"
-    admin_pass = "Chanu@1234"
+    admin_email = "admin@flymycart.com"
+    admin_name = "Fly My Cart"
+    admin_pass = "flymycart@2190"
     pass_hash = hash_password(admin_pass)
 
-    with engine.begin() as conn:
-        # 1. Downgrade any other super_admin to manager or staff to avoid duplicate super_admin constraint violation
-        conn.execute(text("""
-            UPDATE public.profiles
-            SET role = 'manager'
-            WHERE role = 'super_admin' AND email != :email
-        """), {"email": admin_email})
+    # 1. Update Supabase profiles table if it exists
+    is_postgres = "postgres" in (engine.url.drivername or "")
+    if is_postgres:
+        try:
+            with engine.begin() as conn:
+                conn.execute(text("""
+                    UPDATE public.profiles
+                    SET role = 'manager'
+                    WHERE role = 'super_admin' AND email != :email
+                """), {"email": admin_email})
 
-        # 2. Ensure Gangabathina Chanakya is super_admin in profiles
-        row = conn.execute(text("SELECT id FROM public.profiles WHERE email = :email"), {"email": admin_email}).fetchone()
-        if row:
-            chanakya_id = str(row[0])
-            conn.execute(text("""
-                UPDATE public.profiles
-                SET full_name = :name,
-                    role = 'super_admin',
-                    status = 'approved',
-                    requested_role = 'super_admin',
-                    password_hash = :hash,
-                    updated_at = NOW()
-                WHERE email = :email
-            """), {"name": admin_name, "hash": pass_hash, "email": admin_email})
-        else:
-            chanakya_id = "055d37da-38d0-4fe9-9ca3-4b956dede81d"
-            conn.execute(text("""
-                INSERT INTO public.profiles (id, email, full_name, role, status, requested_role, password_hash, created_at, updated_at)
-                VALUES (:id, :email, :name, 'super_admin', 'approved', 'super_admin', :hash, NOW(), NOW())
-            """), {"id": chanakya_id, "email": admin_email, "name": admin_name, "hash": pass_hash})
+                row = conn.execute(text("SELECT id FROM public.profiles WHERE email = :email"), {"email": admin_email}).fetchone()
+                if row:
+                    chanakya_id = str(row[0])
+                    conn.execute(text("""
+                        UPDATE public.profiles
+                        SET full_name = :name,
+                            role = 'super_admin',
+                            status = 'approved',
+                            requested_role = 'super_admin',
+                            password_hash = :hash,
+                            updated_at = NOW()
+                        WHERE email = :email
+                    """), {"name": admin_name, "hash": pass_hash, "email": admin_email})
+                else:
+                    chanakya_id = "055d37da-38d0-4fe9-9ca3-4b956dede81d"
+                    conn.execute(text("""
+                        INSERT INTO public.profiles (id, email, full_name, role, status, requested_role, password_hash, created_at, updated_at)
+                        VALUES (:id, :email, :name, 'super_admin', 'approved', 'super_admin', :hash, NOW(), NOW())
+                    """), {"id": chanakya_id, "email": admin_email, "name": admin_name, "hash": pass_hash})
+        except Exception as e:
+            print(f"Supabase profiles sync skipped/failed: {e}")
 
-    # 3. Now execute schema.sql cleanly
-    schema_path = os.path.join(os.path.dirname(__file__), "..", "..", "supabase", "schema.sql")
-    execute_sql_file(schema_path)
-
-    # 4. Sync in SQLite/PostgreSQL users table
+    # 2. Master sync in UserProfile and legacy User tables
     db = SessionLocal()
     try:
-        user = db.query(User).filter((User.email == admin_email) | (User.username == admin_email)).first()
-        if not user:
-            user = User(
-                id=f"u_{chanakya_id[:8]}",
-                username=admin_email,
-                name=admin_name,
-                email=admin_email,
-                password_hash=pass_hash,
-                phone="+91 98765 43210",
-                role="super_admin",
-                center="Main Hub (Bangalore)",
-                status="Active",
-                is_active=True,
-                approved_by="System Root"
-            )
-            db.add(user)
-        else:
-            user.name = admin_name
-            user.role = "super_admin"
-            user.status = "Active"
-            user.is_active = True
-            user.password_hash = pass_hash
-
-        # Demote any other users with role super_admin in users table to manager
-        other_superadmins = db.query(User).filter(User.role == "super_admin", User.email != admin_email).all()
-        for osa in other_superadmins:
-            osa.role = "manager"
-
-        db.commit()
-        print(f"Verified single Super Admin: '{admin_name}' <{admin_email}>.")
+        from app.seed import seed_super_admin
+        seed_super_admin(db)
+        print(f"Verified Super Admin: '{admin_name}' <{admin_email}>.")
     finally:
         db.close()
 

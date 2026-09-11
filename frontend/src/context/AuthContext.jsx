@@ -93,7 +93,7 @@ export const AuthProvider = ({ children }) => {
         return {
             id: localStorage.getItem('fmc_user_id') || '055d37da-38d0-4fe9-9ca3-4b956dede81d',
             email: savedEmail,
-            name: localStorage.getItem('fmc_user_name') || 'Gangabathina Chanakya',
+            name: localStorage.getItem('fmc_user_name') || 'Fly My Cart',
             roleId: roleId,
             center: localStorage.getItem('fmc_user_center') || 'Main Hub (Bangalore)',
             status: localStorage.getItem('fmc_user_status') || 'approved',

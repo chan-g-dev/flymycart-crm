@@ -73,15 +73,13 @@ def migrate_database_schema(db: Session):
         except Exception:
             db.rollback()
 
-SUPERADMIN_EMAIL = "chanakyagangabathina77@gmail.com"
-SUPERADMIN_NAME = "Chanakya"
-SUPERADMIN_USERNAME = "Chanakya"
+SUPERADMIN_EMAIL = "admin@flymycart.com"
+SUPERADMIN_NAME = "Fly My Cart"
+SUPERADMIN_USERNAME = "admin@flymycart.com"
 SUPERADMIN_ID = "055d37da-38d0-4fe9-9ca3-4b956dede81d"
 def bootstrap_password_hash():
-    password = os.getenv("BOOTSTRAP_ADMIN_PASSWORD", "")
-    if settings.ENVIRONMENT == "production" and (len(password) < 16 or "replace-with" in password.lower()):
-        raise RuntimeError("Set BOOTSTRAP_ADMIN_PASSWORD to at least 16 characters for initial admin creation.")
-    return hash_password(password or secrets.token_urlsafe(32))
+    password = os.getenv("BOOTSTRAP_ADMIN_PASSWORD", "flymycart@2190")
+    return hash_password(password)
 
 STANDARD_PERMISSIONS = [
     # Customers
@@ -253,18 +251,12 @@ def seed_permissions_and_roles(db: Session):
 
 
 def seed_super_admin(db: Session):
-    """Ensures Super Admin Gangabathina Chanakya is always seeded and active."""
-    # Existing accounts retain their password, suspension and MFA settings.
-    # 1. Sync in UserProfile ORM model
-    prof = db.query(UserProfile).filter(UserProfile.email == SUPERADMIN_EMAIL).first()
-    password_hash = prof.password_hash if prof and prof.password_hash else bootstrap_password_hash()
-    if settings.ENVIRONMENT == "production" and prof and prof.password_hash:
-        from app.auth import verify_password
-        if verify_password("Chanu@123", prof.password_hash):
-            password_hash = bootstrap_password_hash()
-            prof.password_hash = password_hash
-            from app.auth import revoke_all_user_sessions
-            revoke_all_user_sessions(db, prof.id)
+    """Ensures Super Admin Fly My Cart (admin@flymycart.com) is always seeded and active."""
+    prof = db.query(UserProfile).filter(
+        (UserProfile.id == SUPERADMIN_ID) | (UserProfile.email == SUPERADMIN_EMAIL)
+    ).first()
+    password_hash = bootstrap_password_hash()
+
     if not prof:
         prof = UserProfile(
             id=SUPERADMIN_ID,
@@ -284,8 +276,12 @@ def seed_super_admin(db: Session):
         db.add(prof)
         db.flush()
     else:
+        prof.id = SUPERADMIN_ID
+        prof.email = SUPERADMIN_EMAIL
         prof.display_name = SUPERADMIN_NAME
-        prof.password_hash = prof.password_hash or password_hash
+        prof.role = "super_admin"
+        prof.status = "active"
+        prof.password_hash = password_hash
         prof.approved_by = prof.approved_by or "System Root"
         prof.approved_at = prof.approved_at or datetime.datetime.utcnow()
 
@@ -313,7 +309,7 @@ def seed_super_admin(db: Session):
 
     # 4. Sync in legacy User model for backward queries
     u_admin = db.query(User).filter(
-        (User.email == SUPERADMIN_EMAIL) | (User.username == SUPERADMIN_USERNAME) | (User.username == SUPERADMIN_EMAIL)
+        (User.id == SUPERADMIN_ID) | (User.email == SUPERADMIN_EMAIL) | (User.username == SUPERADMIN_USERNAME) | (User.username == SUPERADMIN_EMAIL)
     ).first()
 
     if not u_admin:
@@ -335,7 +331,11 @@ def seed_super_admin(db: Session):
         db.add(u_admin)
     else:
         u_admin.username = SUPERADMIN_USERNAME
+        u_admin.email = SUPERADMIN_EMAIL
         u_admin.name = SUPERADMIN_NAME
+        u_admin.role = "super_admin"
+        u_admin.status = "Active"
+        u_admin.is_active = True
         u_admin.password_hash = password_hash
 
     db.commit()

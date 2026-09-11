@@ -372,10 +372,10 @@ def get_current_user_context(
 
         # Fallback for dev / super_admin default
         role_key = (x_user_role or "super_admin").lower().strip()
-        user_name = x_user_name or "Gangabathina Chanakya"
+        user_name = x_user_name or "Fly My Cart"
         return {
             "user_id": "055d37da-38d0-4fe9-9ca3-4b956dede81d",
-            "email": "chanakyagangabathina77@gmail.com",
+            "email": "admin@flymycart.com",
             "role_id": role_key,
             "role_name": "Super Admin" if role_key == "super_admin" else role_key,
             "user_name": user_name,

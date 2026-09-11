@@ -144,8 +144,8 @@ export const Users = ({ settings, onDataMutated }) => {
     );
 
     const activeUser = {
-        name: currentUser?.name || (isSuperAdmin ? 'Gangabathina Chanakya' : 'Operations Staff'),
-        email: currentUser?.email || (isSuperAdmin ? 'chanakyagangabathina77@gmail.com' : ''),
+        name: currentUser?.name || (isSuperAdmin ? 'Fly My Cart' : 'Operations Staff'),
+        email: currentUser?.email || (isSuperAdmin ? 'admin@flymycart.com' : ''),
         center: currentUser?.center || 'Main Hub (Bangalore)',
         roleId: isSuperAdmin ? 'super_admin' : (currentRole?.id || currentUser?.roleId || 'operations_staff'),
         roleLabel: isSuperAdmin ? 'Super Admin' : (currentRole?.name || 'Operations Staff')
@@ -198,7 +198,7 @@ export const Users = ({ settings, onDataMutated }) => {
             is_active: true,
             role: assignedRole,
             center: customCenter || u.center,
-            approved_by: currentUser?.name || 'Gangabathina Chanakya',
+            approved_by: currentUser?.name || 'Fly My Cart',
             approval_date: new Date().toISOString()
         } : u));
             showFeedback(`✓ "${staffName}" accepted & authorized with role ${getRoleConfig(assignedRole).label}!`, 'success');
@@ -242,7 +242,7 @@ export const Users = ({ settings, onDataMutated }) => {
             return;
         }
         const targetStaff = staffList.find(u => u.id === userId);
-        if (targetStaff?.email === 'chanakyagangabathina77@gmail.com') {
+        if (targetStaff?.email === 'admin@flymycart.com') {
             showFeedback('Master Super Admin role cannot be modified.', 'error');
             return;
         }
@@ -267,7 +267,7 @@ export const Users = ({ settings, onDataMutated }) => {
             showFeedback('Access Denied: Only Super Admin can suspend or activate staff.', 'error');
             return;
         }
-        if (user.email === 'chanakyagangabathina77@gmail.com') {
+        if (user.email === 'admin@flymycart.com') {
             showFeedback('Cannot suspend Master Super Admin account.', 'error');
             return;
         }
@@ -302,7 +302,7 @@ export const Users = ({ settings, onDataMutated }) => {
             return;
         }
         const targetStaff = staffList.find(u => u.id === userId);
-        if (targetStaff?.email === 'chanakyagangabathina77@gmail.com') {
+        if (targetStaff?.email === 'admin@flymycart.com') {
             showFeedback('Cannot remove Master Super Admin account.', 'error');
             return;
         }
@@ -901,7 +901,7 @@ export const Users = ({ settings, onDataMutated }) => {
                                             const isPending = staff.status === 'Pending Approval';
                                             const isUserActive = staff.status === 'Active';
                                             const isYou = Boolean(currentUser?.email && staff.email?.toLowerCase() === currentUser?.email?.toLowerCase());
-                                            const isStaffSuperAdmin = staff.role === 'super_admin' || staff.email === 'chanakyagangabathina77@gmail.com';
+                                            const isStaffSuperAdmin = staff.role === 'super_admin' || staff.email === 'admin@flymycart.com';
 
                                             return (
                                                 <tr key={staff.id} className="users-table-row">
@@ -1061,7 +1061,7 @@ export const Users = ({ settings, onDataMutated }) => {
                                 const isPending = staff.status === 'Pending Approval';
                                 const isUserActive = staff.status === 'Active';
                                 const isYou = Boolean(currentUser?.email && staff.email?.toLowerCase() === currentUser?.email?.toLowerCase());
-                                const isStaffSuperAdmin = staff.role === 'super_admin' || staff.email === 'chanakyagangabathina77@gmail.com';
+                                const isStaffSuperAdmin = staff.role === 'super_admin' || staff.email === 'admin@flymycart.com';
 
                                 return (
                                     <div key={staff.id} className="staff-grid-card">
