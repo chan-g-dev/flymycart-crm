@@ -113,13 +113,27 @@ def create_shipment(
     if payload.provider_type == 'postpaid' and courier_key(payload.courier) != courier_key(payload.provider_name):
         raise HTTPException(status_code=400, detail="Direct postpaid billing must match the courier. Select its account or a prepaid wallet.")
 
+    is_gst = bool(getattr(payload, 'is_gst_applicable', True))
+    raw_rate = float(getattr(payload, 'gst_rate', 18.0) if getattr(payload, 'gst_rate', 18.0) is not None else 18.0) if is_gst else 0.0
+    gst_rate_dec = Decimal(str(raw_rate))
+
     base_amount = Decimal(str(payload.price)).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
-    gst_amount = (base_amount * Decimal('0.18')).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+    if is_gst and raw_rate > 0:
+        gst_amount = (base_amount * (gst_rate_dec / Decimal('100'))).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+        cgst_amt = (gst_amount / Decimal('2')).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+        sgst_amt = gst_amount - cgst_amt
+        igst_amt = Decimal('0.00')
+    else:
+        gst_amount = Decimal('0.00')
+        cgst_amt = Decimal('0.00')
+        sgst_amt = Decimal('0.00')
+        igst_amt = Decimal('0.00')
+
     invoice_total = float(base_amount + gst_amount)
     payload.price = float(base_amount)
     paid_amt = invoice_total if payload.payment_status == "Paid" else (payload.amount_received or 0.0)
     if payload.payment_status == "Partial" and not 0 < paid_amt < invoice_total:
-        raise HTTPException(status_code=400, detail="Partial payment must specify an amount between zero and the GST-inclusive invoice total")
+        raise HTTPException(status_code=400, detail="Partial payment must specify an amount between zero and the invoice total")
     if payload.payment_status not in ["Paid", "Partial"] and paid_amt:
         raise HTTPException(status_code=400, detail="Amount received requires Paid or Partial payment status")
     if db.query(Shipment).filter(func.lower(Shipment.awb) == awb_clean.lower()).first():
@@ -226,6 +240,10 @@ def create_shipment(
         provider_type=payload.provider_type,
         provider_name=payload.provider_name,
         price=payload.price,
+        is_gst_applicable=is_gst,
+        gst_rate=raw_rate,
+        gst_amount=float(gst_amount),
+        total_amount=invoice_total,
         provider_cost=payload.provider_cost,
         actual_provider_cost=payload.provider_cost,
         cost_reconciled=cost_reconciled,
@@ -274,6 +292,11 @@ def create_shipment(
         service=payload.service_type,
         description=f"Logistics Courier Service - {payload.courier} ({chargeable_wt} kg)",
         amount=payload.price,
+        is_gst_invoice=is_gst,
+        tax_rate=raw_rate,
+        cgst=float(cgst_amt),
+        sgst=float(sgst_amt),
+        igst=float(igst_amt),
         gst=float(gst_amount),
         total=invoice_total,
         paid=paid_amt,

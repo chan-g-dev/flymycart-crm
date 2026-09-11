@@ -158,7 +158,7 @@ export const apiClient = {
     processReconciliation: (data) => api.post('/reconciliation/process', data).then(res => res.data),
     applyReconciliation: (data) => api.post('/reconciliation/apply', data).then(res => res.data),
     uploadReconciliationFile: (formData) => api.post('/reconciliation/upload-file', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' }
+        headers: { 'Content-Type': undefined }
     }).then(res => res.data),
 
     // Refunds

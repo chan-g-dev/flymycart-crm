@@ -24,14 +24,6 @@ def estimated_count(db, start, end):
         or_(Shipment.cost_reconciled.is_(False), Shipment.actual_provider_cost.is_(None))).scalar()
 
 
-@reports_router.get("/range")
-def get_range_report(date_from: datetime.date, date_to: datetime.date,
-                     ctx=Depends(require_permission(PermissionCode.REPORTS_VIEW)), db: Session = Depends(get_db)):
-    if date_from > date_to or (date_to - date_from).days > 365:
-        raise HTTPException(400, "Choose a date range from 1 to 366 days, with the start on or before the end.")
-    return get_weekly_operations_report(date_to.isoformat(), ctx, db, date_from.isoformat())
-
-
 @reports_router.get("/weekly")
 def get_weekly_operations_report(
     end_date: Optional[str] = None,
@@ -71,6 +63,13 @@ def get_weekly_operations_report(
         Shipment.date.between(start_text, end_text)
     ).group_by(Shipment.courier).all()
 
+    inv_rows = db.query(
+        Invoice.date,
+        func.sum(Invoice.total),
+        func.sum(Invoice.gst)
+    ).filter(Invoice.date.between(start_text, end_text)).group_by(Invoice.date).all()
+    inv_by_date = {row[0]: row for row in inv_rows}
+
     by_date = {row[0]: row for row in daily_rows}
     can_view_fin = bool(
         ctx.get("is_super_admin")
@@ -85,10 +84,15 @@ def get_weekly_operations_report(
         row = by_date.get(day)
         revenue = float(row[2] or 0) if row else 0.0
         cost = float(row[3] or 0) if row else 0.0
+        inv_row = inv_by_date.get(day)
+        rev_with_gst = float(inv_row[1] or 0) if inv_row else round(revenue * 1.18, 2)
+        gst_val = float(inv_row[2] or 0) if inv_row else round(revenue * 0.18, 2)
         days.append({
             "date": day,
             "shipments_count": int(row[1]) if row else 0,
             "revenue": revenue if can_view_fin else None,
+            "revenue_with_gst": rev_with_gst if can_view_fin else None,
+            "gst_total": gst_val if can_view_fin else None,
             "collections": round(float(daily_collections.get(day, 0)), 2),
             "provider_cost": cost if can_view_fin else None,
             "gross_profit": (revenue - cost) if can_view_fin else None,
@@ -106,6 +110,18 @@ def get_weekly_operations_report(
         "courier_counts": {courier or "Unknown": count for courier, count in courier_rows},
         "financials_visible": can_view_fin,
     }
+
+
+@reports_router.get("/range")
+def get_range_report(
+    date_from: datetime.date,
+    date_to: datetime.date,
+    ctx=Depends(require_permission(PermissionCode.REPORTS_VIEW)),
+    db: Session = Depends(get_db)
+):
+    if date_from > date_to or (date_to - date_from).days > 365:
+        raise HTTPException(400, "Choose a date range from 1 to 366 days, with the start on or before the end.")
+    return get_weekly_operations_report(date_to.isoformat(), ctx, db, date_from.isoformat())
 
 @reports_router.get("/eod")
 def get_eod_report(
@@ -140,8 +156,8 @@ def get_eod_report(
     by_employee = collections["by_employee"]
     invoices = db.query(Invoice).filter(Invoice.date == target_date).all()
     pending = sum(inv.balance for inv in invoices)
-    gst_total = round(sum(inv.gst or 0 for inv in invoices), 2)
-    billed_total = round(sum(inv.total for inv in invoices), 2)
+    gst_total = round(sum(inv.gst or 0 for inv in invoices), 2) if invoices else round(sales_total * 0.18, 2)
+    billed_total = round(sum(inv.total for inv in invoices), 2) if invoices else round(sales_total * 1.18, 2)
     credit_ids = {ship.id for ship in shipments if ship.payment_status == "B2B Credit"}
     credit_total = round(sum(inv.balance for inv in invoices if inv.shipment_id in credit_ids), 2)
 
@@ -161,6 +177,7 @@ def get_eod_report(
         "shipments_count": len(shipments),
         "courier_counts": courier_counts,
         "total_sales": sales_total,
+        "total_sales_with_gst": billed_total,
         "gst_total": gst_total,
         "invoice_total": billed_total,
         "total_collected": collected_total,
@@ -205,13 +222,18 @@ def get_monthly_pl_report(
     net_profit = gross_profit - refunds_total - expenses
     can_view_fin = bool(ctx.get("is_super_admin") or ctx.get("permissions", {}).get("*") or ctx.get("permissions", {}).get(PermissionCode.REPORTS_VIEW_FINANCIAL))
 
+    gst_total = round(sum(inv.gst or 0 for inv in tax_invoices), 2) if tax_invoices else round(revenue * 0.18, 2)
+    invoice_total = round(sum(inv.total for inv in tax_invoices), 2) if tax_invoices else round(revenue * 1.18, 2)
+
     return {
         "month": target_month,
         "estimated_cost_shipments": sum(not s.cost_reconciled or s.actual_provider_cost is None for s in shipments) if can_view_fin else None,
         "shipments_count": len(shipments),
         "revenue": revenue,
-        "gst_total": round(sum(inv.gst or 0 for inv in tax_invoices), 2),
-        "invoice_total": round(sum(inv.total for inv in tax_invoices), 2),
+        "total_revenue": revenue,
+        "revenue_with_gst": invoice_total,
+        "gst_total": gst_total,
+        "invoice_total": invoice_total,
         "provider_cost_breakdown": provider_breakdown if can_view_fin else {},
         "total_predicted_cost": predicted_cost if can_view_fin else None,
         "total_actual_cost": actual_cost if can_view_fin else None,

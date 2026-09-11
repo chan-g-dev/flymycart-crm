@@ -71,7 +71,10 @@ def get_dashboard_summary(
     # Pending follow-ups, refund requests & overdue B2B accounts
     followups_due = db.query(Followup).filter(Followup.status == "Pending", Followup.due_date <= today_str).count()
     refunds_pending = db.query(Refund).filter(Refund.status.in_(["Requested", "Under Review"])).count()
-    b2b_overdue_count = db.query(B2BCompany).filter(B2BCompany.outstanding_balance > 0).count()
+    b2b_overdue_count = db.query(Invoice).filter(
+        Invoice.balance > 0,
+        (Invoice.status == "Overdue") | ((Invoice.due_date.isnot(None)) & (Invoice.due_date < today_str))
+    ).count()
 
     # Recent shipments with RBAC financial masking
     recent_shipments_raw = db.query(Shipment).order_by(desc(Shipment.created_at)).limit(10).all()
@@ -116,6 +119,20 @@ def get_dashboard_summary(
             values["total_provider_cost"] = None
             values["total_gross_profit"] = None
 
+    today_inv = db.query(
+        func.coalesce(func.sum(Invoice.total), 0),
+        func.coalesce(func.sum(Invoice.gst), 0)
+    ).filter(Invoice.date == today_str).one()
+    today_sales_with_gst = float(today_inv[0]) if today_inv[0] else round(float(today_sales) * 1.18, 2)
+    today_gst = float(today_inv[1]) if today_inv[1] else round(float(today_sales) * 0.18, 2)
+
+    total_inv = db.query(
+        func.coalesce(func.sum(Invoice.total), 0),
+        func.coalesce(func.sum(Invoice.gst), 0)
+    ).one()
+    total_sales_with_gst = float(total_inv[0]) if total_inv[0] else round(float(total_sales) * 1.18, 2)
+    total_gst = float(total_inv[1]) if total_inv[1] else round(float(total_sales) * 0.18, 2)
+
     summary_data = {
         "today_shipments_count": today_count,
         "courier_breakdown": courier_breakdown,
@@ -125,10 +142,14 @@ def get_dashboard_summary(
         "delivered_count": delivered_count,
         "active_volume": active_volume,
         "total_sales": total_sales,
+        "total_sales_with_gst": total_sales_with_gst,
+        "total_gst": total_gst,
         "total_collected": total_collected,
         "total_provider_cost": totals["total_provider_cost"] if can_view_financials else None,
         "total_gross_profit": totals["total_gross_profit"] if can_view_financials else None,
         "today_sales": today_sales,
+        "today_sales_with_gst": today_sales_with_gst,
+        "today_gst": today_gst,
         "today_collected": today_collected,
         "collections_by_center": daily_collections["by_center"],
         "pending_collection": totals["pending_collection"],

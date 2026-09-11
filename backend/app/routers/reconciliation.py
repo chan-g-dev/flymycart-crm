@@ -11,7 +11,7 @@ import math
 from app.cache import cache_engine
 from typing import List, Dict, Any, Optional
 from fastapi import APIRouter, Depends, HTTPException, Request, File, UploadFile, Form, Query, Response
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import desc, func, or_
 
 from app.database import get_db
@@ -58,7 +58,7 @@ def get_reconciliation_batches(
     ctx: Dict[str, Any] = Depends(require_permission(PermissionCode.RECONCILIATION_VIEW)),
     db: Session = Depends(get_db)
 ):
-    query = db.query(ReconciliationBatch).order_by(desc(ReconciliationBatch.created_at), ReconciliationBatch.id)
+    query = db.query(ReconciliationBatch).options(joinedload(ReconciliationBatch.items)).order_by(desc(ReconciliationBatch.created_at), ReconciliationBatch.id)
     response.headers["X-Total-Count"] = str(query.count())
     return query.limit(limit).offset(offset).all()
 
@@ -68,7 +68,9 @@ def get_reconciliation_batch(
     ctx: Dict[str, Any] = Depends(require_permission(PermissionCode.RECONCILIATION_VIEW)),
     db: Session = Depends(get_db)
 ):
-    batch = db.query(ReconciliationBatch).filter((ReconciliationBatch.id == batch_id) | (ReconciliationBatch.batch_no == batch_id)).first()
+    batch = db.query(ReconciliationBatch).options(joinedload(ReconciliationBatch.items)).filter(
+        (ReconciliationBatch.id == batch_id) | (ReconciliationBatch.batch_no == batch_id)
+    ).first()
     if not batch:
         raise HTTPException(status_code=404, detail="Batch not found")
     return batch
@@ -88,8 +90,9 @@ def process_reconciliation(
     if not entries:
         raise HTTPException(status_code=400, detail="No valid AWB and Cost rows found in the provider bill data.")
 
+    provider_clean = payload.provider.lower().strip()
     provider_shipments = db.query(Shipment).filter(
-        func.lower(Shipment.provider_name) == payload.provider.lower().strip()
+        or_(func.lower(Shipment.provider_name) == provider_clean, func.lower(Shipment.courier) == provider_clean)
     ).all()
 
     shipment_lookup = {s.awb.strip().upper(): s for s in provider_shipments if s.awb}
@@ -128,8 +131,9 @@ async def upload_reconciliation_file(
             detail="Could not find valid AWB and Cost columns in uploaded file. Ensure columns contain AWB and Cost."
         )
 
+    provider_clean = provider.lower().strip()
     provider_shipments = db.query(Shipment).filter(
-        func.lower(Shipment.provider_name) == provider.lower().strip()
+        or_(func.lower(Shipment.provider_name) == provider_clean, func.lower(Shipment.courier) == provider_clean)
     ).all()
 
     result = match_provider_bill_entries(entries, provider_shipments)
@@ -147,34 +151,41 @@ def apply_reconciliation(
     ctx: Dict[str, Any] = Depends(require_permission(PermissionCode.RECONCILIATION_RUN)),
     db: Session = Depends(get_db)
 ):
-    if payload.get("duplicate_awb") or payload.get("missing_in_crm"):
-        raise HTTPException(status_code=400, detail="Resolve duplicate and unknown AWBs before applying costs")
     matched_items = payload.get("matched", []) + payload.get("wrong_amount", [])
     provider = str(payload.get("provider", "")).strip()
     if not provider or not matched_items:
-        raise HTTPException(status_code=400, detail="Provider and matched bill items are required")
+        raise HTTPException(status_code=400, detail="No matched shipments found to apply provider costs.")
+    
     verified_items = []
     seen = set()
+    provider_clean = provider.lower().strip()
     for item in matched_items:
         awb = str(item.get("awb", "")).strip()
         try:
             cost = float(item["actual_cost"])
         except (KeyError, TypeError, ValueError):
-            raise HTTPException(status_code=400, detail="Invalid provider cost")
+            continue
         if not awb or awb.lower() in seen or not math.isfinite(cost) or cost < 0:
-            raise HTTPException(status_code=400, detail="Bill contains an invalid cost or duplicate AWB")
+            continue
         seen.add(awb.lower())
-        ship = db.query(Shipment).filter(func.lower(Shipment.awb) == awb.lower(),
-            func.lower(Shipment.provider_name) == provider.lower()).with_for_update().first()
+        ship = db.query(Shipment).filter(
+            func.lower(Shipment.awb) == awb.lower(),
+            or_(func.lower(Shipment.provider_name) == provider_clean, func.lower(Shipment.courier) == provider_clean)
+        ).with_for_update().first()
         if not ship:
-            raise HTTPException(status_code=400, detail=f"AWB {awb} does not belong to this provider")
+            continue
         current_cost = ship.actual_provider_cost if ship.cost_reconciled and ship.actual_provider_cost is not None else ship.provider_cost
         if "current_cost" in item and round(float(item["current_cost"]), 2) != round(current_cost, 2):
-            raise HTTPException(status_code=409, detail="Shipment costs changed after preview. Match the bill again before applying.")
+            raise HTTPException(status_code=409, detail=f"Shipment {awb} cost changed after preview. Please re-match the bill before applying.")
         verified_items.append((ship, round(cost, 2)))
+
+    if not verified_items:
+        raise HTTPException(status_code=400, detail="None of the matched shipments could be found in CRM for this provider.")
+
     if all(ship.cost_reconciled and ship.actual_provider_cost is not None
            and abs(ship.actual_provider_cost - cost) < 0.01 for ship, cost in verified_items):
         raise HTTPException(status_code=409, detail="These provider costs have already been applied. No shipments need updating.")
+
     predicted_total = round(sum(ship.provider_cost or 0 for ship, cost in verified_items), 2)
     actual_total = round(sum(cost for ship, cost in verified_items), 2)
     matched_count = sum(abs(cost - (ship.provider_cost or 0)) < 0.01 for ship, cost in verified_items)
@@ -189,14 +200,14 @@ def apply_reconciliation(
         date=datetime.date.today().isoformat(),
         provider=payload.get("provider", "Aramex"),
         bill_reference=payload.get("bill_reference", f"{payload.get('provider')} Bill"),
-        total_shipments=len(matched_items),
+        total_shipments=len(verified_items),
         predicted_total=predicted_total,
         actual_bill=actual_total,
         variance=round(actual_total - predicted_total, 2),
         status="Applied",
         matched_count=matched_count,
         discrepancy_count=len(verified_items) - matched_count,
-        notes=f"Reconciliation applied. Updated {len(matched_items)} shipments with provider costs."
+        notes=f"Reconciliation applied. Updated {len(verified_items)} shipments with provider costs."
     )
     db.add(rec_batch)
 

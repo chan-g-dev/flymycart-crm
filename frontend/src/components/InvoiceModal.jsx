@@ -6,19 +6,27 @@ import { WhatsAppIcon, CourierLogo } from './CourierLogos';
 import { FlyMyCartLogo } from './FlyMyCartLogo';
 import { getTrackingUrl, TrackingLink } from './TrackingLink';
 
-const InvoiceModal = ({ isOpen, onClose, invoice, onPaymentRecorded }) => {
+const InvoiceModal = ({ isOpen, onClose, invoice, onPaymentRecorded, settings }) => {
     const { hasPermission } = useAuth();
     const canRecordPayment = hasPermission('invoices.edit');
     const [isRecordingPayment, setIsRecordingPayment] = useState(false);
     const [isSubmittingPayment, setIsSubmittingPayment] = useState(false);
     const [paymentAmount, setPaymentAmount] = useState('');
     const [paymentMethod, setPaymentMethod] = useState('PhonePe');
-    const [paidTo, setPaidTo] = useState('Office QR');
-    const [collectedBy, setCollectedBy] = useState('Nawaz');
+
+    const employeesList = (settings?.employees || [{ name: 'Nawaz' }, { name: 'Lata' }, { name: 'Umesh' }, { name: 'Uma' }]).map(e => typeof e === 'string' ? e : e.name);
+    const paidToList = settings?.paidToAccounts || ['Office QR', 'Current Account (HDFC)', 'Savings Account (ICICI)', 'Lata UPI', 'Nawaz UPI'];
+
+    const [paidTo, setPaidTo] = useState(paidToList[0] || 'Office QR');
+    const [collectedBy, setCollectedBy] = useState(employeesList[0] || 'Nawaz');
 
     if (!isOpen || !invoice) return null;
 
-    const formatCurrency = (n) => '₹' + Number(n || 0).toLocaleString('en-IN');
+    const isGst = invoice.is_gst_invoice !== false && Number(invoice.gst) > 0;
+    const effectiveTaxRate = Number(invoice.tax_rate) > 0 ? Number(invoice.tax_rate) : (isGst ? 18 : 0);
+    const docTitle = isGst ? `Official GST Tax Invoice (${effectiveTaxRate}%)` : 'Commercial Invoice / Bill of Supply (Non-GST)';
+
+    const formatCurrency = (n) => '₹' + Number(n || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     const formatDate = (d) => d ? new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '-';
 
     const handlePrint = () => {
@@ -27,15 +35,15 @@ const InvoiceModal = ({ isOpen, onClose, invoice, onPaymentRecorded }) => {
 
     const handleWhatsAppShare = () => {
         const msg = encodeURIComponent(
-            `Dear ${invoice.customer_name},\n\nThank you for choosing Fly My Cart Logistics!\n\n📄 Invoice: ${invoice.invoice_no}\n📦 AWB: ${invoice.awb}\n💰 Total Amount: ₹${invoice.total}\n💳 Amount Paid: ₹${invoice.paid}\n⚠️ Balance: ₹${invoice.balance}\n\n${getTrackingUrl(invoice.courier) ? `Track your ${invoice.courier} shipment: ${getTrackingUrl(invoice.courier)}` : `Contact Fly My Cart for tracking assistance.`}\n\nFly My Cart Bangalore Hub`
+            `Dear ${invoice.customer_name},\n\nThank you for choosing Fly My Cart Logistics!\n\n📄 Document: ${docTitle}\n🧾 No: ${invoice.invoice_no}\n📦 AWB: ${invoice.awb}\n💰 Total Amount: ₹${invoice.total}\n💳 Amount Paid: ₹${invoice.paid}\n⚠️ Balance: ₹${invoice.balance}\n\n${getTrackingUrl(invoice.courier) ? `Track your ${invoice.courier} shipment: ${getTrackingUrl(invoice.courier)}` : `Contact Fly My Cart for tracking assistance.`}\n\nFly My Cart Bangalore Hub`
         );
         window.open(`https://wa.me/?text=${msg}`, '_blank');
     };
 
     const handleEmailShare = () => {
-        const subject = encodeURIComponent(`Tax Invoice ${invoice.invoice_no} - Fly My Cart Logistics`);
+        const subject = encodeURIComponent(`${docTitle} - ${invoice.invoice_no} - Fly My Cart Logistics`);
         const body = encodeURIComponent(
-            `Dear ${invoice.customer_name},\n\nPlease find attached your tax invoice details for shipment AWB ${invoice.awb}.\n\nTotal: ₹${invoice.total}\nPaid: ₹${invoice.paid}\nBalance: ₹${invoice.balance}\n\nThank you for partnering with Fly My Cart.`
+            `Dear ${invoice.customer_name},\n\nPlease find attached your invoice details for shipment AWB ${invoice.awb}.\n\nDocument: ${docTitle}\nTotal: ₹${invoice.total}\nPaid: ₹${invoice.paid}\nBalance: ₹${invoice.balance}\n\nThank you for partnering with Fly My Cart.`
         );
         window.open(`mailto:?subject=${subject}&body=${body}`, '_blank');
     };
@@ -76,7 +84,7 @@ const InvoiceModal = ({ isOpen, onClose, invoice, onPaymentRecorded }) => {
                         <div style={{ width: '30px', height: '30px', borderRadius: '6px', background: '#eff6ff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                             ✈️
                         </div>
-                        <h3 style={{ fontSize: '15px', fontWeight: 800 }}>Official GST Tax Invoice Preview</h3>
+                        <h3 style={{ fontSize: '15px', fontWeight: 800 }}>{docTitle}</h3>
                     </div>
                     <button className="modal-close" onClick={onClose}><X size={18} /></button>
                 </div>
@@ -97,7 +105,10 @@ const InvoiceModal = ({ isOpen, onClose, invoice, onPaymentRecorded }) => {
                             </div>
                         </div>
                         <div style={{ textAlign: 'right' }}>
-                            <h3 style={{ fontSize: '16px', fontWeight: 800, color: 'var(--text-main)' }}>{invoice.invoice_no}</h3>
+                            <div style={{ fontSize: '11px', fontWeight: 800, color: 'var(--primary-blue)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                                {isGst ? 'TAX INVOICE' : 'BILL OF SUPPLY / RECEIPT'}
+                            </div>
+                            <h3 style={{ fontSize: '16px', fontWeight: 800, color: 'var(--text-main)', marginTop: '2px' }}>{invoice.invoice_no}</h3>
                             <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>Date: <strong>{formatDate(invoice.date)}</strong></div>
                             <div style={{ marginTop: '6px' }}>
                                 <span className={`status-pill ${invoice.status === 'Paid' ? 'delivered' : 'delayed'}`}>
@@ -112,11 +123,12 @@ const InvoiceModal = ({ isOpen, onClose, invoice, onPaymentRecorded }) => {
                         <div style={{ background: 'var(--bg-app)', padding: '12px 14px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--card-border)' }}>
                             <div style={{ fontSize: '10.5px', fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Billed Customer:</div>
                             <div style={{ fontSize: '14px', fontWeight: 800, color: 'var(--text-main)', marginTop: '3px' }}>{invoice.customer_name}</div>
+                            <div style={{ fontSize: '11.5px', color: 'var(--text-muted)', marginTop: '2px' }}>Billing Mode: {isGst ? `GST Registered (${effectiveTaxRate}%)` : 'Non-GST / Bill of Supply'}</div>
                         </div>
                         <div style={{ background: 'var(--bg-app)', padding: '12px 14px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--card-border)' }}>
                             <div style={{ fontSize: '10.5px', fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Logistics Consignment:</div>
                             <div style={{ fontSize: '13px', fontWeight: 700, marginTop: '3px' }}>AWB: <TrackingLink awb={invoice.awb} courier={invoice.courier} style={{ fontFamily: 'monospace' }} /></div>
-                            <div style={{ fontSize: '11.5px', color: 'var(--text-muted)' }}>Carrier: {invoice.courier} ({invoice.service || 'Express'})</div>
+                            <div style={{ fontSize: '11.5px', color: 'var(--text-muted)' }}>Carrier: {invoice.courier} ({invoice.service || 'Express'}) • HSN/SAC: 996812</div>
                         </div>
                     </div>
 
@@ -127,7 +139,7 @@ const InvoiceModal = ({ isOpen, onClose, invoice, onPaymentRecorded }) => {
                                 <th>Service Item Description</th>
                                 <th>AWB</th>
                                 <th>Carrier</th>
-                                <th style={{ textAlign: 'right' }}>Amount (INR)</th>
+                                <th style={{ textAlign: 'right' }}>Base Amount</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -141,17 +153,31 @@ const InvoiceModal = ({ isOpen, onClose, invoice, onPaymentRecorded }) => {
                     </table>
 
                     {/* Total Box */}
-                    <div style={{ marginLeft: 'auto', maxWidth: '300px', background: 'var(--bg-app)', padding: '14px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--card-border)' }}>
+                    <div style={{ marginLeft: 'auto', maxWidth: '320px', background: 'var(--bg-app)', padding: '14px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--card-border)' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12.5px', marginBottom: '6px' }}>
-                            <span>Subtotal:</span><strong>{formatCurrency(invoice.amount)}</strong>
+                            <span>Subtotal (Base):</span><strong>{formatCurrency(invoice.amount)}</strong>
                         </div>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: 'var(--text-muted)', marginBottom: '6px' }}>
-                            <span>GST{invoice.gst > 0 ? " (18%)" : ""}:</span><span>{formatCurrency(invoice.gst)}</span>
+                        {isGst ? (
+                            <>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: 'var(--text-muted)', marginBottom: '4px' }}>
+                                    <span>CGST ({(effectiveTaxRate / 2).toFixed(1)}%):</span><span>{formatCurrency(invoice.cgst ?? (invoice.gst / 2))}</span>
+                                </div>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: 'var(--text-muted)', marginBottom: '6px' }}>
+                                    <span>SGST ({(effectiveTaxRate / 2).toFixed(1)}%):</span><span>{formatCurrency(invoice.sgst ?? (invoice.gst / 2))}</span>
+                                </div>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', fontWeight: 600, color: 'var(--primary-blue)', marginBottom: '6px', borderTop: '1px dashed var(--card-border)', paddingTop: '4px' }}>
+                                    <span>Total GST ({effectiveTaxRate}%):</span><span>{formatCurrency(invoice.gst)}</span>
+                                </div>
+                            </>
+                        ) : (
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: 'var(--text-muted)', marginBottom: '6px' }}>
+                                <span>GST (0% / Non-GST):</span><span>₹0.00</span>
+                            </div>
+                        )}
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', fontWeight: 700, color: 'var(--emerald)', marginBottom: '6px', borderTop: '1px solid var(--card-border)', paddingTop: '6px' }}>
+                            <span>Invoice Total:</span><strong>{formatCurrency(invoice.total)}</strong>
                         </div>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12.5px', color: 'var(--emerald)', marginBottom: '6px' }}>
-                            <span>Invoice total:</span><strong>{formatCurrency(invoice.total)}</strong>
-                        </div>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px', fontSize: '12px' }}>
                             <span>Amount Collected:</span><strong>{formatCurrency(invoice.paid)}</strong>
                         </div>
                         <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '15px', fontWeight: 800, borderTop: '2px solid var(--card-border)', paddingTop: '8px', color: invoice.balance > 0 ? 'var(--rose)' : 'var(--emerald)' }}>
@@ -182,19 +208,17 @@ const InvoiceModal = ({ isOpen, onClose, invoice, onPaymentRecorded }) => {
                             <div className="form-group">
                                 <label>Paid To Account</label>
                                 <select value={paidTo} onChange={e => setPaidTo(e.target.value)}>
-                                    <option value="Office QR">Office QR</option>
-                                    <option value="Current Account (HDFC)">Current Account (HDFC)</option>
-                                    <option value="Savings Account (ICICI)">Savings Account (ICICI)</option>
-                                    <option value="Lata UPI">Lata UPI</option>
+                                    {paidToList.map(acc => (
+                                        <option key={acc} value={acc}>{acc}</option>
+                                    ))}
                                 </select>
                             </div>
                             <div className="form-group">
                                 <label>Collected By</label>
                                 <select value={collectedBy} onChange={e => setCollectedBy(e.target.value)}>
-                                    <option value="Nawaz">Nawaz</option>
-                                    <option value="Lata">Lata</option>
-                                    <option value="Umesh">Umesh</option>
-                                    <option value="Uma">Uma</option>
+                                    {employeesList.map(emp => (
+                                        <option key={emp} value={emp}>{emp}</option>
+                                    ))}
                                 </select>
                             </div>
                         </div>

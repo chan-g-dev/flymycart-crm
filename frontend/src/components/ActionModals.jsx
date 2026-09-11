@@ -239,7 +239,7 @@ export const CommunicationModal = ({ isOpen, onClose, customerName, onCreated, s
 
     if (!isOpen) return null;
 
-    const employeesList = (settings?.employees || [{ name: 'Nawaz' }, { name: 'Lata' }, { name: 'Umesh' }, { name: 'Uma' }]).map(e => e.name);
+    const employeesList = (settings?.employees || [{ name: 'Nawaz' }, { name: 'Lata' }, { name: 'Umesh' }, { name: 'Uma' }]).map(e => (typeof e === 'string' ? e : e.name));
 
     return (
         <div className="modal-overlay">

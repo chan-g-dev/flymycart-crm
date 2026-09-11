@@ -160,9 +160,11 @@ export const Accounts = ({
     activeSection,
 }) => {
     const { hasPermission, currentUser } = useAuth();
+    const [tab, setTab] = useState('collections');
     const [entry, setEntry] = useState({kind: 'expense', date: new Date().toLocaleDateString('en-CA'), provider: '', amount: '', reference: '', account: ''});
     const [saving, setSaving] = useState(false);
     const [entryMessage, setEntryMessage] = useState('');
+
     const submitEntry = async e => {
         e.preventDefault();
         setSaving(true);
@@ -170,30 +172,31 @@ export const Accounts = ({
         try {
             await apiClient.recordAccountingEntry({...entry, amount: Number(entry.amount), provider: entry.kind === 'expense' ? null : entry.provider});
             setEntry(prev => ({...prev, amount: '', reference: ''}));
-            setEntryMessage('Entry recorded successfully.');
+            setEntryMessage('Transaction recorded successfully.');
             await onRefresh();
         } catch (error) {
-            setEntryMessage(error.response?.data?.detail || 'Unable to record entry.');
+            setEntryMessage(error.response?.data?.detail || 'Unable to record transaction.');
         } finally { setSaving(false); }
     };
+
     const formatCurrency = (n) => '₹' + Number(n || 0).toLocaleString('en-IN');
     const formatDate = (d) => d ? new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '-';
 
     React.useEffect(() => {
         if (!activeSection) return;
-        const targetMap = {
-            customer_money: 'account-collections',
-            account_checks: 'account-checks',
-            aramex_account: 'provider-Aramex',
-            bluedart_account: 'provider-Blue%20Dart',
-            reconciliation: 'account-reconciliation',
-        };
-        const targetId = targetMap[activeSection] || (/^(wallet|provider)-/.test(activeSection) ? activeSection : null);
-        if (!targetId) return;
-        window.requestAnimationFrame(() => {
-            document.getElementById(targetId)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        });
-    }, [activeSection, accountsData]);
+        const s = activeSection.toLowerCase();
+        if (s.includes('wallet') || s === 'prepaid') {
+            setTab('wallets');
+        } else if (s.includes('provider') || s.includes('aramex') || s.includes('bluedart') || s.includes('fedex') || s.includes('dhl') || s === 'postpaid') {
+            setTab('postpaid');
+        } else if (s.includes('reconcil')) {
+            setTab('reconciliation');
+        } else if (s.includes('expense') || s.includes('transaction')) {
+            setTab('transactions');
+        } else if (s.includes('collection') || s.includes('check') || s.includes('receipt') || s.includes('money')) {
+            setTab('collections');
+        }
+    }, [activeSection]);
 
     if (!hasPermission('accounts.view')) {
         return <div className="dash-box" role="status"><h2>Accounts access required</h2><p>Your role does not have permission to view accounts. Contact your administrator if you need access.</p></div>;
@@ -203,199 +206,368 @@ export const Accounts = ({
         return <ContentShimmer message="Synchronizing Bank Ledgers, Provider Wallets & Discrepancy Logs..." />;
     }
 
+    const totalWalletBalance = (accountsData.prepaid_wallets || []).reduce((sum, w) => sum + (Number(w.current_balance) || 0), 0);
+    const totalPostpaidPayable = (accountsData.postpaid_accounts || []).reduce((sum, p) => sum + (Number(p.net_payable) || 0), 0);
+    const totalPostpaidBilled = (accountsData.postpaid_accounts || []).reduce((sum, p) => sum + (Number(p.actual_billed) || 0), 0);
+
     return (
-        <div className="accounts-page">
-            <div className="page-header">
+        <div className="accounts-page" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            {/* Header */}
+            <div className="page-header" style={{ marginBottom: 0 }}>
                 <div>
-                    <h2 className="page-title">💰 Financial Accounts & Provider Ledgers</h2>
-                    <p className="page-subtitle">Customer sales & collections, Prepaid provider wallets (ICL, BRV) & Postpaid accounts (Aramex, Blue Dart)</p>
+                    <h2 className="page-title" style={{ fontSize: '21px', fontWeight: 900, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span>💰</span> Financial Accounts & Carrier Ledgers
+                    </h2>
+                    <p className="page-subtitle" style={{ fontSize: '12.5px', color: 'var(--text-muted)' }}>
+                        Manage customer receipts, prepaid provider wallets, postpaid monthly billing, and carrier reconciliations.
+                    </p>
                 </div>
                 {hasPermission('runReconciliation') && (
-                    <div style={{ display: 'flex', gap: '8px' }}>
-                        <button className="btn btn-outline" onClick={onOpenReconciliationModal} title="Upload carrier billing statement (Excel, CSV or PDF)">
-                            <Upload size={14} /> Upload Carrier Bill
-                        </button>
-                        <button className="btn btn-primary-blue" onClick={onOpenReconciliationModal}>
-                            <Scale size={15} /> Run Provider Reconciliation
-                        </button>
-                    </div>
+                    <button className="btn btn-primary-blue" onClick={onOpenReconciliationModal} title="Upload carrier bill statement and run reconciliation">
+                        <Scale size={15} /> Run Reconciliation
+                    </button>
                 )}
             </div>
 
-            {/* 1. Customer Sales & Collection Highlights */}
-            <div id="account-collections" className="dash-stat-cards-grid account-nav-target" style={{ gridTemplateColumns: 'repeat(4, 1fr)', marginBottom: '10px' }}>
-                <div className="dash-mini-card">
-                    <span className="card-label">Total Customer Sales</span>
-                    <div className="card-value" style={{ color: 'var(--primary-blue)' }}>{formatCurrency(accountsData.total_sales)}</div>
-                </div>
-                <div className="dash-mini-card">
-                    <span className="card-label">Total Collected</span>
-                    <div className="card-value" style={{ color: 'var(--emerald)' }}>{formatCurrency(accountsData.total_collected)}</div>
-                </div>
-                <div className="dash-mini-card">
-                    <span className="card-label">Pending Retail Collection</span>
-                    <div className="card-value" style={{ color: 'var(--amber)' }}>{formatCurrency(accountsData.pending_collection)}</div>
-                </div>
-                <div className="dash-mini-card">
-                    <span className="card-label">B2B Credit Receivables</span>
-                    <div className="card-value" style={{ color: 'var(--sky)' }}>{formatCurrency(accountsData.b2b_credit_sales)}</div>
-                </div>
+            {/* Segmented Tab Capsule */}
+            <div className="fmc-segmented-capsule report-tabs" style={{ alignSelf: 'flex-start' }}>
+                <button 
+                    className={`fmc-segmented-btn ${tab === 'collections' ? 'active' : ''}`}
+                    onClick={() => setTab('collections')}
+                >
+                    <CreditCard size={14} /> Customer Collections & Receipts
+                </button>
+                <button 
+                    className={`fmc-segmented-btn ${tab === 'wallets' ? 'active' : ''}`}
+                    onClick={() => setTab('wallets')}
+                >
+                    <CreditCard size={14} /> Prepaid Wallets ({accountsData.prepaid_wallets?.length || 0})
+                </button>
+                <button 
+                    className={`fmc-segmented-btn ${tab === 'postpaid' ? 'active' : ''}`}
+                    onClick={() => setTab('postpaid')}
+                >
+                    <FileText size={14} /> Postpaid Accounts ({accountsData.postpaid_accounts?.length || 0})
+                </button>
+                {(currentUser?.isSuperAdmin || currentUser?.roleId === 'super_admin') && (
+                    <button 
+                        className={`fmc-segmented-btn ${tab === 'transactions' ? 'active' : ''}`}
+                        onClick={() => setTab('transactions')}
+                    >
+                        <Plus size={14} /> Record Expense / Payout
+                    </button>
+                )}
+                <button 
+                    className={`fmc-segmented-btn ${tab === 'reconciliation' ? 'active' : ''}`}
+                    onClick={() => setTab('reconciliation')}
+                >
+                    <Scale size={14} /> Bill Reconciliation ({reconciliations?.length || 0})
+                </button>
             </div>
 
-            {/* Collections by Payment Method and Account Destination */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 280px), 1fr))', gap: '14px', marginBottom: '12px' }}>
-                <div className="dash-box">
-                    <h4 style={{ fontSize: '11.5px', fontWeight: 800, color: 'var(--text-main)', marginBottom: '10px' }}>💳 Collections by Payment Mode</h4>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '11px' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', borderBottom: '1px solid var(--card-border)' }}>
-                            <span>💵 Cash at Counter:</span><strong>{formatCurrency(accountsData.cash_collected)}</strong>
+            {/* TAB 1: Customer Collections & Receipts */}
+            {tab === 'collections' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                    {/* Top 4 KPI Cards */}
+                    <div className="dash-stat-cards-grid" style={{ gridTemplateColumns: 'repeat(4, minmax(0, 1fr))' }}>
+                        <div className="dash-mini-card" style={{ borderTop: '3px solid var(--primary-blue)' }}>
+                            <span className="card-label">Total Customer Sales (With GST)</span>
+                            <div className="card-value" style={{ color: 'var(--primary-blue)' }}>
+                                {formatCurrency(accountsData.total_sales_with_gst ?? (accountsData.total_sales > 0 ? accountsData.total_sales * 1.18 : 0))}
+                            </div>
+                            <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Base: {formatCurrency(accountsData.total_sales)}</span>
                         </div>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', borderBottom: '1px solid var(--card-border)' }}>
-                            <span>📱 UPI / QR Payments:</span><strong>{formatCurrency(accountsData.upi_collected)}</strong>
+                        <div className="dash-mini-card" style={{ borderTop: '3px solid var(--emerald)' }}>
+                            <span className="card-label">Total Collected</span>
+                            <div className="card-value" style={{ color: 'var(--emerald)' }}>{formatCurrency(accountsData.total_collected)}</div>
+                            <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>100% Realized</span>
                         </div>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0' }}>
-                            <span>🏦 Bank Transfer (NEFT/RTGS):</span><strong>{formatCurrency(accountsData.bank_collected)}</strong>
+                        <div className="dash-mini-card" style={{ borderTop: '3px solid var(--amber)' }}>
+                            <span className="card-label">Pending Retail Collection</span>
+                            <div className="card-value" style={{ color: 'var(--amber)' }}>{formatCurrency(accountsData.pending_collection)}</div>
+                            <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Counter & Delivery Balance</span>
+                        </div>
+                        <div className="dash-mini-card" style={{ borderTop: '3px solid var(--sky)' }}>
+                            <span className="card-label">B2B Credit Receivables</span>
+                            <div className="card-value" style={{ color: 'var(--sky)' }}>{formatCurrency(accountsData.b2b_credit_sales)}</div>
+                            <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Corporate Terms</span>
                         </div>
                     </div>
-                </div>
 
-                <div className="dash-box">
-                    <h4 style={{ fontSize: '11.5px', fontWeight: 800, color: 'var(--text-main)', marginBottom: '10px' }}>🏦 Collections by Destination Account (paid_to)</h4>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '11px' }}>
-                        {Object.entries(accountsData.collections_by_account || {}).map(([acc, amt]) => (
-                            <div key={acc} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', borderBottom: '1px solid var(--card-border)' }}>
-                                <span>{acc}:</span><strong style={{ color: 'var(--emerald)' }}>{formatCurrency(amt)}</strong>
+                    {/* Breakdown by Mode and Destination Account */}
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '14px' }}>
+                        <div className="dash-box">
+                            <h4 style={{ fontSize: '12.5px', fontWeight: 800, color: 'var(--text-main)', marginBottom: '10px' }}>💳 Collections by Payment Mode</h4>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '12px' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid var(--card-border)' }}>
+                                    <span>💵 Cash at Counter:</span><strong>{formatCurrency(accountsData.cash_collected)}</strong>
+                                </div>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid var(--card-border)' }}>
+                                    <span>📱 UPI / QR Payments:</span><strong>{formatCurrency(accountsData.upi_collected)}</strong>
+                                </div>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0' }}>
+                                    <span>🏦 Bank Transfer (NEFT/RTGS):</span><strong>{formatCurrency(accountsData.bank_collected)}</strong>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="dash-box">
+                            <h4 style={{ fontSize: '12.5px', fontWeight: 800, color: 'var(--text-main)', marginBottom: '10px' }}>🏦 Collections by Destination Account (paid_to)</h4>
+                            <div className="settings-chips-scroll" style={{ maxHeight: '180px', display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '12px' }}>
+                                {Object.entries(accountsData.collections_by_account || {}).length === 0 ? (
+                                    <div style={{ color: 'var(--text-muted)', padding: '12px 0', textAlign: 'center' }}>No receipts recorded yet.</div>
+                                ) : (
+                                    Object.entries(accountsData.collections_by_account || {}).map(([acc, amt]) => (
+                                        <div key={acc} style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0', borderBottom: '1px solid var(--card-border)' }}>
+                                            <span>{acc}:</span><strong style={{ color: 'var(--emerald)' }}>{formatCurrency(amt)}</strong>
+                                        </div>
+                                    ))
+                                )}
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Receipt Ledger & Account Checks */}
+                    <AccountChecks />
+                </div>
+            )}
+
+            {/* TAB 2: Prepaid Provider Wallets */}
+            {tab === 'wallets' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                    <div className="dash-box" style={{ background: 'linear-gradient(135deg, rgba(16, 185, 129, 0.06), rgba(59, 130, 246, 0.04))', borderColor: 'rgba(16, 185, 129, 0.2)' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
+                            <div>
+                                <h3 style={{ fontSize: '15px', fontWeight: 800, margin: 0, color: 'var(--text-main)' }}>
+                                    👛 Prepaid Logistics Wallets (ICL, BRV, etc.)
+                                </h3>
+                                <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: '4px 0 0' }}>
+                                    Recharging a wallet is an internal fund transfer. Cost occurs only when the wallet is debited on booking shipments.
+                                </p>
+                            </div>
+                            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                                <span className="pill-stat" style={{ background: 'rgba(16, 185, 129, 0.15)', color: '#047857', fontSize: '12px' }}>
+                                    Total Active Balance: <strong>{formatCurrency(totalWalletBalance)}</strong>
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '14px' }}>
+                        {accountsData.prepaid_wallets?.map(w => (
+                            <div id={`wallet-${encodeURIComponent(w.name)}`} key={w.name} className="dash-box" style={{ borderTop: '3px solid #10b981' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
+                                    <div>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                            <CourierLogo courier={w.name} height={16} />
+                                            <strong style={{ fontSize: '14px', color: 'var(--text-main)' }}>{w.name} Wallet</strong>
+                                        </div>
+                                        <div style={{ fontSize: '22px', fontWeight: 900, color: 'var(--emerald)', margin: '6px 0 2px' }}>
+                                            {formatCurrency(w.current_balance)}
+                                        </div>
+                                        <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Available Operating Balance</span>
+                                    </div>
+                                    <button className="btn btn-sm btn-primary-blue" onClick={() => onOpenWalletModal(w.name)}>
+                                        <Plus size={13} /> Top-up Wallet
+                                    </button>
+                                </div>
+                                <div style={{ fontSize: '11.5px', color: 'var(--text-muted)', borderTop: '1px solid var(--card-border)', paddingTop: '8px', display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: '4px' }}>
+                                    <span>Opening: <strong>{formatCurrency(w.opening_balance)}</strong></span>
+                                    <span>Recharged: <strong style={{ color: 'var(--emerald)' }}>+{formatCurrency(w.total_recharges)}</strong></span>
+                                    <span>Used: <strong style={{ color: 'var(--rose)' }}>-{formatCurrency(w.total_usage)}</strong></span>
+                                </div>
                             </div>
                         ))}
                     </div>
                 </div>
-            </div>
+            )}
 
-            {/* 2 & 3. Prepaid vs Postpaid Providers */}
-            {(currentUser?.isSuperAdmin || currentUser?.roleId === 'super_admin') && <form className="dash-box account-transaction-form" onSubmit={submitEntry} style={{marginBottom: 12}}>
-                <h3>Record account transaction</h3>
-                <div className="form-grid">
-                    <div className="form-group"><label>Transaction</label><select value={entry.kind} onChange={e => setEntry({...entry, kind: e.target.value})}><option value="expense">Operating expense</option><option value="provider_payment">Provider payment</option><option value="provider_deposit">Security deposit</option></select></div>
-                    <div className="form-group"><label>Date</label><input required type="date" value={entry.date} onChange={e => setEntry({...entry, date: e.target.value})} /></div>
-                    {entry.kind !== 'expense' && <div className="form-group"><label>Provider</label><select required value={entry.provider} onChange={e => setEntry({...entry, provider: e.target.value})}><option value="">Select provider</option>{accountsData.postpaid_accounts?.map(p => <option key={p.name}>{p.name}</option>)}</select></div>}
-                    <div className="form-group"><label>Amount (₹)</label><input required type="number" min="0.01" step="0.01" value={entry.amount} onChange={e => setEntry({...entry, amount: e.target.value})} /></div>
-                    <div className="form-group"><label>Payment account</label><input required value={entry.account} onChange={e => setEntry({...entry, account: e.target.value})} /></div>
-                    <div className="form-group"><label>Reference / description</label><input required value={entry.reference} onChange={e => setEntry({...entry, reference: e.target.value})} /></div>
-                </div>
-                <button className="btn btn-primary-blue" disabled={saving}>{saving ? 'Recording…' : 'Record transaction'}</button>
-                {entryMessage && <p role="status">{typeof entryMessage === 'string' ? entryMessage : 'Please check the transaction details.'}</p>}
-            </form>}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 320px), 1fr))', gap: '12px', marginBottom: '10px' }}>
-                {/* Prepaid Wallets */}
-                <div className="dash-box provider-accounts-panel">
-                    <div className="dash-box-header">
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <CreditCard size={17} color="var(--primary-blue)" />
-                            <h3>Prepaid Provider Wallets (Rule 1 & 2)</h3>
+            {/* TAB 3: Postpaid Provider Accounts */}
+            {tab === 'postpaid' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                    <div className="dash-box" style={{ background: 'linear-gradient(135deg, rgba(59, 130, 246, 0.05), rgba(99, 102, 241, 0.04))' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
+                            <div>
+                                <h3 style={{ fontSize: '15px', fontWeight: 800, margin: 0, color: 'var(--text-main)' }}>
+                                    📋 Postpaid Courier Accounts (Aramex, Blue Dart, FedEx, DHL, etc.)
+                                </h3>
+                                <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: '4px 0 0' }}>
+                                    Shipments accrue predicted costs. Month-end carrier bills are reconciled, and supplier payouts reduce net payable.
+                                </p>
+                            </div>
+                            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                                <span className="pill-stat" style={{ background: '#ffe4e6', color: '#be123c', fontSize: '12px' }}>
+                                    Total Net Outstanding: <strong>{formatCurrency(totalPostpaidPayable)}</strong>
+                                </span>
+                            </div>
                         </div>
                     </div>
-                    <p style={{ fontSize: '10.5px', color: 'var(--text-muted)', marginBottom: '10px' }}>
-                        Recharge is a bank transfer to wallet. Cost occurs only when the wallet is debited on a shipment.
-                    </p>
-                    <div className="provider-accounts-scroll" tabIndex={0} role="region" aria-label="Provider accounts">
-                    {accountsData.prepaid_wallets?.map(w => (
-                        <div id={`wallet-${encodeURIComponent(w.name)}`} key={w.name} className="dash-mini-card account-nav-target provider-account-card">
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                                <div>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
-                                        <CourierLogo courier={w.name} height={16} />
-                                        <div className="card-label" style={{ margin: 0 }}>{w.name} Provider Wallet</div>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '14px' }}>
+                        {accountsData.postpaid_accounts?.map(p => (
+                            <div id={`provider-${encodeURIComponent(p.name)}`} key={p.name} className="dash-box" style={{ borderTop: '3px solid #3b82f6' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                        <CourierLogo courier={p.name} height={16} />
+                                        <strong style={{ fontSize: '14px', color: 'var(--text-main)' }}>{p.name} Account</strong>
                                     </div>
-                                    <div className="card-value" style={{ color: 'var(--emerald)', margin: '4px 0' }}>{formatCurrency(w.current_balance)}</div>
+                                    <span className="status-pill in-transit" style={{ fontSize: '11px' }}>{p.payment_terms || '30 Days'}</span>
                                 </div>
-                                <button className="btn btn-sm btn-primary-blue" onClick={() => onOpenWalletModal(w.name)}>
-                                    <Plus size={13} /> Top-up Wallet
-                                </button>
-                            </div>
-                            <div style={{ fontSize: '10.5px', color: 'var(--text-muted)', marginTop: '8px', borderTop: '1px solid var(--card-border)', paddingTop: '6px' }}>
-                                Opening: {formatCurrency(w.opening_balance)} • Recharges: {formatCurrency(w.total_recharges)} • Used: {formatCurrency(w.total_usage)}
-                            </div>
-                        </div>
-                    ))}
-                    </div>
-                </div>
 
-                {/* Postpaid Accounts */}
-                <div className="dash-box provider-accounts-panel">
-                    <div className="dash-box-header">
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <FileText size={17} color="var(--primary-blue)" />
-                            <h3>Postpaid Provider Accounts (Rule 3 & 4)</h3>
-                        </div>
-                    </div>
-                    <p style={{ fontSize: '10.5px', color: 'var(--text-muted)', marginBottom: '10px' }}>
-                        Shipments accumulate unbilled predicted charges. Month-end bill upload matches AWB-by-AWB.
-                    </p>
-                    <div className="provider-accounts-scroll" tabIndex={0} role="region" aria-label="Provider accounts">
-                    {accountsData.postpaid_accounts?.map(p => (
-                        <div id={`provider-${encodeURIComponent(p.name)}`} key={p.name} className="dash-mini-card account-nav-target provider-account-card">
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
-                                <CourierLogo courier={p.name} height={16} />
-                                <div className="card-label" style={{ margin: 0 }}>{p.name} Postpaid Account</div>
-                            </div>
-                            <div className="card-value" style={{ color: 'var(--rose)', margin: '4px 0' }}>{formatCurrency(p.unbilled_usage)}</div>
-                            <p>{providerCostLabel(p.name)}: {formatCurrency(p.actual_billed)} · Paid: {formatCurrency(p.payments_made)} · Payable: {formatCurrency(p.net_payable)}</p>
-                            <div style={{ fontSize: '10.5px', color: 'var(--text-muted)' }}>Unbilled Usage ({p.shipments_count} Shipments)</div>
-                            <div style={{ fontSize: '10.5px', color: 'var(--text-muted)', marginTop: '8px', borderTop: '1px solid var(--card-border)', paddingTop: '6px' }}>
-                                Security Deposit: <strong>{formatCurrency(p.deposit)}</strong> • Terms: {p.payment_terms}
-                            </div>
-                        </div>
-                    ))}
-                    </div>
-                </div>
-            </div>
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', margin: '8px 0', padding: '8px', background: 'var(--bg-app)', borderRadius: '6px' }}>
+                                    <div>
+                                        <span style={{ fontSize: '10.5px', color: 'var(--text-muted)' }}>Net Payable (Due)</span>
+                                        <div style={{ fontSize: '16px', fontWeight: 900, color: Number(p.net_payable) > 0 ? 'var(--rose)' : 'var(--emerald)' }}>
+                                            {formatCurrency(p.net_payable)}
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <span style={{ fontSize: '10.5px', color: 'var(--text-muted)' }}>Unbilled Usage</span>
+                                        <div style={{ fontSize: '16px', fontWeight: 800, color: 'var(--primary-blue)' }}>
+                                            {formatCurrency(p.unbilled_usage)}
+                                        </div>
+                                    </div>
+                                </div>
 
-            <AccountChecks />
-            {/* 4. Reconciliation History */}
-            <div id="account-reconciliation" className="table-card account-nav-target">
-                <div className="dash-box-header">
-                    <h3>Reconciliation Audit Log (Rule 4 & 6)</h3>
-                    {hasPermission('runReconciliation') && (
-                        <button className="btn btn-sm btn-primary-blue" onClick={onOpenReconciliationModal}>
-                            <Scale size={13} /> Run Reconciliation
-                        </button>
-                    )}
+                                <div style={{ fontSize: '11.5px', color: 'var(--text-muted)', display: 'flex', flexDirection: 'column', gap: '4px', borderTop: '1px solid var(--card-border)', paddingTop: '8px' }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                        <span>Total Reconciled Bills:</span>
+                                        <strong>{formatCurrency(p.actual_billed)}</strong>
+                                    </div>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                        <span>Payouts Made to Carrier:</span>
+                                        <strong style={{ color: 'var(--emerald)' }}>{formatCurrency(p.payments_made)}</strong>
+                                    </div>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                        <span>Security Deposit Held:</span>
+                                        <strong>{formatCurrency(p.deposit)}</strong>
+                                    </div>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                        <span>Unbilled Shipments:</span>
+                                        <strong>{p.shipments_count || 0} shipments</strong>
+                                    </div>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
                 </div>
-                <div className="table-wrap reconciliation-history-scroll" tabIndex={0} role="region" aria-label="Reconciliation audit log">
-                    <table className="data-table reconciliation-history-table">
-                        <thead>
-                            <tr>
-                                <th style={{ minWidth: '150px' }}>Batch #</th>
-                                <th style={{ minWidth: '100px' }}>Date</th>
-                                <th style={{ minWidth: '110px' }}>Provider</th>
-                                <th style={{ minWidth: '130px' }}>Predicted Cost</th>
-                                <th style={{ minWidth: '130px' }}>Provider Cost</th>
-                                <th style={{ minWidth: '110px' }}>Difference</th>
-                                <th style={{ minWidth: '100px' }}>Status</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {reconciliations?.length === 0 ? (
-                                <tr><td colSpan="7" style={{ textAlign: 'center', padding: '24px', color: 'var(--text-muted)' }}>No reconciliation batches executed yet.</td></tr>
-                            ) : (
-                                reconciliations?.map(r => (
-                                    <tr key={r.id}>
-                                        <td><strong>{r.batch_no}</strong></td>
-                                        <td style={{ color: 'var(--text-muted)', fontSize: '10.5px' }}>{formatDate(r.date)}</td>
-                                        <td><span className="status-pill in-transit">{r.provider}</span></td>
-                                        <td>{formatCurrency(r.predicted_total)}</td>
-                                        <td><div className="text-muted" style={{ fontSize: '9.5px' }}>{providerCostLabel(r.provider)}</div><strong>{formatCurrency(r.actual_bill)}</strong></td>
-                                        <td style={{ fontWeight: 800, color: r.variance > 0 ? 'var(--rose)' : 'var(--emerald)' }}>
-                                            {r.variance > 0 ? '+' : ''}{formatCurrency(r.variance)}
-                                        </td>
-                                        <td><span className="status-pill delivered">{r.status}</span></td>
-                                    </tr>
-                                ))
+            )}
+
+            {/* TAB 4: Record Expense / Payout Form */}
+            {tab === 'transactions' && (currentUser?.isSuperAdmin || currentUser?.roleId === 'super_admin') && (
+                <div style={{ maxWidth: '720px' }}>
+                    <form className="dash-box" onSubmit={submitEntry}>
+                        <div style={{ borderBottom: '1px solid var(--card-border)', paddingBottom: '10px', marginBottom: '14px' }}>
+                            <h3 style={{ fontSize: '16px', fontWeight: 800, margin: 0, color: 'var(--text-main)' }}>
+                                💸 Record Financial Transaction
+                            </h3>
+                            <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: '4px 0 0' }}>
+                                Record office operating expenses, payouts made to postpaid logistics providers, or carrier security deposits.
+                            </p>
+                        </div>
+
+                        <div className="form-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px' }}>
+                            <div className="form-group">
+                                <label>Transaction Type</label>
+                                <select value={entry.kind} onChange={e => setEntry({...entry, kind: e.target.value})}>
+                                    <option value="expense">Operating Expense (Office Rent, Packaging, Tea/Coffee)</option>
+                                    <option value="provider_payment">Carrier Provider Payment (Paying Aramex, Blue Dart)</option>
+                                    <option value="provider_deposit">Carrier Security Deposit</option>
+                                </select>
+                            </div>
+                            <div className="form-group">
+                                <label>Date</label>
+                                <input required type="date" value={entry.date} onChange={e => setEntry({...entry, date: e.target.value})} />
+                            </div>
+                            {entry.kind !== 'expense' && (
+                                <div className="form-group">
+                                    <label>Carrier Provider</label>
+                                    <select required value={entry.provider} onChange={e => setEntry({...entry, provider: e.target.value})}>
+                                        <option value="">Select carrier partner</option>
+                                        {accountsData.postpaid_accounts?.map(p => <option key={p.name} value={p.name}>{p.name}</option>)}
+                                    </select>
+                                </div>
                             )}
-                        </tbody>
-                    </table>
+                            <div className="form-group">
+                                <label>Amount (₹)</label>
+                                <input required type="number" min="0.01" step="0.01" placeholder="Enter amount..." value={entry.amount} onChange={e => setEntry({...entry, amount: e.target.value})} />
+                            </div>
+                            <div className="form-group">
+                                <label>Payment Account (Paid From)</label>
+                                <input required placeholder="e.g. HDFC Bank, Office QR, Cash" value={entry.account} onChange={e => setEntry({...entry, account: e.target.value})} />
+                            </div>
+                            <div className="form-group" style={{ gridColumn: '1 / -1' }}>
+                                <label>Reference / Description</label>
+                                <input required placeholder="e.g. UTR #, invoice reference, or reason for expense..." value={entry.reference} onChange={e => setEntry({...entry, reference: e.target.value})} />
+                            </div>
+                        </div>
+
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '16px', paddingTop: '12px', borderTop: '1px solid var(--card-border)' }}>
+                            <button className="btn btn-primary-blue" disabled={saving}>
+                                {saving ? 'Recording Transaction…' : 'Record Transaction'}
+                            </button>
+                            {entryMessage && (
+                                <span style={{ fontSize: '12.5px', fontWeight: 700, color: entryMessage.includes('success') ? 'var(--emerald)' : 'var(--rose)' }}>
+                                    {entryMessage}
+                                </span>
+                            )}
+                        </div>
+                    </form>
                 </div>
-            </div>
+            )}
+
+            {/* TAB 5: Bill Reconciliation */}
+            {tab === 'reconciliation' && (
+                <div id="account-reconciliation" className="table-card">
+                    <div className="dash-box-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div>
+                            <h3 style={{ margin: 0 }}>Carrier Provider Reconciliation History</h3>
+                            <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: '2px 0 0' }}>
+                                Audit log of uploaded carrier invoices matched AWB-by-AWB against booking estimates.
+                            </p>
+                        </div>
+                        {hasPermission('runReconciliation') && (
+                            <button className="btn btn-sm btn-primary-blue" onClick={onOpenReconciliationModal}>
+                                <Scale size={13} /> Run Reconciliation
+                            </button>
+                        )}
+                    </div>
+                    <div className="table-wrap reconciliation-history-scroll" tabIndex={0} role="region" aria-label="Reconciliation audit log">
+                        <table className="data-table reconciliation-history-table">
+                            <thead>
+                                <tr>
+                                    <th style={{ minWidth: '150px' }}>Batch #</th>
+                                    <th style={{ minWidth: '100px' }}>Date</th>
+                                    <th style={{ minWidth: '110px' }}>Provider</th>
+                                    <th style={{ minWidth: '130px' }}>Predicted Cost</th>
+                                    <th style={{ minWidth: '130px' }}>Provider Cost</th>
+                                    <th style={{ minWidth: '110px' }}>Difference</th>
+                                    <th style={{ minWidth: '100px' }}>Status</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {reconciliations?.length === 0 ? (
+                                    <tr><td colSpan="7" style={{ textAlign: 'center', padding: '24px', color: 'var(--text-muted)' }}>No reconciliation batches executed yet.</td></tr>
+                                ) : (
+                                    reconciliations?.map(r => (
+                                        <tr key={r.id}>
+                                            <td><strong>{r.batch_no}</strong></td>
+                                            <td style={{ color: 'var(--text-muted)', fontSize: '10.5px' }}>{formatDate(r.date)}</td>
+                                            <td><span className="status-pill in-transit">{r.provider}</span></td>
+                                            <td>{formatCurrency(r.predicted_total)}</td>
+                                            <td><div className="text-muted" style={{ fontSize: '9.5px' }}>{providerCostLabel(r.provider)}</div><strong>{formatCurrency(r.actual_bill)}</strong></td>
+                                            <td style={{ fontWeight: 800, color: r.variance > 0 ? 'var(--rose)' : 'var(--emerald)' }}>
+                                                {r.variance > 0 ? '+' : ''}{formatCurrency(r.variance)}
+                                            </td>
+                                            <td><span className="status-pill delivered">{r.status}</span></td>
+                                        </tr>
+                                    ))
+                                )}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };

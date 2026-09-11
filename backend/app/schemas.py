@@ -180,6 +180,8 @@ class ShipmentCreate(BaseModel):
     provider_type: str = "postpaid"  # prepaid or postpaid
     provider_name: str
     price: float = Field(ge=0, allow_inf_nan=False)
+    is_gst_applicable: bool = True
+    gst_rate: float = 18.0
     provider_cost: float = Field(ge=0, allow_inf_nan=False)
     amount_received: Optional[float] = Field(default=None, ge=0, allow_inf_nan=False)
 
@@ -238,6 +240,10 @@ class ShipmentOut(BaseModel):
     provider_type: str
     provider_name: str
     price: float
+    is_gst_applicable: bool = True
+    gst_rate: float = 18.0
+    gst_amount: float = 0.0
+    total_amount: Optional[float] = None
 
     # Sensitive Financial Fields (masked if unauthorized)
     provider_cost: Optional[float] = None
@@ -266,6 +272,11 @@ class InvoiceCreate(BaseModel):
     service: Optional[str] = None
     description: Optional[str] = None
     amount: float
+    is_gst_invoice: bool = True
+    tax_rate: float = 18.0
+    cgst: float = 0.0
+    sgst: float = 0.0
+    igst: float = 0.0
     gst: float = 0.0
     paid: float = 0.0
     date: str
@@ -292,6 +303,11 @@ class InvoiceOut(BaseModel):
     service: Optional[str] = None
     description: Optional[str] = None
     amount: float
+    is_gst_invoice: bool = True
+    tax_rate: float = 18.0
+    cgst: float = 0.0
+    sgst: float = 0.0
+    igst: float = 0.0
     gst: float
     total: float
     paid: float

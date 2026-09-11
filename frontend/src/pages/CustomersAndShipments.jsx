@@ -312,6 +312,7 @@ export const Customers = ({
 
 export const Shipments = ({ 
     shipments, 
+    settings,
     onOpenShipmentModal, 
     onOpenCustomerDrawer, 
     onViewInvoice, 
@@ -328,6 +329,27 @@ export const Shipments = ({
     const visibleShipments = (shipments || []).filter(s => !billingType || s.provider_type === billingType);
     const [shipmentToDelete, setShipmentToDelete] = useState(null);
     const [isDeleting, setIsDeleting] = useState(false);
+
+    // Dynamic aggregated courier and provider list
+    const availableCouriers = React.useMemo(() => {
+        const base = [
+            'FedEx', 'DHL', 'Aramex', 'Blue Dart', 'Delhivery', 'UPS',
+            'ICL', 'BRV', 'DTDC', 'Trackon', 'Speed Post', 'Shree Maruti'
+        ];
+        const fromSettings = settings?.couriers || [];
+        const fromWallets = (settings?.prepaidWallets || []).map(w => typeof w === 'string' ? w : w?.name);
+        const fromPostpaid = (settings?.providerAccounts || []).map(p => typeof p === 'string' ? p : p?.name);
+        const fromShipments = (shipments || []).map(s => s.courier).filter(Boolean);
+
+        const all = new Set([
+            ...base,
+            ...fromSettings,
+            ...fromWallets,
+            ...fromPostpaid,
+            ...fromShipments
+        ]);
+        return Array.from(all).filter(Boolean).sort((a, b) => a.localeCompare(b));
+    }, [settings, shipments]);
 
     const formatCurrency = (n) => '₹' + Number(n || 0).toLocaleString('en-IN');
     const formatDate = (d) => d ? new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '-';
@@ -455,12 +477,10 @@ export const Shipments = ({
                         handleSearch(searchVal, statusVal, e.target.value);
                     }}
                 >
-                    <option value="">All Couriers</option>
-                    <option value="FedEx">FedEx</option>
-                    <option value="DHL">DHL</option>
-                    <option value="Aramex">Aramex</option>
-                    <option value="Blue Dart">Blue Dart</option>
-                    <option value="Delhivery">Delhivery</option>
+                    <option value="">All Couriers ({availableCouriers.length})</option>
+                    {availableCouriers.map(c => (
+                        <option key={c} value={c}>{c}</option>
+                    ))}
                 </select>
                 <select className="filter-select" aria-label="Carrier billing type" value={billingType} onChange={e => setBillingType(e.target.value)}>
                     <option value="">All billing types</option><option value="prepaid">Prepaid</option><option value="postpaid">Postpaid</option>

@@ -23,8 +23,8 @@ from app.models import (
 SECRET_KEY = settings.SECRET_KEY or "fmc-super-secret-production-key-change-this-32-chars"
 SESSION_COOKIE_NAME = "__Host-fmc_session"
 FALLBACK_COOKIE_NAME = "fmc_session"
-SESSION_IDLE_TIMEOUT_MINUTES = 30
-SESSION_ABSOLUTE_LIFETIME_HOURS = 12
+SESSION_IDLE_TIMEOUT_MINUTES = 60 * 24 * 30  # 30 days persistent session
+SESSION_ABSOLUTE_LIFETIME_HOURS = 24 * 30    # 30 days session lifetime
 
 
 # ----------------------------------------------------------------
@@ -236,13 +236,15 @@ def revoke_all_user_sessions(db: Session, user_id: str, reason: str = "Logout al
 def set_session_cookie(response: Response, token: str, secure: Optional[bool] = None):
     """Sets secure HttpOnly cookie on response."""
     max_age = SESSION_ABSOLUTE_LIFETIME_HOURS * 3600
+    is_dev = settings.ENVIRONMENT == "development"
+    is_secure = (False if is_dev else True) if secure is None else secure
     response.set_cookie(
         key=FALLBACK_COOKIE_NAME,
         value=token,
         max_age=max_age,
         httponly=True,
-        secure=(False if settings.ENVIRONMENT == "development" else True) if secure is None else secure,
-        samesite="lax",
+        secure=is_secure,
+        samesite="lax" if is_dev else "none",
         path="/"
     )
 

@@ -10,13 +10,16 @@ from sqlalchemy.orm import Session
 from sqlalchemy import desc, func, or_, case
 
 from app.database import get_db
-from app.models import Shipment, WalletTransaction, SystemSettings, AuditLog, AccountingEntry, PaymentCollection, AccountCheck
+from app.models import (
+    Shipment, WalletTransaction, SystemSettings, AuditLog,
+    AccountingEntry, PaymentCollection, AccountCheck, Invoice
+)
 from decimal import Decimal, ROUND_HALF_UP
 from pydantic import BaseModel, Field
 from typing import Literal, Optional
 from app.collections import collection_totals, shipment_payments_query
 from app.schemas import WalletRechargeCreate, WalletTransactionOut
-from app.auth import get_current_user_context, create_audit_log
+from app.auth import create_audit_log
 from app.dependencies import require_permission, require_super_admin
 from app.permissions import PermissionCode
 from app.wallets import rebuild_wallet_balances
@@ -232,10 +235,19 @@ def get_accounts_summary(
             "actual_billed": actual_billed
         })
 
+    tax_invoices = db.query(
+        func.coalesce(func.sum(Invoice.total), 0),
+        func.coalesce(func.sum(Invoice.gst), 0)
+    ).one()
+    total_sales_with_gst = float(tax_invoices[0]) if tax_invoices[0] else round(float(total_sales) * 1.18, 2)
+    gst_total = float(tax_invoices[1]) if tax_invoices[1] else round(float(total_sales) * 0.18, 2)
+
     return {
         "total_sales": total_sales,
+        "total_sales_with_gst": total_sales_with_gst,
+        "gst_total": gst_total,
         "total_collected": total_collected,
-        "pending_collection": max(0.0, total_sales - total_collected - b2b_credit),
+        "pending_collection": max(0.0, total_sales_with_gst - total_collected - b2b_credit),
         "cash_collected": cash,
         "upi_collected": upi,
         "bank_collected": bank,

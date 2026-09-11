@@ -16,6 +16,8 @@ const ReconciliationModal = ({ isOpen, onClose, onReconciled, settings }) => {
     const [loading, setLoading] = useState(false);
     const [activeFilter, setActiveFilter] = useState('all');
 
+    const [errorMessage, setErrorMessage] = useState('');
+
     const handleFileUpload = (e) => {
         const file = e.target.files[0];
         if (!file) return;
@@ -25,6 +27,7 @@ const ReconciliationModal = ({ isOpen, onClose, onReconciled, settings }) => {
             return;
         }
 
+        setErrorMessage('');
         setPreviewResult(null);
         setBillFile(file);
         setRawBillText('');
@@ -33,13 +36,14 @@ const ReconciliationModal = ({ isOpen, onClose, onReconciled, settings }) => {
     };
 
     const handleProcess = async (e) => {
-        e.preventDefault();
+        if (e) e.preventDefault();
         if (!billFile && !rawBillText.trim()) {
             alert('Please upload an Excel, CSV, or PDF bill, or paste AWB and total lines.');
             return;
         }
 
         setLoading(true);
+        setErrorMessage('');
         setPreviewResult(null);
         setImportReviewed(false);
         try {
@@ -52,28 +56,38 @@ const ReconciliationModal = ({ isOpen, onClose, onReconciled, settings }) => {
                 res = await apiClient.uploadReconciliationFile(formData);
             } else {
                 res = await apiClient.processReconciliation({
-                provider,
-                bill_reference: billReference || `${provider} Monthly Statement`,
-                raw_bill_text: rawBillText
+                    provider,
+                    bill_reference: billReference || `${provider} Monthly Statement`,
+                    raw_bill_text: rawBillText
                 });
             }
             setPreviewResult(res);
             setActiveFilter('all');
         } catch (err) {
-            alert(err.response?.data?.detail || 'Error processing provider bill');
+            const msg = err.response?.data?.detail || err.message || 'Error processing provider bill';
+            setErrorMessage(msg);
+            alert(msg);
         } finally {
             setLoading(false);
         }
     };
 
+    const matchedItemsCount = (previewResult?.matched?.length || 0) + (previewResult?.wrong_amount?.length || 0);
+
     const handleApply = async () => {
         if (!previewResult || applying.current) return;
-        if (!confirm(`Are you sure you want to apply ${previewResult.matched_count + previewResult.wrong_amount.length} ${costLabel} entries to shipments and recalculate True Gross Profit?`)) {
+        if (matchedItemsCount === 0) {
+            alert('No matched shipments found to apply costs to.');
+            return;
+        }
+
+        if (!confirm(`Are you sure you want to apply carrier costs to ${matchedItemsCount} shipment(s) and recalculate True Gross Profit?`)) {
             return;
         }
 
         applying.current = true;
         setIsApplying(true);
+        setErrorMessage('');
         try {
             const res = await apiClient.applyReconciliation(previewResult);
             alert(`Reconciliation applied successfully! Batch #${res.batch_no} created. ${res.updated_count} shipments updated.`);
@@ -85,7 +99,9 @@ const ReconciliationModal = ({ isOpen, onClose, onReconciled, settings }) => {
             await onReconciled();
             onClose();
         } catch (err) {
-            alert(err.response?.data?.detail || 'Error committing reconciliation');
+            const msg = err.response?.data?.detail || err.message || 'Error committing reconciliation';
+            setErrorMessage(msg);
+            alert(msg);
         } finally {
             applying.current = false;
             setIsApplying(false);
@@ -129,9 +145,9 @@ const ReconciliationModal = ({ isOpen, onClose, onReconciled, settings }) => {
                             <Scale size={19} color="var(--primary-blue)" />
                         </div>
                         <div>
-                            <h3 style={{ fontSize: '15px', fontWeight: 800 }}>Billing Reconciliation</h3>
+                            <h3 style={{ fontSize: '15px', fontWeight: 800 }}>Carrier Bill Reconciliation</h3>
                             <p style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-                                Match each AWB and billed total against the saved provider cost.
+                                Match carrier invoice AWBs and actual billed costs against CRM provider costs.
                             </p>
                         </div>
                     </div>
@@ -139,6 +155,13 @@ const ReconciliationModal = ({ isOpen, onClose, onReconciled, settings }) => {
                 </div>
 
                 <div style={{ flex: 1, overflowY: 'auto', paddingRight: '4px' }}>
+                    {errorMessage && (
+                        <div style={{ padding: '10px 14px', background: '#fee2e2', color: '#991b1b', borderRadius: '6px', fontSize: '12px', marginBottom: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <span><strong>Error:</strong> {errorMessage}</span>
+                            <button type="button" onClick={() => setErrorMessage('')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#991b1b', fontWeight: 800 }}>✕</button>
+                        </div>
+                    )}
+
                     <form onSubmit={handleProcess}>
                         <div className="form-grid" style={{ gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '14px' }}>
                             <div className="form-group">
@@ -160,16 +183,16 @@ const ReconciliationModal = ({ isOpen, onClose, onReconciled, settings }) => {
                             <div className="form-group" style={{ gridColumn: '1 / -1' }}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
                                     <label>Upload Bill or Paste AWB and Total <span className="required">*</span></label>
-                                    <label className="btn btn-sm btn-outline" style={{ cursor: 'pointer', padding: '2px 8px', fontSize: '11px' }}>
-                                        <Upload size={12} /> Upload Excel / CSV / PDF
+                                    <label className="btn btn-sm btn-outline" style={{ cursor: 'pointer', padding: '4px 10px', fontSize: '11px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                                        <Upload size={13} /> Upload Excel / CSV / PDF
                                         <input aria-label="Upload carrier bill" type="file" disabled={loading || isApplying} accept=".xlsx,.xls,.pdf,.csv,.txt,.tsv" onChange={handleFileUpload} style={{ display: 'none' }} />
                                     </label>
                                 </div>
                                 <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '8px' }}>
-                                    Any carrier with AWB and a recognized total heading: Total, Total Amount, Net Amount, Grand Total, Final Amount, and more. Uses the supplied total without adding GST or surcharges. Maximum 20 MB. Scanned PDFs need OCR first.
+                                    Upload statement (.xlsx, .xls, .csv, .pdf) or paste lines with AWB and amount. Maximum 20 MB.
                                 </p>
-                                {billFile && <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '8px' }}>
-                                    <span>{billFile.name} ({Math.ceil(billFile.size / 1024)} KB)</span>
+                                {billFile && <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '8px', padding: '6px 10px', background: 'var(--bg-body, #f1f5f9)', borderRadius: '6px' }}>
+                                    <span style={{ fontWeight: 600, fontSize: '12px' }}>📄 {billFile.name} ({Math.ceil(billFile.size / 1024)} KB)</span>
                                     <button type="button" className="btn btn-sm btn-outline" disabled={loading || isApplying} onClick={() => { setBillFile(null); setPreviewResult(null); }}>Remove file</button>
                                 </div>}
                                 <textarea 
@@ -184,9 +207,16 @@ const ReconciliationModal = ({ isOpen, onClose, onReconciled, settings }) => {
                             </div>
                         </div>
 
-                        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '16px' }}>
-                            <button type="submit" className="btn btn-primary-blue" disabled={loading || isApplying}>
-                                {loading ? 'Matching AWBs...' : 'Match AWBs & Compare Difference'}
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                            <div>
+                                {previewResult && (
+                                    <button type="button" className="btn btn-sm btn-outline" onClick={() => { setPreviewResult(null); setBillFile(null); setRawBillText(''); }}>
+                                        Reset / New Bill
+                                    </button>
+                                )}
+                            </div>
+                            <button type="submit" className="btn btn-primary-blue" disabled={loading || isApplying || (!billFile && !rawBillText.trim())}>
+                                {loading ? 'Matching AWBs & Comparing...' : 'Match AWBs & Compare Difference'}
                             </button>
                         </div>
                     </form>
@@ -195,10 +225,10 @@ const ReconciliationModal = ({ isOpen, onClose, onReconciled, settings }) => {
                         <div style={{ borderTop: '2px solid var(--card-border)', paddingTop: '16px' }}>
                             {previewResult.import_info && <div style={{ padding: '12px', background: 'var(--bg-body, #f8fafc)', borderRadius: '8px', marginBottom: '12px' }}>
                                 <strong>Imported {previewResult.import_info.row_count} AWB totals</strong>
-                                {previewResult.import_info.columns.map((column, index) => <p key={index} style={{ fontSize: '12px', margin: '4px 0' }}>
+                                {previewResult.import_info.columns?.map((column, index) => <p key={index} style={{ fontSize: '12px', margin: '4px 0' }}>
                                     {column.source}: AWB = {column.awb_column}; billed total = {column.total_column}
                                 </p>)}
-                                {!!previewResult.import_info.warnings.length && <>
+                                {!!previewResult.import_info.warnings?.length && <>
                                     <details><summary>Review excluded rows / sheets ({previewResult.import_info.warnings.length})</summary>
                                         <ul>{previewResult.import_info.warnings.map((warning, index) => <li key={index}>{warning}</li>)}</ul>
                                     </details>
@@ -278,7 +308,7 @@ const ReconciliationModal = ({ isOpen, onClose, onReconciled, settings }) => {
                                     </thead>
                                     <tbody>
                                         {displayItems.length === 0 ? (
-                                            <tr><td colSpan="7" style={{ textAlign: 'center', padding: '16px', color: 'var(--text-muted)' }}>No items in this category.</td></tr>
+                                             <tr><td colSpan="7" style={{ textAlign: 'center', padding: '16px', color: 'var(--text-muted)' }}>No items in this category.</td></tr>
                                         ) : (
                                             displayItems.map((item, idx) => {
                                                 const diff = item.variance !== undefined ? item.variance : (item.actual_cost - item.predicted_cost);
@@ -289,7 +319,7 @@ const ReconciliationModal = ({ isOpen, onClose, onReconciled, settings }) => {
                                                         <td>{formatCurrency(item.predicted_cost)}</td><td>{formatCurrency(item.current_cost ?? item.predicted_cost)}</td>
                                                         <td><strong>{formatCurrency(item.actual_cost)}</strong></td>
                                                         <td style={{ fontWeight: 800, color: diff > 0 ? 'var(--rose)' : (diff < 0 ? 'var(--amber)' : 'var(--emerald)') }}>
-                                                            {diff > 0 ? '+' : ''}{formatCurrency(diff)}
+                                                             {diff > 0 ? '+' : ''}{formatCurrency(diff)}
                                                         </td>
                                                         <td>
                                                             <span className={`status-pill ${item.status === 'MATCHED' ? 'delivered' : (item.status === 'WRONG AMOUNT' ? 'delayed' : 'picked-up')}`}>
@@ -307,13 +337,27 @@ const ReconciliationModal = ({ isOpen, onClose, onReconciled, settings }) => {
                     )}
                 </div>
 
-                {previewResult && (previewResult.duplicate_awb?.length > 0 || previewResult.missing_in_crm?.length > 0) && <p role="alert">Remove duplicate AWBs and resolve unknown AWBs before applying costs.</p>}
+                {previewResult && (
+                    <div style={{ padding: '8px 12px', background: 'var(--bg-body, #f8fafc)', borderRadius: '6px', margin: '8px 0', fontSize: '11.5px', color: 'var(--text-muted)' }}>
+                        {(previewResult.missing_in_crm?.length > 0 || previewResult.duplicate_awb?.length > 0) ? (
+                            <span>ℹ️ <strong>{matchedItemsCount}</strong> matched shipment(s) will be updated. {previewResult.missing_in_crm?.length || 0} extra AWB(s) and {previewResult.duplicate_awb?.length || 0} duplicate(s) in the statement will be skipped.</span>
+                        ) : (
+                            <span>✅ All <strong>{matchedItemsCount}</strong> shipment(s) matched in CRM and ready to update.</span>
+                        )}
+                    </div>
+                )}
+
                 {/* Footer Commit */}
                 {previewResult && (
-                    <div className="form-actions" style={{ borderTop: '1px solid var(--card-border)', paddingTop: '12px', marginTop: '12px' }}>
+                    <div className="form-actions" style={{ borderTop: '1px solid var(--card-border)', paddingTop: '12px', marginTop: '12px', display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
                         <button type="button" className="btn btn-outline" onClick={onClose}>Cancel</button>
-                        <button type="button" className="btn btn-primary-blue" onClick={handleApply} disabled={isApplying || loading || (!!previewResult.import_info?.warnings?.length && !importReviewed) || !!previewResult.duplicate_awb?.length || !!previewResult.missing_in_crm?.length}>
-                            <CheckCheck size={16} /> {isApplying ? 'Applying costs...' : `Recalculate Profit & Apply ${costLabel}`}
+                        <button 
+                            type="button" 
+                            className="btn btn-primary-blue" 
+                            onClick={handleApply} 
+                            disabled={isApplying || loading || matchedItemsCount === 0}
+                        >
+                            <CheckCheck size={16} /> {isApplying ? 'Applying costs...' : `Recalculate Profit & Apply to ${matchedItemsCount} Shipment${matchedItemsCount === 1 ? '' : 's'}`}
                         </button>
                     </div>
                 )}

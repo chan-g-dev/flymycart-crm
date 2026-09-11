@@ -1,8 +1,19 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { 
     X, 
-    CheckCircle2,
-    Loader2
+    CheckCircle2, 
+    Loader2, 
+    Search, 
+    Building2, 
+    User, 
+    MapPin, 
+    Package, 
+    Truck, 
+    Receipt, 
+    Plus, 
+    Trash2,
+    Calculator,
+    Check
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { apiClient } from '../api/client';
@@ -17,6 +28,9 @@ const getInitialShipmentForm = (todayStr) => ({
     customer_id: '',
     customer_name: '',
     customer_type: 'C2C',
+    is_gst_applicable: true,
+    gst_rate: '18',
+    custom_gst_rate: '',
     sender_phone: '',
     same_sender: true,
     alternate_sender_name: '',
@@ -125,27 +139,44 @@ const ShipmentModal = ({ isOpen, onClose, onCreated, settings }) => {
         const key = name.toLowerCase().replace(/[^a-z0-9]/g, '');
         return ({ dhlexpress: 'dhl' })[key] || key;
     };
-    const postpaidProviders = settings?.postpaidProviders || [];
-    const prepaidWallets = settings?.prepaidWallets || [];
+    const defaultPostpaid = [{ name: 'Aramex' }, { name: 'Blue Dart' }, { name: 'FedEx' }, { name: 'DHL Express' }, { name: 'Delhivery' }, { name: 'UPS' }, { name: 'Sree Maruthi' }];
+    const defaultPrepaid = [{ name: 'ICL' }, { name: 'BRV' }];
+    const postpaidProviders = (settings?.postpaidProviders && settings.postpaidProviders.length > 0) ? settings.postpaidProviders : defaultPostpaid;
+    const prepaidWallets = (settings?.prepaidWallets && settings.prepaidWallets.length > 0) ? settings.prepaidWallets : defaultPrepaid;
 
     useEffect(() => {
         if (!isOpen) return;
         setForm(prev => {
             if (prev.provider_type === 'prepaid' && prepaidWallets.some(p => p.name === prev.provider_name)) return prev;
-            const account = postpaidProviders.find(p => courierKey(p.name) === courierKey(prev.courier));
+            const account = postpaidProviders.find(p => courierKey(p.name) === courierKey(prev.courier)) || postpaidProviders[0];
             return { ...prev, provider_type: account ? 'postpaid' : '', provider_name: account?.name || '' };
         });
     }, [isOpen, settings]);
 
     const handleCourierChange = (courierName) => {
         const account = postpaidProviders.find(p => courierKey(p.name) === courierKey(courierName));
-        setForm(prev => ({ ...prev, courier: courierName,
-            provider_type: account ? 'postpaid' : '', provider_name: account?.name || '' }));
+        setForm(prev => ({
+            ...prev,
+            courier: courierName,
+            ...(prev.provider_type === 'prepaid' ? {} : {
+                provider_type: account ? 'postpaid' : '',
+                provider_name: account?.name || ''
+            })
+        }));
     };
 
     const handleProviderChange = (value) => {
         const [providerType = '', providerName = ''] = value.split('|');
-        setForm(prev => ({ ...prev, provider_type: providerType, provider_name: providerName }));
+        const matchedCourier = providerType === 'postpaid' 
+            ? (postpaidProviders.find(p => courierKey(p.name) === courierKey(providerName))?.name || providerName)
+            : form.courier;
+
+        setForm(prev => ({ 
+            ...prev, 
+            provider_type: providerType, 
+            provider_name: providerName,
+            ...(providerType === 'postpaid' ? { courier: matchedCourier } : {})
+        }));
     };
 
     // Live mobile lookup & auto-fill customer profile
@@ -182,6 +213,28 @@ const ShipmentModal = ({ isOpen, onClose, onCreated, settings }) => {
         }
     };
 
+    const effectiveGstRate = form.is_gst_applicable 
+        ? (form.gst_rate === 'custom' ? (Number(form.custom_gst_rate) || 0) : (Number(form.gst_rate) || 0))
+        : 0;
+    const estimatedMargin = (parseFloat(form.price) || 0) - (parseFloat(form.provider_cost) || 0);
+
+    const couriersList = React.useMemo(() => {
+        const base = settings?.couriers || ['FedEx', 'Aramex', 'Delhivery', 'Blue Dart', 'DHL', 'UPS', 'Sree Maruthi', 'Trackon', 'DTDC', 'Speed Post', 'ICL', 'BRV'];
+        const fromWallets = (settings?.prepaidWallets || []).map(w => typeof w === 'string' ? w : w?.name);
+        const fromPostpaid = (settings?.providerAccounts || []).map(p => typeof p === 'string' ? p : p?.name);
+        return Array.from(new Set([...base, ...fromWallets, ...fromPostpaid])).filter(Boolean);
+    }, [settings]);
+    const centersList = settings?.centers || ['Main Hub (Bangalore)', 'Delhi Regional Hub', 'Mumbai Branch', 'Hyderabad Hub', 'Kolkata Center'];
+    const employeesList = (settings?.employees || [{ name: 'Nawaz' }, { name: 'Lata' }, { name: 'Umesh' }, { name: 'Uma' }]).map(e => e.name);
+    const paidToAccounts = settings?.paidToAccounts || ['Office QR', 'Current Account (HDFC)', 'Savings Account (ICICI)', 'Lata UPI', 'Nawaz UPI'];
+    const paymentMethods = settings?.paymentMethods || ['PhonePe', 'Google Pay', 'Office QR', 'Cash', 'Bank Transfer', 'B2B Credit'];
+
+    const money = value => Number(value || 0).toLocaleString('en-IN', { style: 'currency', currency: 'INR', minimumFractionDigits: 2 });
+    const gst = Math.round((Number(form.price) || 0) * effectiveGstRate) / 100;
+    const invoiceTotal = Math.round(((Number(form.price) || 0) + gst) * 100) / 100;
+    const payingNow = ['Paid', 'Partial'].includes(form.payment_status);
+    const update = (key, value) => setForm(prev => ({ ...prev, [key]: value }));
+
     const handleSubmit = async (e) => {
         e.preventDefault();
         if (!form.awb.trim()) {
@@ -205,6 +258,8 @@ const ShipmentModal = ({ isOpen, onClose, onCreated, settings }) => {
                 customer_name: form.customer_name.trim(),
                 customer_type: form.customer_type,
                 customer_mobile: form.sender_phone.trim(),
+                is_gst_applicable: !!form.is_gst_applicable,
+                gst_rate: effectiveGstRate,
                 center: form.center,
                 employee: form.employee,
                 sender: {
@@ -242,7 +297,7 @@ const ShipmentModal = ({ isOpen, onClose, onCreated, settings }) => {
                 provider_name: form.provider_name,
                 price: parseFloat(form.price) || 0,
                 provider_cost: parseFloat(form.provider_cost) || 0,
-                payment_status: ['Paid', 'Partial'].includes(form.payment_status) ? (Number(form.amount_received) === Math.round((Number(form.price) + Math.round(Number(form.price) * 18) / 100) * 100) / 100 ? 'Paid' : 'Partial') : form.payment_status,
+                payment_status: ['Paid', 'Partial'].includes(form.payment_status) ? (Number(form.amount_received) >= invoiceTotal ? 'Paid' : 'Partial') : form.payment_status,
                 amount_received: ['Paid', 'Partial'].includes(form.payment_status) ? Number(form.amount_received) : null,
                 payment_reference: form.payment_reference,
                 payment_method: form.payment_method,
@@ -267,110 +322,503 @@ const ShipmentModal = ({ isOpen, onClose, onCreated, settings }) => {
 
     if (!isOpen) return null;
 
-    const estimatedMargin = (parseFloat(form.price) || 0) - (parseFloat(form.provider_cost) || 0);
-
-    const couriersList = settings?.couriers || ['FedEx', 'Aramex', 'Delhivery', 'Blue Dart', 'DHL', 'UPS', 'Sree Maruthi'];
-    const centersList = settings?.centers || ['Main Hub (Bangalore)', 'Delhi Regional Hub', 'Mumbai Branch', 'Hyderabad Hub', 'Kolkata Center'];
-    const employeesList = (settings?.employees || [{ name: 'Nawaz' }, { name: 'Lata' }, { name: 'Umesh' }, { name: 'Uma' }]).map(e => e.name);
-    const paidToAccounts = settings?.paidToAccounts || ['Office QR', 'Current Account (HDFC)', 'Savings Account (ICICI)', 'Lata UPI', 'Nawaz UPI'];
-    const paymentMethods = settings?.paymentMethods || ['PhonePe', 'Google Pay', 'Office QR', 'Cash', 'Bank Transfer', 'B2B Credit'];
-
-    const money = value => Number(value || 0).toLocaleString('en-IN', { style: 'currency', currency: 'INR', minimumFractionDigits: 2 });
-    const gst = Math.round((Number(form.price) || 0) * 18) / 100;
-    const invoiceTotal = Math.round(((Number(form.price) || 0) + gst) * 100) / 100;
-    const payingNow = ['Paid', 'Partial'].includes(form.payment_status);
-    const update = (key, value) => setForm(prev => ({ ...prev, [key]: value }));
-    const field = (key, label, options = {}) => <label className={`booking-field ${options.wide ? 'booking-wide' : ''}`} key={key}>
-        <span>{label}{options.required && <b className="required"> *</b>}</span>
-        {options.items ? <select value={form[key]} onChange={e => options.onChange ? options.onChange(e.target.value) : update(key, e.target.value)} required={options.required}>
-            <option value="" disabled>Select...</option>{options.items.map(item => <option key={item} value={item}>{item}</option>)}
-        </select> : options.multiline ? <textarea rows={3} value={form[key]} onChange={e => update(key, e.target.value)} required={options.required} /> :
-        <input type={options.type || 'text'} value={form[key]} onChange={e => options.onChange ? options.onChange(e.target.value) : update(key, e.target.value)}
-            required={options.required} placeholder={options.placeholder} min={options.min} max={options.max} step={options.type === 'number' ? '0.01' : undefined} readOnly={options.readOnly} />}
-        {options.hint && <small>{options.hint}</small>}
-    </label>;
-    const checks = [
-        ['Customer identified', form.customer_name && form.sender_phone],
-        ['Receiver name and address', form.receiver_name && form.receiver_address && form.receiver_city],
-        ['Parcel measured', Number(form.actual_weight) > 0],
-        ['Price and provider account', Number(form.price) > 0 && form.provider_name && (!canEnterShipmentCosts || form.provider_cost !== '')],
-    ];
-    return <div ref={workspaceRef} className="booking-workspace" role="dialog" aria-modal="true" aria-labelledby="booking-title">
-        <header className="booking-page-heading"><div><h2 id="booking-title">New shipment</h2><p>Book once. The invoice, provider cost, profit and follow-up all follow from here.</p></div>
-            <button type="button" className="modal-close" aria-label="Close booking" disabled={isSubmitting} onClick={onClose}><X size={22} /></button></header>
-        <div className="booking-layout">
-            <form className="booking-main" onSubmit={handleSubmit}>
-                <fieldset><legend>Where and who</legend><p>The center and the person handling this booking.</p><div className="booking-fields">
-                    {field('center', 'Business center', { items: centersList, required: true })}
-                    {field('employee', 'Handled by', { items: employeesList, required: true })}
-                </div></fieldset>
-                <fieldset><legend>Customer</legend><p>Search by mobile. An existing customer fills in automatically.</p>
-                    <div className="booking-lookup">{field('sender_phone', 'Customer mobile', {required: true, placeholder: '10-digit mobile number', onChange: handleMobileLookup})}
-                    <button className="btn btn-outline" type="button" onClick={() => handleMobileLookup(form.sender_phone)} disabled={isSearchingCustomer}>{isSearchingCustomer ? 'Finding...' : 'Find'}</button></div>
-                    {customerFound && <div className="booking-linked"><CheckCircle2 size={16} /> Profile linked: {customerFound}</div>}
-                    <div className="booking-fields">{field('customer_name', 'Customer / company name', {required: true})}
-                    {field('customer_type', 'Customer category', {items: ['C2C', 'B2C', 'B2B']})}</div>
-                </fieldset>
-                <fieldset><legend>Sender</legend><p>Who is handing over the parcel.</p>
-                    <label className="booking-toggle"><input type="checkbox" checked={form.same_sender} onChange={e => update('same_sender', e.target.checked)} /><span className="booking-switch" />Same as the customer</label><div className="booking-fields">
-                    {field(form.same_sender ? 'customer_name' : 'alternate_sender_name', 'Full name', {required: true})}{field(form.same_sender ? 'sender_phone' : 'alternate_sender_phone', 'Mobile', {required: true, ...(form.same_sender ? {onChange: handleMobileLookup} : {})})}
-                    {field('sender_email', 'Email', {type: 'email'})}{field('sender_id_proof', 'ID proof', {placeholder: 'Aadhaar / passport reference'})}
-                    {field('sender_address', 'Address', {required: true, multiline: true, wide: true})}
-                    {field('sender_city', 'City')}{field('sender_zip', 'ZIP / pincode')}{field('sender_country', 'Country')}
-                </div></fieldset>
-                <fieldset><legend>Receiver</legend><p>Who is receiving the parcel, and where it is going.</p><div className="booking-fields">
-                    {field('receiver_name', 'Full name', {required: true})}{field('receiver_phone', 'Mobile')}
-                    {field('receiver_email', 'Email', {type: 'email'})}{field('receiver_country', 'Country', {required: true, onChange: value => setForm(prev => ({...prev, receiver_country: value, domestic_international: value.toLowerCase() === 'india' ? 'Domestic' : 'International'}))})}
-                    {field('receiver_address', 'Address', {required: true, multiline: true, wide: true})}
-                    {field('receiver_city', 'City', {required: true})}{field('receiver_zip', 'ZIP / pincode')}{field('receiver_state', 'State')}
-                </div></fieldset>
-                <fieldset><legend>Parcel</legend><p>Measure in centimeters and weigh in kilograms.</p><div className="booking-fields">
-                    {field('description', 'Contents', {wide: true, placeholder: 'Documents, garments, samples...'})}
-                    {field('packages_count', 'Number of packages', {type: 'number', min: 1, readOnly: form.boxes.length > 0})}
-                    {field('actual_weight', 'Actual weight (kg)', {type: 'number', min: 0.01, required: true, readOnly: form.boxes.length > 0})}
-                    {!form.boxes.length && <>{field('length', 'Length (cm)', {type: 'number', min: 0})}{field('width', 'Width (cm)', {type: 'number', min: 0})}{field('height', 'Height (cm)', {type: 'number', min: 0})}</>}
+    const field = (key, label, options = {}) => (
+        <div className={`booking-field ${options.wide ? 'booking-wide' : ''}`} key={key}>
+            <label className="booking-field-label">
+                {label}{options.required && <span className="required-star">*</span>}
+            </label>
+            {options.items ? (
+                <div className="booking-input-wrap">
+                    <select 
+                        value={form[key]} 
+                        onChange={e => options.onChange ? options.onChange(e.target.value) : update(key, e.target.value)} 
+                        required={options.required}
+                        className="booking-select"
+                    >
+                        <option value="" disabled>Select...</option>
+                        {options.items.map(item => <option key={item} value={item}>{item}</option>)}
+                    </select>
                 </div>
-                {form.boxes.map((box, index) => <div className="booking-box" key={index}><strong>Package {index + 1}</strong><div className="booking-fields">
-                    {['length', 'width', 'height', 'actual_weight'].map(key => <label className="booking-field" key={key}><span>{key === 'actual_weight' ? 'Weight (kg)' : `${key} (cm)`}</span><input type="number" min="0.01" step="0.01" required value={box[key]} onChange={e => setForm(prev => ({...prev, boxes: prev.boxes.map((item, i) => i === index ? {...item, [key]: e.target.value} : item)}))} /></label>)}
-                </div><button type="button" className="btn btn-outline" onClick={() => setForm(prev => ({...prev, boxes: prev.boxes.filter((_, i) => i !== index)}))}>Remove package</button></div>)}
-                <button type="button" className="btn btn-outline" onClick={() => setForm(prev => ({...prev, boxes: [...prev.boxes, {length: '', width: '', height: '', actual_weight: ''}]}))}>+ Add individual package</button>
-                </fieldset>
-                <fieldset><legend>Courier and service</legend><p>Choose the courier and enter the shipment tracking number.</p><div className="booking-fields">
-                    {field('courier', 'Courier', {items: couriersList, required: true, onChange: handleCourierChange})}
-                    {field('domestic_international', 'Scope', {items: ['Domestic', 'International'], required: true})}
-                    {field('service_type', 'Service', {required: true, placeholder: 'Express, Economy, Priority'})}
-                    {field('awb', 'AWB number', {required: true, placeholder: 'Courier AWB'})}
-                    {field('date', 'Booking date', {type: 'date', required: true, onChange: value => setForm(prev => ({...prev, date: value, pickup_date: value}))})}
-                </div></fieldset>
-                <fieldset><legend>Money</legend><p>The customer price and the provider cost stay separate.</p><div className="booking-fields">
-                    {field('price', 'Customer selling price (\u20b9)', {type: 'number', min: 0, required: true, hint: 'Excluding GST. 18% GST is added to the invoice.'})}
-                    <label className="booking-field"><span>Provider account <b className="required">*</b></span><select required value={`${form.provider_type}|${form.provider_name}`} onChange={e => handleProviderChange(e.target.value)}>
-                        <option value="|">Select...</option><optgroup label="Prepaid wallets">{prepaidWallets.map(a => <option key={a.name} value={`prepaid|${a.name}`}>{a.name}</option>)}</optgroup>
-                        <optgroup label="Postpaid accounts">{postpaidProviders.filter(a => courierKey(a.name) === courierKey(form.courier)).map(a => <option key={a.name} value={`postpaid|${a.name}`}>{a.name}</option>)}</optgroup>
-                    </select><small>Prepaid wallets deduct the provider cost on booking.</small></label>
-                    {canEnterShipmentCosts && field('provider_cost', 'Provider cost (\u20b9)', {type: 'number', min: 0, required: true})}
+            ) : options.multiline ? (
+                <textarea 
+                    rows={2} 
+                    value={form[key]} 
+                    onChange={e => update(key, e.target.value)} 
+                    required={options.required}
+                    placeholder={options.placeholder}
+                    className="booking-textarea"
+                />
+            ) : (
+                <div className="booking-input-wrap">
+                    <input 
+                        type={options.type || 'text'} 
+                        value={form[key]} 
+                        onChange={e => options.onChange ? options.onChange(e.target.value) : update(key, e.target.value)}
+                        required={options.required} 
+                        placeholder={options.placeholder} 
+                        min={options.min} 
+                        max={options.max} 
+                        step={options.type === 'number' ? '0.01' : undefined} 
+                        readOnly={options.readOnly}
+                        className="booking-input"
+                    />
                 </div>
-                <label className="booking-toggle"><input type="checkbox" checked={payingNow} onChange={e => setForm(prev => ({...prev, payment_status: e.target.checked ? 'Partial' : 'Unpaid', amount_received: ''}))} /><span className="booking-switch" />Customer is paying now</label>
-                {payingNow && <div className="booking-fields">
-                    {field('amount_received', 'Amount received (\u20b9)', {type: 'number', min: 0.01, max: invoiceTotal, required: true, onChange: value => setForm(prev => ({...prev, amount_received: value, payment_status: Number(value) === invoiceTotal ? 'Paid' : 'Partial'}))})}
-                    {field('payment_method', 'Payment method', {items: paymentMethods, required: true})}
-                    {field('paid_to', 'Paid to', {items: paidToAccounts, required: true, hint: 'Bank, UPI handle or cash box'})}
-                    {field('collected_by', 'Collected by', {items: employeesList, required: true})}
-                    {field('payment_reference', 'Reference', {wide: true, hint: 'UPI reference, cheque number or receipt note'})}
-                </div>}
-                {!payingNow && form.customer_type === 'B2B' && field('payment_status', 'Payment terms', {items: ['Unpaid', 'B2B Credit']})}
-                </fieldset>
-                <div className="booking-actions"><button type="button" className="btn btn-outline" disabled={isSubmitting} onClick={onClose}>Cancel</button><button type="submit" className="btn btn-primary-blue" disabled={isSubmitting}>{isSubmitting && <Loader2 size={16} className="spin" />}{isSubmitting ? 'Booking...' : 'Book shipment'}</button></div>
-            </form>
-            <aside className="booking-sidebar"><section className="booking-summary"><h3>Live calculation</h3><dl>
-                <div><dt>Volumetric weight</dt><dd>{Number(form.volumetric_weight).toFixed(3)} kg</dd></div>
-                <div className="booking-emphasis"><dt>Chargeable weight</dt><dd>{Number(form.chargeable_weight).toFixed(3)} kg</dd></div>
-                <div><dt>Customer price</dt><dd>{money(form.price)}</dd></div><div><dt>GST (18%)</dt><dd>{money(gst)}</dd></div>
-                <div className="booking-emphasis"><dt>Invoice total</dt><dd>{money(invoiceTotal)}</dd></div>
-                {canEnterShipmentCosts && <><div><dt>Provider cost</dt><dd>{money(form.provider_cost)}</dd></div><div className="booking-emphasis"><dt>Gross profit</dt><dd className={estimatedMargin < 0 ? 'booking-loss' : 'booking-profit'}>{money(estimatedMargin)}</dd></div></>}
-            </dl><p>{form.provider_name ? form.provider_type === 'prepaid' ? `${form.provider_name} wallet will be debited on booking.` : `${form.provider_name} cost will be recorded in the provider ledger.` : 'Choose a provider account to see how the cost will be settled.'}</p></section>
-            <section className="booking-summary"><h3>Before you book</h3><ul>{checks.map(([label, done]) => <li key={label} className={done ? 'is-complete' : ''}><CheckCircle2 size={18} />{label}</li>)}</ul></section></aside>
+            )}
+            {options.hint && <span className="booking-field-hint">{options.hint}</span>}
         </div>
-    </div>;
+    );
+
+    const checks = [
+        ['Customer identified', !!(form.customer_name && form.sender_phone)],
+        ['Receiver name and address', !!(form.receiver_name && form.receiver_address && form.receiver_city)],
+        ['Parcel measured', Number(form.actual_weight) > 0],
+        ['Price and provider account', !!(Number(form.price) > 0 && form.provider_name && (!canEnterShipmentCosts || form.provider_cost !== ''))],
+    ];
+
+    return (
+        <div ref={workspaceRef} className="booking-workspace" role="dialog" aria-modal="true" aria-labelledby="booking-title">
+            <div className="booking-container">
+                {/* Header */}
+                <header className="booking-header">
+                    <div className="booking-header-left">
+                        <div className="booking-header-icon">
+                            <Truck size={22} />
+                        </div>
+                        <div>
+                            <h2 id="booking-title">New Shipment Booking</h2>
+                            <p>Book consignment once. Invoice generation, carrier routing, and accounting sync automatically.</p>
+                        </div>
+                    </div>
+                    <button 
+                        type="button" 
+                        className="booking-close-btn" 
+                        aria-label="Close booking" 
+                        disabled={isSubmitting} 
+                        onClick={onClose}
+                    >
+                        <X size={20} />
+                    </button>
+                </header>
+
+                <div className="booking-layout">
+                    {/* Main Form Column */}
+                    <form className="booking-main" onSubmit={handleSubmit}>
+                        
+                        {/* 1. Handling & Hub */}
+                        <div className="booking-card">
+                            <div className="booking-card-header">
+                                <div className="booking-card-title">
+                                    <Building2 size={16} />
+                                    <span>1. Booking Hub & Staff</span>
+                                </div>
+                                <span className="booking-card-subtitle">Select processing center and handler</span>
+                            </div>
+                            <div className="booking-fields">
+                                {field('center', 'Business Center', { items: centersList, required: true })}
+                                {field('employee', 'Handled By', { items: employeesList, required: true })}
+                            </div>
+                        </div>
+
+                        {/* 2. Customer Profile */}
+                        <div className="booking-card">
+                            <div className="booking-card-header">
+                                <div className="booking-card-title">
+                                    <User size={16} />
+                                    <span>2. Customer Information</span>
+                                </div>
+                                <span className="booking-card-subtitle">Search existing profile or enter details</span>
+                            </div>
+                            
+                            <div className="booking-lookup-row">
+                                <div className="booking-field booking-lookup-field">
+                                    <label className="booking-field-label">Customer Mobile <span className="required-star">*</span></label>
+                                    <div className="booking-search-input-group">
+                                        <input 
+                                            type="tel" 
+                                            value={form.sender_phone} 
+                                            onChange={e => handleMobileLookup(e.target.value)}
+                                            placeholder="Enter 10-digit mobile number"
+                                            required
+                                            className="booking-input"
+                                        />
+                                        <button 
+                                            className="btn btn-primary-blue booking-search-btn" 
+                                            type="button" 
+                                            onClick={() => handleMobileLookup(form.sender_phone)} 
+                                            disabled={isSearchingCustomer}
+                                        >
+                                            {isSearchingCustomer ? <Loader2 size={14} className="spin" /> : <Search size={14} />}
+                                            <span>{isSearchingCustomer ? 'Searching...' : 'Lookup'}</span>
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {customerFound && (
+                                <div className="booking-linked-banner">
+                                    <CheckCircle2 size={16} />
+                                    <span>Profile Found & Linked: <strong>{customerFound}</strong></span>
+                                </div>
+                            )}
+
+                            <div className="booking-fields" style={{ marginTop: '14px' }}>
+                                {field('customer_name', 'Customer / Company Name', { required: true, placeholder: 'Full Name / Company' })}
+                                {field('customer_type', 'Customer Category', { items: ['C2C', 'B2C', 'B2B'] })}
+                            </div>
+                        </div>
+
+                        {/* 3. Sender Details */}
+                        <div className="booking-card">
+                            <div className="booking-card-header">
+                                <div className="booking-card-title">
+                                    <MapPin size={16} />
+                                    <span>3. Sender Details</span>
+                                </div>
+                                <label className="booking-compact-toggle">
+                                    <input 
+                                        type="checkbox" 
+                                        checked={form.same_sender} 
+                                        onChange={e => update('same_sender', e.target.checked)} 
+                                    />
+                                    <span className="booking-switch-sm" />
+                                    <span>Same as Customer</span>
+                                </label>
+                            </div>
+
+                            <div className="booking-fields">
+                                {field(form.same_sender ? 'customer_name' : 'alternate_sender_name', 'Sender Name', { required: true })}
+                                {field(form.same_sender ? 'sender_phone' : 'alternate_sender_phone', 'Sender Mobile', { required: true, ...(form.same_sender ? { onChange: handleMobileLookup } : {}) })}
+                                {field('sender_email', 'Sender Email', { type: 'email', placeholder: 'sender@example.com' })}
+                                {field('sender_id_proof', 'ID Proof (Aadhaar/Passport)', { placeholder: 'ID proof reference' })}
+                                {field('sender_address', 'Pickup / Origin Address', { required: true, multiline: true, wide: true, placeholder: 'Street address, building, locality...' })}
+                                {field('sender_city', 'City', { placeholder: 'City' })}
+                                {field('sender_zip', 'ZIP / Pincode', { placeholder: 'Pincode' })}
+                                {field('sender_country', 'Country', { placeholder: 'Country' })}
+                            </div>
+                        </div>
+
+                        {/* 4. Receiver Details */}
+                        <div className="booking-card">
+                            <div className="booking-card-header">
+                                <div className="booking-card-title">
+                                    <MapPin size={16} />
+                                    <span>4. Destination & Consignee</span>
+                                </div>
+                                <span className="booking-card-subtitle">Receiver contact & destination address</span>
+                            </div>
+                            <div className="booking-fields">
+                                {field('receiver_name', 'Receiver Full Name', { required: true, placeholder: 'Consignee Name' })}
+                                {field('receiver_phone', 'Receiver Phone / Mobile', { placeholder: 'Contact Number' })}
+                                {field('receiver_email', 'Receiver Email', { type: 'email', placeholder: 'receiver@example.com' })}
+                                {field('receiver_country', 'Destination Country', { required: true, onChange: value => setForm(prev => ({ ...prev, receiver_country: value, domestic_international: value.toLowerCase() === 'india' ? 'Domestic' : 'International' })) })}
+                                {field('receiver_address', 'Delivery Address', { required: true, multiline: true, wide: true, placeholder: 'Full delivery street address...' })}
+                                {field('receiver_city', 'City', { required: true, placeholder: 'Destination City' })}
+                                {field('receiver_zip', 'ZIP / Postal Code', { placeholder: 'Postal code' })}
+                                {field('receiver_state', 'State / Province', { placeholder: 'State or Province' })}
+                            </div>
+                        </div>
+
+                        {/* 5. Parcel Details */}
+                        <div className="booking-card">
+                            <div className="booking-card-header">
+                                <div className="booking-card-title">
+                                    <Package size={16} />
+                                    <span>5. Package & Dimensions</span>
+                                </div>
+                                <span className="booking-card-subtitle">Weight (kg) and dimensions (cm)</span>
+                            </div>
+                            <div className="booking-fields">
+                                {field('description', 'Package Contents / Items', { wide: true, placeholder: 'e.g. Documents, garments, dry snacks, electronics...' })}
+                                {field('packages_count', 'No. of Packages', { type: 'number', min: 1, readOnly: form.boxes.length > 0 })}
+                                {field('actual_weight', 'Total Actual Weight (kg)', { type: 'number', min: 0.01, required: true, readOnly: form.boxes.length > 0 })}
+                                {!form.boxes.length && (
+                                    <>
+                                        {field('length', 'Length (cm)', { type: 'number', min: 0 })}
+                                        {field('width', 'Width (cm)', { type: 'number', min: 0 })}
+                                        {field('height', 'Height (cm)', { type: 'number', min: 0 })}
+                                    </>
+                                )}
+                            </div>
+
+                            {form.boxes.map((box, index) => (
+                                <div className="booking-multi-box" key={index}>
+                                    <div className="booking-multi-box-header">
+                                        <strong>Package #{index + 1}</strong>
+                                        <button 
+                                            type="button" 
+                                            className="btn btn-sm btn-outline text-rose"
+                                            onClick={() => setForm(prev => ({ ...prev, boxes: prev.boxes.filter((_, i) => i !== index) }))}
+                                        >
+                                            <Trash2 size={13} /> Remove Box
+                                        </button>
+                                    </div>
+                                    <div className="booking-fields">
+                                        {['length', 'width', 'height', 'actual_weight'].map(key => (
+                                            <div className="booking-field" key={key}>
+                                                <label className="booking-field-label">
+                                                    {key === 'actual_weight' ? 'Weight (kg)' : `${key.toUpperCase()} (cm)`}
+                                                </label>
+                                                <input 
+                                                    type="number" 
+                                                    min="0.01" 
+                                                    step="0.01" 
+                                                    required 
+                                                    value={box[key]} 
+                                                    onChange={e => setForm(prev => ({
+                                                        ...prev, 
+                                                        boxes: prev.boxes.map((item, i) => i === index ? { ...item, [key]: e.target.value } : item)
+                                                    }))}
+                                                    className="booking-input"
+                                                />
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            ))}
+
+                            <button 
+                                type="button" 
+                                className="btn btn-outline booking-add-box-btn" 
+                                onClick={() => setForm(prev => ({ ...prev, boxes: [...prev.boxes, { length: '', width: '', height: '', actual_weight: '' }] }))}
+                            >
+                                <Plus size={14} /> Add Individual Box Details
+                            </button>
+                        </div>
+
+                        {/* 6. Courier & Service */}
+                        <div className="booking-card">
+                            <div className="booking-card-header">
+                                <div className="booking-card-title">
+                                    <Truck size={16} />
+                                    <span>6. Courier Routing & AWB</span>
+                                </div>
+                                <span className="booking-card-subtitle">Tracking number & carrier routing</span>
+                            </div>
+                            <div className="booking-fields">
+                                {field('courier', 'Courier Carrier', { items: couriersList, required: true, onChange: handleCourierChange })}
+                                {field('domestic_international', 'Service Scope', { items: ['Domestic', 'International'], required: true })}
+                                {field('service_type', 'Service Type', { required: true, placeholder: 'e.g. Express, Priority, Economy' })}
+                                {field('awb', 'Courier AWB Number', { required: true, placeholder: 'Enter tracking AWB' })}
+                                {field('date', 'Booking Date', { type: 'date', required: true, onChange: value => setForm(prev => ({ ...prev, date: value, pickup_date: value })) })}
+                            </div>
+                        </div>
+
+                        {/* 7. Pricing, GST & Payment */}
+                        <div className="booking-card">
+                            <div className="booking-card-header">
+                                <div className="booking-card-title">
+                                    <Receipt size={16} />
+                                    <span>7. Pricing, GST & Billing Settlement</span>
+                                </div>
+                                <span className="booking-card-subtitle">Customer rate, provider cost, and tax terms</span>
+                            </div>
+
+                            <div className="booking-fields">
+                                {field('price', 'Customer Base Price (₹)', { type: 'number', min: 0, required: true, hint: form.is_gst_applicable ? `${effectiveGstRate}% GST will be computed` : 'Bill of supply / Non-GST rate' })}
+                                <div className="booking-field">
+                                    <label className="booking-field-label">Provider Billing Account <span className="required-star">*</span></label>
+                                    <div className="booking-input-wrap">
+                                        <select 
+                                            required 
+                                            value={`${form.provider_type}|${form.provider_name}`} 
+                                            onChange={e => handleProviderChange(e.target.value)}
+                                            className="booking-select"
+                                        >
+                                            <option value="|">Select Account...</option>
+                                            <optgroup label="Prepaid Wallets">
+                                                {prepaidWallets.map(a => <option key={a.name} value={`prepaid|${a.name}`}>{a.name}</option>)}
+                                            </optgroup>
+                                            <optgroup label="Postpaid Accounts">
+                                                {postpaidProviders.map(a => <option key={a.name} value={`postpaid|${a.name}`}>{a.name}</option>)}
+                                            </optgroup>
+                                        </select>
+                                    </div>
+                                    <span className="booking-field-hint">Prepaid wallets are debited immediately upon booking.</span>
+                                </div>
+                                {canEnterShipmentCosts && field('provider_cost', 'Provider Cost (₹)', { type: 'number', min: 0, required: true, hint: 'Cost paid to courier' })}
+                            </div>
+
+                            {/* GST Customization Card */}
+                            <div className="booking-gst-config-box">
+                                <div className="booking-gst-header-row">
+                                    <label className="booking-compact-toggle">
+                                        <input 
+                                            type="checkbox" 
+                                            checked={form.is_gst_applicable} 
+                                            onChange={e => update('is_gst_applicable', e.target.checked)} 
+                                        />
+                                        <span className="booking-switch-sm" />
+                                        <strong>Apply GST (Official Tax Invoice)</strong>
+                                    </label>
+
+                                    {form.is_gst_applicable && (
+                                        <div className="booking-gst-rate-selector">
+                                            <span className="booking-gst-label">GST Rate:</span>
+                                            <select 
+                                                value={form.gst_rate} 
+                                                onChange={e => update('gst_rate', e.target.value)}
+                                                className="booking-select booking-gst-select"
+                                            >
+                                                <option value="18">18% (Standard Rate)</option>
+                                                <option value="14">14% (Special Rate)</option>
+                                                <option value="12">12% (Forwarding Rate)</option>
+                                                <option value="5">5% (Concessional)</option>
+                                                <option value="0">0% (Nil / Exempt)</option>
+                                                <option value="custom">Custom Rate...</option>
+                                            </select>
+                                            {form.gst_rate === 'custom' && (
+                                                <div className="booking-custom-gst-wrap">
+                                                    <input 
+                                                        type="number" 
+                                                        min="0" 
+                                                        max="100" 
+                                                        step="0.1" 
+                                                        placeholder="%" 
+                                                        value={form.custom_gst_rate} 
+                                                        onChange={e => update('custom_gst_rate', e.target.value)}
+                                                        className="booking-input booking-custom-gst-input"
+                                                    />
+                                                    <span>%</span>
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
+                                </div>
+                                <div className="booking-gst-status-note">
+                                    {form.is_gst_applicable ? (
+                                        <span>✓ <strong>Tax Invoice enabled:</strong> {effectiveGstRate}% GST ({money(gst)}) added. Total invoice: <strong>{money(invoiceTotal)}</strong></span>
+                                    ) : (
+                                        <span>✓ <strong>Bill of Supply:</strong> Non-GST client with ₹0.00 tax. Total invoice: <strong>{money(invoiceTotal)}</strong></span>
+                                    )}
+                                </div>
+                            </div>
+
+                            {/* Payment Settlement */}
+                            <div className="booking-payment-toggle-wrap">
+                                <label className="booking-compact-toggle">
+                                    <input 
+                                        type="checkbox" 
+                                        checked={payingNow} 
+                                        onChange={e => setForm(prev => ({ ...prev, payment_status: e.target.checked ? 'Partial' : 'Unpaid', amount_received: '' }))} 
+                                    />
+                                    <span className="booking-switch-sm" />
+                                    <strong>Customer is paying now</strong>
+                                </label>
+                            </div>
+
+                            {payingNow && (
+                                <div className="booking-fields" style={{ marginTop: '12px' }}>
+                                    {field('amount_received', 'Amount Received (₹)', { type: 'number', min: 0.01, max: invoiceTotal, required: true, onChange: value => setForm(prev => ({ ...prev, amount_received: value, payment_status: Number(value) >= invoiceTotal ? 'Paid' : 'Partial' })) })}
+                                    {field('payment_method', 'Payment Method', { items: paymentMethods, required: true })}
+                                    {field('paid_to', 'Paid To Account', { items: paidToAccounts, required: true, hint: 'Bank, UPI, or cash box' })}
+                                    {field('collected_by', 'Collected By', { items: employeesList, required: true })}
+                                    {field('payment_reference', 'Payment Reference / Note', { wide: true, placeholder: 'UPI transaction ID, Cheque number, or note' })}
+                                </div>
+                            )}
+
+                            {!payingNow && form.customer_type === 'B2B' && field('payment_status', 'Payment Terms', { items: ['Unpaid', 'B2B Credit'] })}
+                        </div>
+
+                        {/* Action Buttons */}
+                        <div className="booking-actions-card">
+                            <button 
+                                type="button" 
+                                className="btn btn-outline booking-cancel-btn" 
+                                disabled={isSubmitting} 
+                                onClick={onClose}
+                            >
+                                Cancel
+                            </button>
+                            <button 
+                                type="submit" 
+                                className="btn btn-primary-blue booking-submit-btn" 
+                                disabled={isSubmitting}
+                            >
+                                {isSubmitting ? <Loader2 size={16} className="spin" /> : <Check size={16} />}
+                                <span>{isSubmitting ? 'Booking Consignment...' : 'Confirm & Book Shipment'}</span>
+                            </button>
+                        </div>
+                    </form>
+
+                    {/* Right Sticky Sidebar */}
+                    <aside className="booking-sidebar">
+                        {/* Live Calculation */}
+                        <div className="booking-sidebar-card">
+                            <div className="booking-sidebar-header">
+                                <Calculator size={16} />
+                                <h3>Live Calculation</h3>
+                            </div>
+                            <div className="booking-calc-list">
+                                <div className="booking-calc-row">
+                                    <span>Volumetric Weight</span>
+                                    <strong>{Number(form.volumetric_weight).toFixed(3)} kg</strong>
+                                </div>
+                                <div className="booking-calc-row booking-calc-highlight">
+                                    <span>Chargeable Weight</span>
+                                    <strong className="text-primary-blue">{Number(form.chargeable_weight).toFixed(3)} kg</strong>
+                                </div>
+                                <div className="booking-calc-row">
+                                    <span>Customer Base Rate</span>
+                                    <span>{money(form.price)}</span>
+                                </div>
+                                <div className="booking-calc-row">
+                                    <span>GST ({form.is_gst_applicable ? `${effectiveGstRate}%` : 'Non-GST'})</span>
+                                    <span>{money(gst)}</span>
+                                </div>
+                                <div className="booking-calc-row booking-calc-total">
+                                    <span>Total Billed Amount</span>
+                                    <strong className="text-emerald">{money(invoiceTotal)}</strong>
+                                </div>
+
+                                {canEnterShipmentCosts && (
+                                    <>
+                                        <div className="booking-calc-row" style={{ borderTop: '1px dashed var(--card-border)', paddingTop: '10px' }}>
+                                            <span>Provider Cost</span>
+                                            <span>{money(form.provider_cost)}</span>
+                                        </div>
+                                        <div className="booking-calc-row booking-calc-profit">
+                                            <span>Estimated Margin</span>
+                                            <span className={estimatedMargin < 0 ? 'margin-loss' : 'margin-profit'}>
+                                                {money(estimatedMargin)}
+                                            </span>
+                                        </div>
+                                    </>
+                                )}
+                            </div>
+
+                            <div className="booking-sidebar-note">
+                                {form.provider_name ? (
+                                    form.provider_type === 'prepaid' ? (
+                                        <span>💰 <strong>{form.provider_name}</strong> wallet will be debited on booking.</span>
+                                    ) : (
+                                        <span>📋 <strong>{form.provider_name}</strong> cost recorded in provider payable ledger.</span>
+                                    )
+                                ) : (
+                                    <span>Select provider account to view cost settlement terms.</span>
+                                )}
+                            </div>
+                        </div>
+
+                        {/* Checklist */}
+                        <div className="booking-sidebar-card">
+                            <div className="booking-sidebar-header">
+                                <CheckCircle2 size={16} />
+                                <h3>Booking Checklist</h3>
+                            </div>
+                            <ul className="booking-checklist">
+                                {checks.map(([label, done]) => (
+                                    <li key={label} className={done ? 'is-complete' : 'is-pending'}>
+                                        <CheckCircle2 size={16} className="check-icon" />
+                                        <span>{label}</span>
+                                    </li>
+                                ))}
+                            </ul>
+                        </div>
+                    </aside>
+                </div>
+            </div>
+        </div>
+    );
 };
+
 export default ShipmentModal;

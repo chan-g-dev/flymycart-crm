@@ -41,6 +41,20 @@ const Sidebar = ({ currentPage, activeSubPage, onNavigate, onSubNavigate, stats,
         document.documentElement.setAttribute('data-theme', next ? 'dark' : 'light');
     };
 
+    const handleNavigate = (page) => {
+        onNavigate?.(page);
+        if (window.innerWidth <= 768) {
+            onClose?.();
+        }
+    };
+
+    const handleSubNavigate = (page, sub) => {
+        onSubNavigate?.(page, sub);
+        if (window.innerWidth <= 768) {
+            onClose?.();
+        }
+    };
+
     return (
         <>
             {isOpen && <div className="sidebar-mobile-backdrop" onClick={onClose} />}
@@ -48,7 +62,7 @@ const Sidebar = ({ currentPage, activeSubPage, onNavigate, onSubNavigate, stats,
             <button type="button" className="sidebar-mobile-close" onClick={onClose} aria-label="Close navigation"><X size={20} /></button>
             {/* Top Brand Banner */}
             <div className="sidebar-brand-header">
-                <button type="button" className="sidebar-brand-button" aria-label="FlyMyCart dashboard" onClick={() => onNavigate('dashboard')}>
+                <button type="button" className="sidebar-brand-button" aria-label="FlyMyCart dashboard" onClick={() => handleNavigate('dashboard')}>
                     <FlyMyCartLogo height={38} width="100%" theme="dark" />
                 </button>
             </div>
@@ -59,7 +73,7 @@ const Sidebar = ({ currentPage, activeSubPage, onNavigate, onSubNavigate, stats,
                 <button
                     type="button"
                     className={`sidebar-link ${currentPage === 'dashboard' ? 'active' : ''}`}
-                    onClick={() => onNavigate('dashboard')}
+                    onClick={() => handleNavigate('dashboard')}
                 >
                     <LayoutDashboard size={17} />
                     <span>Dashboard</span>
@@ -72,7 +86,7 @@ const Sidebar = ({ currentPage, activeSubPage, onNavigate, onSubNavigate, stats,
                 <button
                     type="button"
                     className={`sidebar-link ${currentPage === 'customers' ? 'active' : ''}`}
-                    onClick={() => onNavigate('customers')}
+                    onClick={() => handleNavigate('customers')}
                 >
                     <Users size={17} />
                     <span>Customers</span>
@@ -81,7 +95,7 @@ const Sidebar = ({ currentPage, activeSubPage, onNavigate, onSubNavigate, stats,
                 <button
                     type="button"
                     className={`sidebar-link ${currentPage === 'shipments' ? 'active' : ''}`}
-                    onClick={() => onNavigate('shipments')}
+                    onClick={() => handleNavigate('shipments')}
                 >
                     <Package size={17} />
                     <span>Shipments</span>
@@ -90,7 +104,7 @@ const Sidebar = ({ currentPage, activeSubPage, onNavigate, onSubNavigate, stats,
                 <button
                     type="button"
                     className={`sidebar-link ${currentPage === 'invoices' ? 'active' : ''}`}
-                    onClick={() => onNavigate('invoices')}
+                    onClick={() => handleNavigate('invoices')}
                 >
                     <FileText size={17} />
                     <span>Invoices</span>
@@ -101,7 +115,7 @@ const Sidebar = ({ currentPage, activeSubPage, onNavigate, onSubNavigate, stats,
                     type="button"
                     className={`sidebar-link ${currentPage === 'accounts' ? 'active' : ''}`}
                     onClick={() => {
-                        onNavigate('accounts');
+                        handleNavigate('accounts');
                         setIsAccountsOpen(!isAccountsOpen);
                     }}
                 >
@@ -114,7 +128,7 @@ const Sidebar = ({ currentPage, activeSubPage, onNavigate, onSubNavigate, stats,
 
                 {isAccountsOpen && (
                     <div className="sidebar-submenu">
-                        <button type="button" className={`sidebar-sublink ${activeSubPage === 'customer_money' ? 'active' : ''}`} onClick={() => onSubNavigate('accounts', 'customer_money')}>
+                        <button type="button" className={`sidebar-sublink ${activeSubPage === 'customer_money' ? 'active' : ''}`} onClick={() => handleSubNavigate('accounts', 'customer_money')}>
                             Customer Collections
                         </button>
                         <button type="button" className="sidebar-sublink sidebar-account-group" aria-expanded={isPrepaidOpen} aria-controls="sidebar-prepaid-wallets" onClick={() => setIsPrepaidOpen(!isPrepaidOpen)}>
@@ -123,7 +137,7 @@ const Sidebar = ({ currentPage, activeSubPage, onNavigate, onSubNavigate, stats,
                         {isPrepaidOpen && <div id="sidebar-prepaid-wallets" className="sidebar-account-children">
                         {(settings?.prepaidWallets || [{ name: 'ICL' }, { name: 'BRV' }]).map(wallet => {
                             const section = `wallet-${encodeURIComponent(wallet.name)}`;
-                            return <button key={section} type="button" className={`sidebar-sublink ${activeSubPage === section ? 'active' : ''}`} onClick={() => onSubNavigate('accounts', section)}>{wallet.name} Wallet</button>;
+                            return <button key={section} type="button" className={`sidebar-sublink ${activeSubPage === section ? 'active' : ''}`} onClick={() => handleSubNavigate('accounts', section)}>{wallet.name} Wallet</button>;
                         })}
                         </div>}
                         <button type="button" className="sidebar-sublink sidebar-account-group" aria-expanded={isPostpaidOpen} aria-controls="sidebar-postpaid-accounts" onClick={() => setIsPostpaidOpen(!isPostpaidOpen)}>
@@ -132,11 +146,11 @@ const Sidebar = ({ currentPage, activeSubPage, onNavigate, onSubNavigate, stats,
                         {isPostpaidOpen && <div id="sidebar-postpaid-accounts" className="sidebar-account-children">
                         {(settings?.postpaidProviders || [{ name: 'Aramex' }, { name: 'Blue Dart' }]).map(provider => {
                             const section = `provider-${encodeURIComponent(provider.name)}`;
-                            return <button key={section} type="button" className={`sidebar-sublink ${activeSubPage === section ? 'active' : ''}`} onClick={() => onSubNavigate('accounts', section)}>{provider.name} Account</button>;
+                            return <button key={section} type="button" className={`sidebar-sublink ${activeSubPage === section ? 'active' : ''}`} onClick={() => handleSubNavigate('accounts', section)}>{provider.name} Account</button>;
                         })}
                         </div>}
-                        <button type="button" className={`sidebar-sublink ${activeSubPage === 'account_checks' ? 'active' : ''}`} onClick={() => onSubNavigate('accounts', 'account_checks')}>Receipts &amp; Account Checks</button>
-                        <button type="button" className={`sidebar-sublink ${activeSubPage === 'reconciliation' ? 'active' : ''}`} onClick={() => onSubNavigate('accounts', 'reconciliation')}>
+                        <button type="button" className={`sidebar-sublink ${activeSubPage === 'account_checks' ? 'active' : ''}`} onClick={() => handleSubNavigate('accounts', 'account_checks')}>Receipts &amp; Account Checks</button>
+                        <button type="button" className={`sidebar-sublink ${activeSubPage === 'reconciliation' ? 'active' : ''}`} onClick={() => handleSubNavigate('accounts', 'reconciliation')}>
                             Reconciliation
                         </button>
                     </div>
@@ -145,7 +159,7 @@ const Sidebar = ({ currentPage, activeSubPage, onNavigate, onSubNavigate, stats,
                 <button
                     type="button"
                     className={`sidebar-link ${currentPage === 'b2b' ? 'active' : ''}`}
-                    onClick={() => onNavigate('b2b')}
+                    onClick={() => handleNavigate('b2b')}
                 >
                     <Building2 size={17} />
                     <span>B2B / Credit</span>
@@ -157,7 +171,7 @@ const Sidebar = ({ currentPage, activeSubPage, onNavigate, onSubNavigate, stats,
                 <button
                     type="button"
                     className={`sidebar-link ${currentPage === 'refunds' ? 'active' : ''}`}
-                    onClick={() => onNavigate('refunds')}
+                    onClick={() => handleNavigate('refunds')}
                 >
                     <RotateCcw size={17} />
                     <span>Refunds</span>
@@ -169,7 +183,7 @@ const Sidebar = ({ currentPage, activeSubPage, onNavigate, onSubNavigate, stats,
                 <button
                     type="button"
                     className={`sidebar-link ${currentPage === 'followups' ? 'active' : ''}`}
-                    onClick={() => onNavigate('followups')}
+                    onClick={() => handleNavigate('followups')}
                 >
                     <Bell size={17} />
                     <span>Follow-ups & Communications</span>
@@ -182,7 +196,7 @@ const Sidebar = ({ currentPage, activeSubPage, onNavigate, onSubNavigate, stats,
                     type="button"
                     className={`sidebar-link ${currentPage === 'reports' ? 'active' : ''}`}
                     onClick={() => {
-                        onNavigate('reports');
+                        handleNavigate('reports');
                         setIsReportsOpen(!isReportsOpen);
                     }}
                 >
@@ -195,14 +209,14 @@ const Sidebar = ({ currentPage, activeSubPage, onNavigate, onSubNavigate, stats,
 
                 {isReportsOpen && (
                     <div className="sidebar-submenu">
-                        <button type="button" className={`sidebar-sublink ${activeSubPage === 'eod' ? 'active' : ''}`} onClick={() => onSubNavigate('reports', 'eod')}>
+                        <button type="button" className={`sidebar-sublink ${activeSubPage === 'eod' ? 'active' : ''}`} onClick={() => handleSubNavigate('reports', 'eod')}>
                             EOD Report
                         </button>
-                        <button type="button" className={`sidebar-sublink ${activeSubPage === 'weekly' ? 'active' : ''}`} onClick={() => onSubNavigate('reports', 'weekly')}>
+                        <button type="button" className={`sidebar-sublink ${activeSubPage === 'weekly' ? 'active' : ''}`} onClick={() => handleSubNavigate('reports', 'weekly')}>
                             Weekly Trends
                         </button>
-                        <button type="button" className={`sidebar-sublink ${activeSubPage === 'custom' ? 'active' : ''}`} onClick={() => onSubNavigate('reports', 'custom')}>Custom Date Range</button>
-                        <button type="button" className={`sidebar-sublink ${activeSubPage === 'monthly' ? 'active' : ''}`} onClick={() => onSubNavigate('reports', 'monthly')}>
+                        <button type="button" className={`sidebar-sublink ${activeSubPage === 'custom' ? 'active' : ''}`} onClick={() => handleSubNavigate('reports', 'custom')}>Custom Date Range</button>
+                        <button type="button" className={`sidebar-sublink ${activeSubPage === 'monthly' ? 'active' : ''}`} onClick={() => handleSubNavigate('reports', 'monthly')}>
                             Monthly P&L
                         </button>
                     </div>
@@ -211,7 +225,7 @@ const Sidebar = ({ currentPage, activeSubPage, onNavigate, onSubNavigate, stats,
                 <button
                     type="button"
                     className={`sidebar-link ${currentPage === 'users' ? 'active' : ''}`}
-                    onClick={() => onNavigate('users')}
+                    onClick={() => handleNavigate('users')}
                 >
                     <ShieldCheck size={17} />
                     <span>Users & Access</span>
@@ -220,7 +234,7 @@ const Sidebar = ({ currentPage, activeSubPage, onNavigate, onSubNavigate, stats,
                 <button
                     type="button"
                     className={`sidebar-link ${currentPage === 'settings' ? 'active' : ''}`}
-                    onClick={() => onNavigate('settings')}
+                    onClick={() => handleNavigate('settings')}
                 >
                     <Settings size={17} />
                     <span>Settings</span>

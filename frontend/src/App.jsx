@@ -608,6 +608,7 @@ export function App() {
                     {currentPage === 'shipments' && (
                         <Shipments
                             shipments={filteredShipments}
+                            settings={settings}
                             selectedCenter={selectedCenter}
                             onOpenShipmentModal={() => setIsShipmentModalOpen(true)}
                             onOpenCustomerDrawer={handleOpenCustomerDrawer}
@@ -732,6 +733,7 @@ export function App() {
                 onClose={() => setPreviewInvoice(null)}
                 invoice={previewInvoice}
                 onPaymentRecorded={refreshAll}
+                settings={settings}
             />
 
             {isReconModalOpen && <ReconciliationModal

@@ -38,6 +38,19 @@ export const Dashboard = ({
         action?.();
     };
     const formatCurrency = (n) => '₹' + Number(n || 0).toLocaleString('en-IN');
+    const formatCompactCurrency = (n) => {
+        const num = Number(n || 0);
+        if (Math.abs(num) >= 10000000) {
+            return '₹' + (num / 10000000).toFixed(2).replace(/\.00$/, '') + 'Cr';
+        }
+        if (Math.abs(num) >= 100000) {
+            return '₹' + (num / 100000).toFixed(2).replace(/\.00$/, '') + 'L';
+        }
+        if (Math.abs(num) >= 10000) {
+            return '₹' + (num / 1000).toFixed(1).replace(/\.0$/, '') + 'k';
+        }
+        return '₹' + num.toLocaleString('en-IN');
+    };
     const formatDate = (d) => d ? new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '-';
 
     const safeData = data || {};
@@ -124,9 +137,11 @@ export const Dashboard = ({
                         </div>
                         <span className="card-label">Today's Sales</span>
                     </div>
-                    <div className="card-value">{formatCurrency(todaySales)}</div>
+                    <div className="card-value">{formatCurrency(safeData.today_sales_with_gst ?? (todaySales > 0 ? todaySales * 1.18 : 0))}</div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '4px' }}>
-                        <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>M-T-D: {formatCurrency(totalSales)}</span>
+                        <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                            {formatCurrency(todaySales)} Base • M-T-D: {formatCurrency(safeData.total_sales_with_gst ?? (totalSales > 0 ? totalSales * 1.18 : 0))} with GST
+                        </span>
                         <a href="javascript:void(0)" onClick={() => onNavigate('reports')} className="card-link">
                             <span>Reports</span> &rarr;
                         </a>
@@ -396,14 +411,16 @@ export const Dashboard = ({
                         </thead>
                         <tbody>
                             {(accountsData?.postpaid_accounts || [
-                                { name: 'Aramex', deposit: 200000, predicted_cost: 74200, actual_billed: 42300 },
-                                { name: 'Blue Dart', deposit: 150000, predicted_cost: 15100, actual_billed: 5750 }
+                                { name: 'Aramex', deposit: 200000, unbilled_usage: 0, net_payable: 0 },
+                                { name: 'Blue Dart', deposit: 150000, unbilled_usage: 0, net_payable: 0 }
                             ]).map(p => (
                                 <tr key={p.name}>
                                     <td><strong style={{ color: p.name === 'Aramex' ? '#dc2626' : '#1d4ed8' }}>{p.name}</strong></td>
                                     <td>{formatCurrency(p.deposit)}</td>
-                                    <td>{formatCurrency(p.predicted_cost)}</td>
-                                    <td style={{ textAlign: 'right', fontWeight: 700, color: '#e11d48' }}>{formatCurrency(p.actual_billed ?? 0)}</td>
+                                    <td>{formatCurrency(p.unbilled_usage ?? p.predicted_cost ?? 0)}</td>
+                                    <td style={{ textAlign: 'right', fontWeight: 700, color: (p.net_payable || 0) > 0 ? '#e11d48' : 'var(--emerald)' }}>
+                                        {formatCurrency(p.net_payable ?? 0)}
+                                    </td>
                                 </tr>
                             ))}
                         </tbody>
@@ -460,14 +477,14 @@ export const Dashboard = ({
                     <table className="data-table">
                         <thead>
                             <tr>
-                                <th style={{ width: '16%' }}>AWB No.</th>
-                                <th style={{ width: '12%' }}>Date</th>
-                                <th style={{ width: '22%' }}>Customer</th>
-                                <th style={{ width: '11%' }}>Courier</th>
-                                <th style={{ width: '12%' }}>Destination</th>
-                                <th style={{ width: '7%' }}>Weight</th>
-                                <th style={{ width: '8%' }}>Price</th>
-                                <th style={{ width: '12%' }}>Status</th>
+                                <th style={{ minWidth: '150px', textAlign: 'left' }}>AWB No.</th>
+                                <th style={{ minWidth: '120px', textAlign: 'center' }}>Date</th>
+                                <th style={{ minWidth: '190px', textAlign: 'left' }}>Customer</th>
+                                <th style={{ minWidth: '110px', textAlign: 'center' }}>Courier</th>
+                                <th style={{ minWidth: '140px', textAlign: 'left' }}>Destination</th>
+                                <th style={{ minWidth: '95px', textAlign: 'center' }}>Weight</th>
+                                <th style={{ minWidth: '105px', textAlign: 'right' }}>Price</th>
+                                <th style={{ minWidth: '125px', textAlign: 'center' }}>Status</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -491,37 +508,53 @@ export const Dashboard = ({
                                                  (s.receiver_country === 'Canada') ? '🇨🇦' : '🇮🇳';
                                     return (
                                         <tr key={s.id || s.awb}>
-                                            <td>
+                                            <td style={{ textAlign: 'left', verticalAlign: 'middle' }}>
                                                 <strong style={{ color: '#0f172a', fontFamily: 'monospace', fontSize: '12px' }}>
                                                     <TrackingLink awb={s.awb} courier={s.courier} />
                                                 </strong>
                                             </td>
-                                            <td style={{ color: 'var(--text-muted)' }}>{formatDate(s.date)}</td>
-                                            <td>
-                                                <a 
-                                                    href="javascript:void(0)" 
-                                                    onClick={() => onOpenCustomerDrawer(s.customer_id || s.customer_name)}
-                                                    style={{ fontWeight: 600, color: '#0f172a', textDecoration: 'none' }}
-                                                >
-                                                    {s.customer_name}
-                                                </a>
-                                                <span style={{ 
-                                                    marginLeft: '6px', 
-                                                    fontSize: '10px', 
-                                                    padding: '1px 5px', 
-                                                    borderRadius: '4px', 
-                                                    background: s.customer_type === 'B2B' ? '#eff6ff' : '#f1f5f9',
-                                                    color: s.customer_type === 'B2B' ? '#1d4ed8' : '#475569',
-                                                    fontWeight: 600
-                                                }}>
-                                                    {s.customer_type}
-                                                </span>
+                                            <td style={{ color: 'var(--text-muted)', textAlign: 'center', verticalAlign: 'middle' }}>
+                                                {formatDate(s.date)}
                                             </td>
-                                            <td><CourierLogo courier={s.courier} height={16} /></td>
-                                            <td>{flag} {s.receiver_city || s.receiver_country}</td>
-                                            <td><strong>{s.chargeable_weight || s.actual_weight}</strong> kg</td>
-                                            <td style={{ fontWeight: 600, color: '#0f172a' }}>{formatCurrency(s.price)}</td>
-                                            <td>
+                                            <td style={{ textAlign: 'left', verticalAlign: 'middle' }}>
+                                                <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                                                    <a 
+                                                        href="javascript:void(0)" 
+                                                        onClick={() => onOpenCustomerDrawer(s.customer_id || s.customer_name)}
+                                                        style={{ fontWeight: 600, color: '#0f172a', textDecoration: 'none' }}
+                                                    >
+                                                        {s.customer_name}
+                                                    </a>
+                                                    <span style={{ 
+                                                        fontSize: '10px', 
+                                                        padding: '1px 5px', 
+                                                        borderRadius: '4px', 
+                                                        background: s.customer_type === 'B2B' ? '#eff6ff' : '#f1f5f9',
+                                                        color: s.customer_type === 'B2B' ? '#1d4ed8' : '#475569',
+                                                        fontWeight: 600
+                                                    }}>
+                                                        {s.customer_type}
+                                                    </span>
+                                                </div>
+                                            </td>
+                                            <td style={{ textAlign: 'center', verticalAlign: 'middle' }}>
+                                                <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+                                                    <CourierLogo courier={s.courier} height={16} />
+                                                </div>
+                                            </td>
+                                            <td style={{ textAlign: 'left', verticalAlign: 'middle' }}>
+                                                <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                                                    <span>{flag}</span>
+                                                    <span>{s.receiver_city || s.receiver_country}</span>
+                                                </div>
+                                            </td>
+                                            <td style={{ textAlign: 'center', verticalAlign: 'middle' }}>
+                                                <strong>{s.chargeable_weight || s.actual_weight}</strong> kg
+                                            </td>
+                                            <td style={{ fontWeight: 700, color: '#0f172a', textAlign: 'right', verticalAlign: 'middle' }}>
+                                                {formatCurrency(s.price)}
+                                            </td>
+                                            <td style={{ textAlign: 'center', verticalAlign: 'middle' }}>
                                                 <span className={`status-pill ${s.status === 'Delivered' ? 'delivered' : s.status === 'Delayed' ? 'delayed' : 'in-transit'}`}>
                                                     {s.status}
                                                 </span>
@@ -543,27 +576,27 @@ export const Dashboard = ({
                         <h3>Sales vs Collection</h3>
                     </div>
                     <div className="donut-chart-container">
-                        <svg viewBox="0 0 36 36" style={{ width: '74px', height: '74px' }}>
+                        <svg viewBox="0 0 36 36" style={{ width: '84px', height: '84px' }}>
                             <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="#dbe3ef" strokeWidth="4.2" strokeDasharray="100, 100" />
                             <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="#10b981" strokeWidth="4.2" strokeDasharray={`${collectionPercent}, 100`} />
                         </svg>
-                        <div className="donut-center-label">
+                        <div className="donut-center-label" title={`Sales: ${formatCurrency(totalSales)} | Collected: ${formatCurrency(totalCollected)} (${collectionPercent}%)`}>
                             <strong>{collectionPercent}%</strong>
                             <small>Collected</small>
                         </div>
                     </div>
                     <div className="donut-legend">
                         <div className="donut-legend-item">
-                            <span className="donut-legend-label"><span className="legend-dot" style={{ background: '#2563eb' }}></span> Total Sales</span>
-                            <strong>{formatCurrency(totalSales)}</strong>
+                            <span className="donut-legend-label" title="Total Sales"><span className="legend-dot" style={{ background: '#2563eb' }}></span> Total Sales</span>
+                            <strong title={formatCurrency(totalSales)}>{formatCurrency(totalSales)}</strong>
                         </div>
                         <div className="donut-legend-item">
-                            <span className="donut-legend-label"><span className="legend-dot" style={{ background: '#10b981' }}></span> Collected</span>
-                            <strong style={{ color: 'var(--emerald)' }}>{formatCurrency(totalCollected)}</strong>
+                            <span className="donut-legend-label" title="Total Collected"><span className="legend-dot" style={{ background: '#10b981' }}></span> Collected</span>
+                            <strong style={{ color: 'var(--emerald)' }} title={formatCurrency(totalCollected)}>{formatCurrency(totalCollected)}</strong>
                         </div>
                         <div className="donut-legend-item">
-                            <span className="donut-legend-label"><span className="legend-dot" style={{ background: '#94a3b8' }}></span> Pending</span>
-                            <strong>{formatCurrency(pendingCollection)}</strong>
+                            <span className="donut-legend-label" title="Pending Collection"><span className="legend-dot" style={{ background: '#94a3b8' }}></span> Pending</span>
+                            <strong title={formatCurrency(pendingCollection)}>{formatCurrency(pendingCollection)}</strong>
                         </div>
                     </div>
                 </div>
@@ -574,27 +607,27 @@ export const Dashboard = ({
                         <h3>Carrier Cost vs Gross Margin</h3>
                     </div>
                     <div className="donut-chart-container">
-                        <svg viewBox="0 0 36 36" style={{ width: '74px', height: '74px' }}>
+                        <svg viewBox="0 0 36 36" style={{ width: '84px', height: '84px' }}>
                             <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="#dbe3ef" strokeWidth="4.2" strokeDasharray="100, 100" />
                             <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="#10b981" strokeWidth="4.2" strokeDasharray={`${Math.max(0, marginPercent)}, 100`} />
                         </svg>
-                        <div className="donut-center-label">
+                        <div className="donut-center-label" title={`Revenue: ${formatCurrency(totalSales)} | Profit: ${formatCurrency(grossProfit)} (${marginPercent}%)`}>
                             <strong style={{ color: 'var(--emerald)' }}>{marginPercent}%</strong>
                             <small>Margin</small>
                         </div>
                     </div>
                     <div className="donut-legend">
                         <div className="donut-legend-item">
-                            <span className="donut-legend-label"><span className="legend-dot" style={{ background: '#10b981' }}></span> Total Revenue</span>
-                            <strong>{formatCurrency(totalSales)}</strong>
+                            <span className="donut-legend-label" title="Total Revenue"><span className="legend-dot" style={{ background: '#10b981' }}></span> Total Revenue</span>
+                            <strong title={formatCurrency(totalSales)}>{formatCurrency(totalSales)}</strong>
                         </div>
                         <div className="donut-legend-item">
-                            <span className="donut-legend-label"><span className="legend-dot" style={{ background: '#64748b' }}></span> Carrier Cost</span>
-                            <strong>{formatCurrency(providerCost)}</strong>
+                            <span className="donut-legend-label" title="Carrier Cost"><span className="legend-dot" style={{ background: '#64748b' }}></span> Carrier Cost</span>
+                            <strong title={formatCurrency(providerCost)}>{formatCurrency(providerCost)}</strong>
                         </div>
                         <div className="donut-legend-item">
-                            <span className="donut-legend-label"><span className="legend-dot" style={{ background: '#10b981' }}></span> Gross Profit</span>
-                            <strong style={{ color: 'var(--emerald)' }}>{formatCurrency(grossProfit)}</strong>
+                            <span className="donut-legend-label" title="Gross Profit"><span className="legend-dot" style={{ background: '#10b981' }}></span> Gross Profit</span>
+                            <strong style={{ color: 'var(--emerald)' }} title={formatCurrency(grossProfit)}>{formatCurrency(grossProfit)}</strong>
                         </div>
                     </div>
                 </div>
@@ -605,29 +638,31 @@ export const Dashboard = ({
                         <h3>B2B Outstanding Aging</h3>
                     </div>
                     <div className="donut-chart-container">
-                        <svg viewBox="0 0 36 36" style={{ width: '74px', height: '74px' }}>
+                        <svg viewBox="0 0 36 36" style={{ width: '84px', height: '84px' }}>
                             <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="#dbe3ef" strokeWidth="4" strokeDasharray="100, 100" />
                             <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="#10b981" strokeWidth="4" strokeDasharray={`${agingNotDuePercent}, 100`} />
                             <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="#2563eb" strokeWidth="4" strokeDasharray={`${aging1To30Percent}, 100`} strokeDashoffset={-agingNotDuePercent} />
                             <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="#f59e0b" strokeWidth="4" strokeDasharray={`${aging31To60Percent}, 100`} strokeDashoffset={-(agingNotDuePercent + aging1To30Percent)} />
                         </svg>
-                        <div className="donut-center-label">
-                            <strong>{formatCurrency(b2bOutstanding)}</strong>
+                        <div className="donut-center-label" title={`Total Outstanding: ${formatCurrency(b2bOutstanding)}`}>
+                            <strong style={{ fontSize: b2bOutstanding >= 100000 ? '12px' : '13px' }}>
+                                {formatCompactCurrency(b2bOutstanding)}
+                            </strong>
                             <small>Due</small>
                         </div>
                     </div>
                     <div className="donut-legend">
                         <div className="donut-legend-item">
-                            <span className="donut-legend-label"><span className="legend-dot" style={{ background: '#10b981' }}></span> Not Due</span>
-                            <strong>{formatCurrency(agingNotDue)}</strong>
+                            <span className="donut-legend-label" title="Not Due"><span className="legend-dot" style={{ background: '#10b981' }}></span> Not Due</span>
+                            <strong title={formatCurrency(agingNotDue)}>{formatCurrency(agingNotDue)}</strong>
                         </div>
                         <div className="donut-legend-item">
-                            <span className="donut-legend-label"><span className="legend-dot" style={{ background: '#2563eb' }}></span> 1 - 30 Days</span>
-                            <strong>{formatCurrency(aging1To30)}</strong>
+                            <span className="donut-legend-label" title="1 - 30 Days Overdue"><span className="legend-dot" style={{ background: '#2563eb' }}></span> 1 - 30 Days</span>
+                            <strong title={formatCurrency(aging1To30)}>{formatCurrency(aging1To30)}</strong>
                         </div>
                         <div className="donut-legend-item">
-                            <span className="donut-legend-label"><span className="legend-dot" style={{ background: '#f59e0b' }}></span> 31 - 60 Days</span>
-                            <strong>{formatCurrency(aging31To60)}</strong>
+                            <span className="donut-legend-label" title="31 - 60 Days Overdue"><span className="legend-dot" style={{ background: '#f59e0b' }}></span> 31 - 60 Days</span>
+                            <strong title={formatCurrency(aging31To60)}>{formatCurrency(aging31To60)}</strong>
                         </div>
                     </div>
                 </div>

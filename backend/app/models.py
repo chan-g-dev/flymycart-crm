@@ -282,7 +282,11 @@ class Shipment(Base):
     service_type = Column(String(100), default="International Priority")
     provider_type = Column(String(20), default="postpaid")  # prepaid, postpaid
     provider_name = Column(String(50), nullable=False)
-    price = Column(Float, nullable=False)  # Customer selling price
+    price = Column(Float, nullable=False)  # Customer base selling price (excl. GST)
+    is_gst_applicable = Column(Boolean, default=True)  # True for Tax Invoice, False for Non-GST/Bill of Supply
+    gst_rate = Column(Float, default=18.0)  # Configurable % (0.0, 5.0, 12.0, 14.0, 18.0, 28.0)
+    gst_amount = Column(Float, default=0.0)  # Calculated GST currency amount
+    total_amount = Column(Float, nullable=True)  # Final total (price + gst_amount)
     provider_cost = Column(Float, nullable=False)  # Predicted provider cost
     actual_provider_cost = Column(Float, nullable=False)  # Actual provider cost
     cost_reconciled = Column(Boolean, default=False)
@@ -334,9 +338,14 @@ class Invoice(Base):
     service = Column(String(100), nullable=True)
     description = Column(Text, nullable=True)
 
-    amount = Column(Float, nullable=False)
-    gst = Column(Float, default=0.0)
-    total = Column(Float, nullable=False)
+    amount = Column(Float, nullable=False)  # Base taxable amount
+    is_gst_invoice = Column(Boolean, default=True)  # True = Tax Invoice, False = Commercial/Bill of Supply
+    tax_rate = Column(Float, default=18.0)  # GST rate % (e.g. 18.0, 14.0, 12.0, 5.0, 0.0)
+    cgst = Column(Float, default=0.0)  # Central GST amount
+    sgst = Column(Float, default=0.0)  # State GST amount
+    igst = Column(Float, default=0.0)  # Integrated GST amount
+    gst = Column(Float, default=0.0)  # Total GST
+    total = Column(Float, nullable=False)  # Final billed total
     paid = Column(Float, default=0.0)
     balance = Column(Float, default=0.0)
     status = Column(String(20), default="Due", index=True)  # Paid, Partial, Due, Overdue
