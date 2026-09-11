@@ -4,6 +4,7 @@
 
 import datetime
 import hashlib
+import uuid
 from typing import Dict, Any, Optional, List
 from fastapi import APIRouter, Depends, HTTPException, status, Request, Response
 from sqlalchemy.orm import Session, joinedload
@@ -103,20 +104,26 @@ async def login(
             (User.email.ilike(f"{email}@%"))
         ).first()
         if legacy_u:
+            existing_prof_by_id = db.query(UserProfile).filter(UserProfile.id == legacy_u.id).first()
+            prof_id = str(uuid.uuid4()) if existing_prof_by_id else legacy_u.id
             profile = UserProfile(
-                id=legacy_u.id,
+                id=prof_id,
                 email=legacy_u.email or (email if "@" in email else f"{email}@flymycart.internal"),
                 display_name=legacy_u.name or raw_identifier,
                 phone=legacy_u.phone,
                 role=legacy_u.role or "operations_staff",
                 status=normalize_profile_status(legacy_u.status),
                 requested_role=legacy_u.role or "operations_staff",
-                password_hash=legacy_u.password_hash,
+                password_hash=legacy_u.password_hash or hash_password(plain_password),
                 created_at=legacy_u.created_at or datetime.datetime.utcnow()
             )
-            db.add(profile)
-            db.commit()
-            db.refresh(profile)
+            try:
+                db.add(profile)
+                db.commit()
+                db.refresh(profile)
+            except Exception:
+                db.rollback()
+                profile = db.query(UserProfile).filter(UserProfile.email.ilike(email)).first()
 
     if not profile:
         full_name = (payload.full_name or "").strip()
@@ -128,7 +135,9 @@ async def login(
         if "@" not in email:
             raise HTTPException(status_code=400, detail="Enter a valid email address.")
 
+        new_uid = str(uuid.uuid4())
         profile = UserProfile(
+            id=new_uid,
             email=email,
             display_name=full_name,
             role="operations_staff",
@@ -138,23 +147,29 @@ async def login(
             approved_by="First login registration",
             approved_at=datetime.datetime.utcnow(),
         )
-        db.add(profile)
-        db.flush()
+        try:
+            db.add(profile)
+            db.flush()
 
-        from app.routers.users import resolve_role
-        role = resolve_role(db, "operations_staff")
-        if role:
-            db.add(UserRole(user_id=profile.id, role_id=role.id))
-        db.add(UserCenterAccess(
-            user_id=profile.id,
-            center_id="Main Hub (Bangalore)",
-            scope="operate",
-        ))
-        db.commit()
-        profile = db.query(UserProfile).options(
-            joinedload(UserProfile.roles).joinedload(Role.permissions),
-            joinedload(UserProfile.centers),
-        ).filter(UserProfile.id == profile.id).first()
+            from app.routers.users import resolve_role
+            role = resolve_role(db, "operations_staff")
+            if role:
+                db.add(UserRole(user_id=profile.id, role_id=role.id))
+            db.add(UserCenterAccess(
+                user_id=profile.id,
+                center_id="Main Hub (Bangalore)",
+                scope="operate",
+            ))
+            db.commit()
+        except Exception:
+            db.rollback()
+            profile = db.query(UserProfile).filter(UserProfile.email.ilike(email)).first()
+
+        if profile:
+            profile = db.query(UserProfile).options(
+                joinedload(UserProfile.roles).joinedload(Role.permissions),
+                joinedload(UserProfile.centers),
+            ).filter(UserProfile.id == profile.id).first()
 
     # 4. Validate status
     if profile.status in ["suspended", "archived", "rejected"]:
