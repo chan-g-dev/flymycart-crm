@@ -445,7 +445,7 @@ export const Accounts = ({
                                     </div>
                                     <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                                         <span>Unbilled Shipments:</span>
-                                        <strong>{p.shipments_count || 0} shipments</strong>
+                                        <strong>{p.unbilled_shipments_count ?? 0} shipments</strong>
                                     </div>
                                 </div>
                             </div>

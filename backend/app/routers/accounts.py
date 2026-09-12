@@ -220,7 +220,10 @@ def get_accounts_summary(
         count = sum(int(row[2]) for row in matched)
         predicted_cost = round(float(sum(float(row[3] or 0) for row in matched)), 2)
         actual_billed = round(float(sum(float(row[4] or 0) for row in matched)), 2)
-        unbilled = float(db.query(func.coalesce(func.sum(Shipment.provider_cost), 0)).filter(Shipment.provider_name == p_name, Shipment.provider_type == "postpaid", Shipment.cost_reconciled.is_(False)).scalar() or 0)
+        unbilled_count, unbilled = db.query(
+            func.count(Shipment.id), func.coalesce(func.sum(Shipment.provider_cost), 0)
+        ).filter(Shipment.provider_name == p_name, Shipment.provider_type == "postpaid",
+                 Shipment.cost_reconciled.is_(False)).one()
         ledger = dict(db.query(AccountingEntry.kind, func.sum(AccountingEntry.amount)).filter(AccountingEntry.provider == p_name).group_by(AccountingEntry.kind).all())
 
         deposit_added = float(ledger.get("provider_deposit", 0) or 0)
@@ -229,7 +232,8 @@ def get_accounts_summary(
         postpaid_data.append({
             "name": p_name,
             "deposit": round(float(p.get("deposit", 0)) + deposit_added, 2),
-            "unbilled_usage": round(unbilled, 2),
+            "unbilled_usage": round(float(unbilled), 2),
+            "unbilled_shipments_count": int(unbilled_count),
             "payments_made": round(payments_made, 2),
             "net_payable": round(max(0.0, actual_billed - payments_made), 2),
             "payment_terms": p.get("paymentTerms", "30 Days"),

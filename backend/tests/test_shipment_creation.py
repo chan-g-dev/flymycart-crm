@@ -101,3 +101,29 @@ class ShipmentCreationTests(unittest.TestCase):
             self.assertEqual(db.query(Customer).count(), 0)
             self.assertEqual(db.query(Shipment).count(), 0)
             self.assertEqual(db.query(Invoice).count(), 0)
+
+    def test_reconciled_shipments_leave_unbilled_count(self):
+        from app.routers.accounts import get_accounts_summary
+        with self.sessions() as db:
+            settings = db.get(SystemSettings, 1)
+            settings.config_json = {"postpaidProviders": [{"name": "DHL", "deposit": 0}]}
+            db.commit()
+        for index in range(2):
+            response = self.client.post("/api/shipments", json=self.payload(awb=f"COUNT-{index}"))
+            self.assertEqual(response.status_code, 200, response.text)
+        ctx = {"is_super_admin": True, "permissions": {"*": True}}
+        with self.sessions() as db:
+            def account():
+                return get_accounts_summary(ctx=ctx, db=db)["postpaid_accounts"][0]
+            self.assertEqual(account()["unbilled_shipments_count"], 2)
+            self.assertEqual(account()["unbilled_usage"], 1200)
+            shipments = db.query(Shipment).all()
+            shipments[0].cost_reconciled = True
+            db.commit()
+            self.assertEqual(account()["unbilled_shipments_count"], 1)
+            self.assertEqual(account()["unbilled_usage"], 600)
+            shipments[1].cost_reconciled = True
+            db.commit()
+            self.assertEqual(account()["unbilled_shipments_count"], 0)
+            self.assertEqual(account()["unbilled_usage"], 0)
+            self.assertEqual(account()["shipments_count"], 2)
