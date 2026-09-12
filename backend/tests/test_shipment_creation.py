@@ -127,3 +127,51 @@ class ShipmentCreationTests(unittest.TestCase):
             self.assertEqual(account()["unbilled_shipments_count"], 0)
             self.assertEqual(account()["unbilled_usage"], 0)
             self.assertEqual(account()["shipments_count"], 2)
+
+    def test_custom_expenses_persist_and_flow_to_reports(self):
+        from app.routers.accounts import record_accounting_entry, get_accounts_summary
+        from app.routers.reports import get_monthly_pl_report, get_eod_report, get_weekly_operations_report
+        dependency = python_inspect.signature(record_accounting_entry).parameters["ctx"].default.dependency
+        ctx = {"user_id": "test-staff", "display_name": "Test Staff", "is_super_admin": True, "permissions": {"*": True}}
+        app.dependency_overrides[dependency] = lambda: ctx
+        with self.sessions() as db:
+            settings = db.get(SystemSettings, 1)
+            settings.config_json = {"postpaidProviders": [{"name": "DHL", "deposit": 0}]}
+            db.commit()
+        base = {"date": "2026-09-12", "kind": "expense", "amount": 100,
+                "reference": "Test expense", "account": "Cash"}
+        for extra in [{"category": "  Packing   Materials "}, {"category": "packing materials", "amount": 50},
+                      {"category": "Electricity", "amount": 200}, {},
+                      {"category": "Packing Materials", "date": "2026-08-12", "amount": 999},
+                      {"kind": "provider_payment", "provider": "DHL", "category": "Ignore", "amount": 500}]:
+            response = self.client.post("/api/accounts/entries", json={**base, **extra})
+            self.assertEqual(response.status_code, 201, response.text)
+        invalid = self.client.post("/api/accounts/entries", json={**base, "category": "   "})
+        self.assertEqual(invalid.status_code, 422)
+        with self.sessions() as db:
+            summary = get_accounts_summary(ctx=ctx, db=db)
+            self.assertEqual(summary["expense_categories"], ["Electricity", "General", "Packing Materials"])
+            reports = [get_monthly_pl_report("2026-09", ctx, db), get_eod_report("2026-09-12", ctx, db),
+                       get_weekly_operations_report("2026-09-12", ctx, db)]
+            for report in reports:
+                self.assertEqual(report["operational_expenses"], 450)
+                self.assertEqual(report["expense_breakdown"], {"Electricity": 200, "General": 100, "Packing Materials": 150})
+            self.assertEqual(reports[0]["net_profit"], -450)
+            self.assertEqual(reports[1]["net_profit"], -450)
+            restricted = get_eod_report("2026-09-12", {"permissions": {}}, db)
+            self.assertEqual(restricted["expense_breakdown"], {})
+            self.assertIsNone(restricted["operational_expenses"])
+
+    def test_expense_category_migration_preserves_old_entries(self):
+        from app.models import AccountingEntry
+        with self.sessions() as db:
+            db.add(AccountingEntry(date="2026-09-12", kind="expense", amount=100,
+                                   reference="Legacy", account="Cash", created_by="test-staff"))
+            db.commit()
+            db.execute(text("ALTER TABLE accounting_entries DROP COLUMN category"))
+            db.commit()
+            migrate_database_schema(db)
+            migrate_database_schema(db)
+            row = db.query(AccountingEntry).one()
+            self.assertEqual(row.amount, 100)
+            self.assertIsNone(row.category)

@@ -15,7 +15,7 @@ from app.models import (
     AccountingEntry, PaymentCollection, AccountCheck, Invoice
 )
 from decimal import Decimal, ROUND_HALF_UP
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from typing import Literal, Optional
 from app.collections import collection_totals, shipment_payments_query
 from app.schemas import WalletRechargeCreate, WalletTransactionOut
@@ -112,6 +112,18 @@ def get_account_checks(limit: int = Query(20, ge=1, le=100), offset: int = Query
 
 
 class AccountingEntryCreate(BaseModel):
+    category: Optional[str] = Field(default=None, max_length=100)
+
+    @field_validator("category")
+    @classmethod
+    def normalize_category(cls, value):
+        if value is None:
+            return None
+        value = " ".join(value.split())
+        if not value:
+            raise ValueError("Expense category cannot be blank")
+        return value
+
     date: datetime.date
     kind: Literal["provider_payment", "provider_deposit", "expense"]
     provider: Optional[str] = None
@@ -129,10 +141,18 @@ def record_accounting_entry(payload: AccountingEntryCreate, ctx=Depends(require_
         providers = (config.config_json if config else {}).get("postpaidProviders", [])
         if payload.provider not in [p["name"] for p in providers]:
             raise HTTPException(status_code=400, detail="Select a configured postpaid provider")
+    if payload.kind == "expense":
+        category = payload.category or "General"
+        existing = db.query(AccountingEntry.category).filter(
+            AccountingEntry.kind == "expense", func.lower(AccountingEntry.category) == category.lower()
+        ).first()
+        payload.category = existing[0] if existing else category
+    else:
+        payload.category = None
     entry = AccountingEntry(**{**payload.model_dump(), "date": payload.date.isoformat()}, created_by=ctx["user_id"])
     db.add(entry)
     db.flush()
-    create_audit_log(db, ctx["user_id"], ctx["display_name"], "accounts.entry", "accounting_entry", "create", resource_id=entry.id, after_data={"kind": entry.kind, "amount": entry.amount, "reference": entry.reference}, auto_commit=False)
+    create_audit_log(db, ctx["user_id"], ctx["display_name"], "accounts.entry", "accounting_entry", "create", resource_id=entry.id, after_data={"kind": entry.kind, "category": entry.category, "amount": entry.amount, "reference": entry.reference}, auto_commit=False)
     db.commit()
     return {"id": entry.id, "status": "recorded"}
 
@@ -236,6 +256,7 @@ def get_accounts_summary(
             "unbilled_shipments_count": int(unbilled_count),
             "payments_made": round(payments_made, 2),
             "net_payable": round(max(0.0, actual_billed - payments_made), 2),
+            "unapplied_payments": round(max(0.0, payments_made - actual_billed), 2),
             "payment_terms": p.get("paymentTerms", "30 Days"),
             "shipments_count": count,
             "predicted_cost": predicted_cost,
@@ -250,6 +271,7 @@ def get_accounts_summary(
     gst_total = float(tax_invoices[1]) if tax_invoices[1] else round(float(total_sales) * 0.18, 2)
 
     return {
+        "expense_categories": sorted({row[0] or "General" for row in db.query(AccountingEntry.category).filter(AccountingEntry.kind == "expense").distinct().all()}, key=str.casefold),
         "total_sales": total_sales,
         "total_sales_with_gst": total_sales_with_gst,
         "gst_total": gst_total,

@@ -457,6 +457,8 @@ export const Reports = ({ activeTab, refreshKey }) => {
         return () => { current = false; };
     }, [tab, eodDate, monthVal, rangeStart, rangeEnd, canViewFinancials, refreshKey]);
 
+    const expenseReport = tab === 'monthly' ? monthlyReport : tab === 'eod' ? eodReport : weeklyReport;
+
     const handlePrintEOD = () => {
         window.print();
     };
@@ -1003,11 +1005,11 @@ export const Reports = ({ activeTab, refreshKey }) => {
                                         {monthlyReport.postpaid_carrier_payments > 0 && (
                                             <div style={{ marginTop: '14px', paddingTop: '10px', borderTop: '1px dashed var(--card-border)' }}>
                                                 <div style={{ fontSize: '11.5px', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '6px' }}>
-                                                    Paid to Postpaid Carriers this month:
+                                                    Payments & Deposits to Postpaid Carriers this month:
                                                 </div>
                                                 {Object.entries(monthlyReport.postpaid_payments_breakdown || {}).map(([carrier, amt]) => (
                                                     <div key={carrier} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', padding: '2px 0' }}>
-                                                        <span>{carrier} Payments</span>
+                                                        <span>{carrier} Payments & Deposits</span>
                                                         <strong style={{ color: 'var(--text-main)' }}>{formatCurrency(amt)}</strong>
                                                     </div>
                                                 ))}
@@ -1472,6 +1474,21 @@ export const Settings = ({ settings, onUpdateSettings }) => {
                         </table>
                     </div>
                 </div>
+            )}
+            {!loading && !reportError && canViewFinancials && expenseReport && (
+                <section className="table-card" aria-label="Operating expenses by category">
+                    <div className="dash-box-header"><h3>Operating Expenses by Category</h3></div>
+                    <div className="table-wrap"><table className="data-table">
+                        <thead><tr><th>Category</th><th>Amount</th></tr></thead>
+                        <tbody>
+                            {Object.entries(expenseReport.expense_breakdown || {}).map(([category, amount]) => (
+                                <tr key={category}><td>{category}</td><td>{formatCurrency(amount)}</td></tr>
+                            ))}
+                            {!Object.keys(expenseReport.expense_breakdown || {}).length && <tr><td colSpan="2">No operating expenses recorded for this period.</td></tr>}
+                        </tbody>
+                        <tfoot><tr><th>Total Operating Expenses</th><th>{formatCurrency(expenseReport.operational_expenses)}</th></tr></tfoot>
+                    </table></div>
+                </section>
             )}
         </div>
     );

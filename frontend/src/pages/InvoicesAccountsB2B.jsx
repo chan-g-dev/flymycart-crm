@@ -162,7 +162,7 @@ export const Accounts = ({
 }) => {
     const { hasPermission, currentUser } = useAuth();
     const [tab, setTab] = useState('collections');
-    const [entry, setEntry] = useState({kind: 'expense', date: new Date().toLocaleDateString('en-CA'), provider: '', amount: '', reference: '', account: ''});
+    const [entry, setEntry] = useState({kind: 'expense', category: '', date: new Date().toLocaleDateString('en-CA'), provider: '', amount: '', reference: '', account: ''});
     const [saving, setSaving] = useState(false);
     const [entryMessage, setEntryMessage] = useState('');
 
@@ -171,7 +171,7 @@ export const Accounts = ({
         setSaving(true);
         setEntryMessage('');
         try {
-            await apiClient.recordAccountingEntry({...entry, amount: Number(entry.amount), provider: entry.kind === 'expense' ? null : entry.provider});
+            await apiClient.recordAccountingEntry({...entry, category: entry.kind === 'expense' ? entry.category.trim() : null, amount: Number(entry.amount), provider: entry.kind === 'expense' ? null : entry.provider});
             setEntry(prev => ({...prev, amount: '', reference: ''}));
             setEntryMessage('Transaction recorded successfully.');
             await onRefresh();
@@ -439,6 +439,12 @@ export const Accounts = ({
                                         <span>Payouts Made to Carrier:</span>
                                         <strong style={{ color: 'var(--emerald)' }}>{formatCurrency(p.payments_made)}</strong>
                                     </div>
+                                    {Number(p.unapplied_payments) > 0 && (
+                                        <div style={{ display: 'flex', justifyContent: 'space-between' }} title="Recorded payouts exceeding the remaining reconciled shipment costs. Review carrier records before treating this as refundable credit.">
+                                            <span>Unapplied Payments:</span>
+                                            <strong style={{ color: 'var(--emerald)' }}>{formatCurrency(p.unapplied_payments)}</strong>
+                                        </div>
+                                    )}
                                     <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                                         <span>Security Deposit Held:</span>
                                         <strong>{formatCurrency(p.deposit)}</strong>
@@ -471,7 +477,7 @@ export const Accounts = ({
                             <div className="form-group">
                                 <label>Transaction Type</label>
                                 <select value={entry.kind} onChange={e => setEntry({...entry, kind: e.target.value})}>
-                                    <option value="expense">Operating Expense (Office Rent, Packaging, Tea/Coffee)</option>
+                                    <option value="expense">Operating Expense</option>
                                     <option value="provider_payment">Carrier Provider Payment (Paying Aramex, Blue Dart)</option>
                                     <option value="provider_deposit">Carrier Security Deposit</option>
                                 </select>
@@ -480,6 +486,18 @@ export const Accounts = ({
                                 <label>Date</label>
                                 <input required type="date" value={entry.date} onChange={e => setEntry({...entry, date: e.target.value})} />
                             </div>
+                            {entry.kind === 'expense' && (
+                                <div className="form-group">
+                                    <label htmlFor="expense-category">Expense Category</label>
+                                    <input id="expense-category" required maxLength={100} list="expense-categories"
+                                        placeholder="Select or type your own category"
+                                        value={entry.category} onChange={e => setEntry({...entry, category: e.target.value})} />
+                                    <datalist id="expense-categories">
+                                        {(accountsData.expense_categories || []).map(category => <option key={category} value={category} />)}
+                                    </datalist>
+                                    <small>New categories are saved when you record an expense and appear in reports.</small>
+                                </div>
+                            )}
                             {entry.kind !== 'expense' && (
                                 <div className="form-group">
                                     <label>Carrier Provider</label>

@@ -398,6 +398,7 @@ class AccountCheck(Base):
 
 class AccountingEntry(Base):
     __tablename__ = "accounting_entries"
+    category = Column(String(100), nullable=True)
     id = Column(String(50), primary_key=True, default=lambda: f"entry_{uuid.uuid4().hex[:16]}")
     date = Column(String(20), nullable=False, index=True)
     kind = Column(String(30), nullable=False)

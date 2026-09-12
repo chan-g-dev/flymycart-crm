@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func, case, or_
 
 from app.database import get_db
+from app.expense_reports import expense_summary
 from app.models import Shipment, Refund, Invoice, AccountingEntry, PaymentCollection
 from app.collections import collection_totals
 from app.auth import mask_shipment_financials
@@ -99,7 +100,10 @@ def get_weekly_operations_report(
             "gross_profit": round(revenue - cost, 2) if can_view_fin else None,
         })
 
+    expenses, expense_breakdown = expense_summary(db, start_text, end_text)
     return {
+        "operational_expenses": expenses if can_view_fin else None,
+        "expense_breakdown": expense_breakdown if can_view_fin else {},
         "period_start": start_text,
         "period_end": end_text,
         "period_days": period_days,
@@ -181,7 +185,8 @@ def get_eod_report(
         refunds_amt = 0.0
 
     gross_profit = round(sales_total - total_cost, 2)
-    net_profit = round(gross_profit - refunds_amt, 2)
+    expenses, expense_breakdown = expense_summary(db, target_date, target_date)
+    net_profit = round(gross_profit - refunds_amt - expenses, 2)
     can_view_fin = bool(ctx.get("is_super_admin") or ctx.get("permissions", {}).get("*") or ctx.get("permissions", {}).get(PermissionCode.REPORTS_VIEW_FINANCIAL))
 
     formatted_shipments = []
@@ -192,6 +197,8 @@ def get_eod_report(
             pass
 
     return {
+        "operational_expenses": expenses if can_view_fin else None,
+        "expense_breakdown": expense_breakdown if can_view_fin else {},
         "date": target_date,
         "estimated_cost_shipments": estimated_count(db, target_date, target_date) if can_view_fin else None,
         "shipments_count": len(shipments),
@@ -248,16 +255,7 @@ def get_monthly_pl_report(
         refunds_total = 0.0
 
     gross_profit = round(revenue - actual_cost, 2)
-    expenses = 0.0
-    try:
-        expenses = float(db.query(func.coalesce(func.sum(AccountingEntry.amount), 0)).filter(
-            AccountingEntry.kind == "expense",
-            AccountingEntry.date.isnot(None),
-            AccountingEntry.date.startswith(target_month)
-        ).scalar() or 0)
-        expenses = round(expenses, 2)
-    except Exception:
-        expenses = 0.0
+    expenses, expense_breakdown = expense_summary(db, target_month + "-01", target_month + "-31")
 
     postpaid_carrier_payments = 0.0
     postpaid_payments_breakdown = {}
@@ -305,6 +303,7 @@ def get_monthly_pl_report(
         "gross_profit": gross_profit if can_view_fin else None,
         "refunds_total": refunds_total if can_view_fin else None,
         "operational_expenses": expenses if can_view_fin else None,
+        "expense_breakdown": expense_breakdown if can_view_fin else {},
         "net_profit": net_profit if can_view_fin else None,
         "net_profit_margin": (round((net_profit / revenue) * 100, 1) if revenue > 0 else 0.0) if can_view_fin else None
     }

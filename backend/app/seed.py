@@ -17,6 +17,11 @@ from app.auth import hash_password
 
 def migrate_database_schema(db: Session):
     """Ensures newly added columns exist in live Postgres or SQLite tables if running against pre-existing tables."""
+    if inspect(db.bind).has_table("accounting_entries"):
+        entry_columns = {column["name"] for column in inspect(db.bind).get_columns("accounting_entries")}
+        if "category" not in entry_columns:
+            db.execute(text("ALTER TABLE accounting_entries ADD COLUMN category VARCHAR(100)"))
+            db.commit()
     shipment_columns = {column["name"] for column in inspect(db.bind).get_columns("shipments")}
     for name, definition in {
         "sender_email": "VARCHAR(150)", "sender_id_proof": "VARCHAR(100)",
