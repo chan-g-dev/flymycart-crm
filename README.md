@@ -177,3 +177,20 @@ Use a real HTTPS backend origin for a production build. A successful build does 
 ## Product requirements
 
 [REQUIREMENTS.md](REQUIREMENTS.md) contains the detailed product scope and workflows. It describes intended requirements; it is not a certification that every requirement or external integration has been implemented and verified.
+
+## Deployment parity checks
+
+Business calendar dates use IST (UTC+05:30) in the API and frontend, regardless of the Render host or browser timezone. Authentication and audit timestamps remain UTC. Customer, shipment and invoice collection routes accept both trailing-slash variants so requests stay on the Vercel API proxy without redirects.
+
+Run the regression checks from the corresponding directories:
+
+```powershell
+# backend: isolated in-memory database, no production database access
+$env:DATABASE_URL='sqlite:///:memory:'
+python -m unittest discover -s tests -v
+
+# frontend
+node --test src/utils/businessDates.test.js
+```
+
+Redeploy both services to apply these changes. In Vercel, leave `VITE_API_URL` empty to use the same-origin proxy and ensure the destinations in `frontend/vercel.json` point to the actual Render service. If using a direct HTTPS API URL, set Render's `FRONTEND_URL` to the exact frontend origin.

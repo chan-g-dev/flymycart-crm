@@ -16,6 +16,7 @@
 # ================================================================
 
 import datetime
+from app.business_dates import business_today
 from typing import Dict, Any, List, Optional, Tuple
 
 VOLUMETRIC_DIVISOR = 5000.0
@@ -78,7 +79,7 @@ def calculate_b2b_aging_buckets(
     - 61-90 Days
     - 90+ Days Overdue
     """
-    ref_date = as_of_date or datetime.date.today()
+    ref_date = as_of_date or business_today()
     buckets = {
         "not_due": 0.0,
         "days1_30": 0.0,

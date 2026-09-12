@@ -1,3 +1,4 @@
+import { businessDate } from '../utils/businessDates';
 import React, { useState } from 'react';
 import { X, Check, RotateCcw, MessageSquare, Send, Save, CreditCard, Building, Truck, Loader2 } from 'lucide-react';
 import { apiClient } from '../api/client';
@@ -7,7 +8,7 @@ export const WalletRechargeModal = ({ isOpen, onClose, walletName, onRecharged, 
     const [paidFrom, setPaidFrom] = useState('Current Account (HDFC)');
     const [reference, setReference] = useState('');
     const [isSubmitting, setIsSubmitting] = useState(false);
-    const todayStr = new Date().toISOString().slice(0, 10);
+    const todayStr = businessDate();
 
     const handleSubmit = async (e) => {
         e.preventDefault();
@@ -224,7 +225,7 @@ export const CommunicationModal = ({ isOpen, onClose, customerName, onCreated, s
                 customer: customerName,
                 channel,
                 staff,
-                date: new Date().toISOString().slice(0, 10),
+                date: businessDate(),
                 message: message.trim()
             });
             alert('Communication interaction logged to Customer 360° dossier!');

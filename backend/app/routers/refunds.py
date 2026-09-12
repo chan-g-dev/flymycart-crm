@@ -4,6 +4,7 @@
 
 import uuid
 import datetime
+from app.business_dates import business_today
 from typing import List, Dict, Any
 from fastapi import APIRouter, Depends, HTTPException, Request, Query, Response
 from sqlalchemy.orm import Session
@@ -56,7 +57,7 @@ def create_refund(
         amount=payload.amount,
         reason=payload.reason.strip(),
         requested_by=ctx["display_name"],
-        request_date=datetime.date.today().isoformat(),
+        request_date=business_today().isoformat(),
         status="Requested",
         refund_method=payload.refund_method
     )
@@ -123,9 +124,9 @@ def update_refund_status(
     ref.status = new_status
     if new_status == "Approved":
         ref.approved_by = ctx["display_name"]
-        ref.approval_date = datetime.date.today().isoformat()
+        ref.approval_date = business_today().isoformat()
     elif new_status == "Refunded":
-        ref.refund_date = datetime.date.today().isoformat()
+        ref.refund_date = business_today().isoformat()
         if payload.get("refund_method"):
             ref.refund_method = payload.get("refund_method")
 

@@ -1,12 +1,13 @@
 """Generate actionable follow-ups without sending messages to customers."""
 import datetime
+from app.business_dates import business_today
 import hashlib
 from sqlalchemy import func
 from app.models import Customer, Invoice, Shipment, Followup, SystemSettings
 
 
 def generate_reminders(db, today=None):
-    today = today or datetime.date.today()
+    today = today or business_today()
     settings = db.query(SystemSettings).first()
     config = settings.config_json if settings else {}
     retention_days = int(config.get('retentionFollowupDays', 30))

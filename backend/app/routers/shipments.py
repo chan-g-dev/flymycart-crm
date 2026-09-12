@@ -5,6 +5,7 @@
 from decimal import Decimal, ROUND_HALF_UP
 import uuid
 import datetime
+from app.business_dates import business_today
 from typing import List, Optional, Dict, Any
 from fastapi import APIRouter, Depends, HTTPException, Request, Query, Response
 from sqlalchemy.orm import Session
@@ -34,6 +35,7 @@ def validate_shipment_status(status, delay_reason):
     if status == "Delayed" and not (delay_reason or "").strip():
         raise HTTPException(status_code=400, detail="A delay reason is required")
 
+@shipments_router.get("", response_model=List[ShipmentOut])
 @shipments_router.get("/", response_model=List[ShipmentOut])
 def get_shipments(
     response: Response,
@@ -86,6 +88,7 @@ def get_shipments(
 
     return out
 
+@shipments_router.post("", response_model=ShipmentOut)
 @shipments_router.post("/", response_model=ShipmentOut)
 def create_shipment(
     payload: ShipmentCreate,
@@ -302,7 +305,7 @@ def create_shipment(
         db.add(wallet_tx)
 
     # 6. Auto-generate Official Invoice
-    inv_no = f"FMC-{datetime.date.today().strftime('%Y%m')}-{uuid.uuid4().hex[:12].upper()}"
+    inv_no = f"FMC-{business_today().strftime('%Y%m')}-{uuid.uuid4().hex[:12].upper()}"
     bal_amt = round(invoice_total - paid_amt, 2)
 
     new_invoice = Invoice(
@@ -391,7 +394,7 @@ def update_shipment_status(
     if "status" in payload:
         ship.status = payload["status"]
         if payload["status"] == "Delivered" and not ship.delivery_date:
-            ship.delivery_date = datetime.date.today().isoformat()
+            ship.delivery_date = business_today().isoformat()
     if "delay_reason" in payload:
         ship.delay_reason = payload["delay_reason"]
     if "pickup_date" in payload:

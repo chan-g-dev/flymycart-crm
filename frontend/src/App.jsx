@@ -1,3 +1,4 @@
+import { businessDate } from './utils/businessDates';
 import React, { useState, useEffect, useMemo } from 'react';
 import { useAuth } from './context/AuthContext';
 import { apiClient } from './api/client';
@@ -439,7 +440,7 @@ export function App() {
         if (!dashboardData) return null;
         if (!selectedCenter || selectedCenter === 'All Centers') return dashboardData;
 
-        const todayStr = new Date().toISOString().slice(0, 10);
+        const todayStr = businessDate();
         const todayCenterShips = filteredShipments.filter(s => s.date === todayStr);
         const todaySales = todayCenterShips.reduce((acc, s) => acc + (s.price || 0), 0);
         const todayCollected = todayCenterShips.reduce((acc, s) => {

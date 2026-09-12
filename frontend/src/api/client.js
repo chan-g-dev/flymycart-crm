@@ -1,19 +1,15 @@
 import axios from 'axios';
 
-const configuredUrl = import.meta.env.VITE_API_URL || (
-    typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
-        ? 'http://localhost:8000'
-        : 'https://flymycart-crm.onrender.com'
-);
-let API_BASE_URL = '/api';
-if (configuredUrl) {
-    const currentHost = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
-    const rawUrl = configuredUrl.replace(
-        /^https?:\/\/(localhost|127\.0\.0\.1)(?=[:/]|$)/,
-        (host) => host.replace(/localhost|127\.0\.0\.1/, currentHost)
-    );
-    API_BASE_URL = rawUrl.endsWith('/api') ? rawUrl : `${rawUrl.replace(/\/$/, '')}/api`;
-}
+const getApiBaseUrl = () => {
+    if (import.meta.env.VITE_API_URL) {
+        const customUrl = import.meta.env.VITE_API_URL.replace(/\/$/, '');
+        return customUrl.endsWith('/api') ? customUrl : `${customUrl}/api`;
+    }
+    // Default to same-origin /api which is proxied by Vite in dev and by vercel.json rewrites in production
+    return '/api';
+};
+
+const API_BASE_URL = getApiBaseUrl();
 
 const api = axios.create({
     baseURL: API_BASE_URL,
@@ -114,10 +110,10 @@ export const apiClient = {
     recordAccountingEntry: (data) => api.post('/accounts/entries', data).then(res => res.data),
 
     // Customers
-    getCustomers: (params) => api.get('/customers/', { params }).then(res => res.data),
+    getCustomers: (params) => api.get('/customers', { params }).then(res => res.data),
     lookupCustomerByMobile: (mobile) => api.get('/customers/lookup', { params: { mobile } }).then(res => res.data),
     getCustomer360: (id) => api.get(`/customers/${id}/360`).then(res => res.data),
-    createCustomer: (data) => api.post('/customers/', data).then(res => res.data),
+    createCustomer: (data) => api.post('/customers', data).then(res => res.data),
     updateCustomer: (id, data) => api.put(`/customers/${id}`, data).then(res => res.data),
     deleteCustomer: (id) => api.delete(`/customers/${id}`).then(res => res.data),
     uploadCustomerDocument: (id, formData) => api.post(`/customers/${id}/documents`, formData, {
@@ -127,13 +123,13 @@ export const apiClient = {
     getCustomerDocuments: (id) => api.get(`/customers/${id}/documents`).then(res => res.data),
 
     // Shipments
-    getShipments: (params) => api.get('/shipments/', { params }).then(res => res.data),
-    createShipment: (data) => api.post('/shipments/', data).then(res => res.data),
+    getShipments: (params) => api.get('/shipments', { params }).then(res => res.data),
+    createShipment: (data) => api.post('/shipments', data).then(res => res.data),
     updateShipmentStatus: (id, data) => api.patch(`/shipments/${id}/status`, data).then(res => res.data),
     deleteShipment: (id) => api.delete(`/shipments/${id}`).then(res => res.data),
 
     // Invoices
-    getInvoices: (params) => api.get('/invoices/', { params }).then(res => res.data),
+    getInvoices: (params) => api.get('/invoices', { params }).then(res => res.data),
     getInvoice: (id) => api.get(`/invoices/${id}`).then(res => res.data),
     recordInvoicePayment: (id, data) => api.post(`/invoices/${id}/payments`, data).then(res => res.data),
 

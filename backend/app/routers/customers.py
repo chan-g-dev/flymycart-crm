@@ -43,6 +43,7 @@ def log_customer_audit(db: Session, user_name: str, cust_id: str, action: str, b
     except Exception as e:
         print(f"Customer audit logging error: {e}")
 
+@customers_router.get("", response_model=List[CustomerOut])
 @customers_router.get("/", response_model=List[CustomerOut])
 def get_customers(
     response: Response,
@@ -124,7 +125,7 @@ def get_customer_360(
 ):
     customer = db.query(Customer).filter(Customer.id == customer_id).first()
     if not customer:
-        customer = db.query(Customer).filter(Customer.name == customer_id).first()
+        customer = db.query(Customer).filter(func.lower(Customer.name) == customer_id.strip().lower()).first()
     company = None
     if not customer:
         company = db.query(B2BCompany).filter(B2BCompany.id == customer_id).first()
@@ -140,11 +141,23 @@ def get_customer_360(
     if company:
         shipment_filter = or_(shipment_filter, Shipment.b2b_company_id == company.id)
     shipments_raw = db.query(Shipment).filter(shipment_filter).order_by(desc(Shipment.created_at)).all()
-    customer_profile = customer if customer else {
-        "id": company.id, "name": company.company_name, "company": company.company_name,
-        "mobile": company.mobile, "customer_type": "B2B",
-        "credit_limit": company.credit_limit, "credit_period_days": company.credit_period_days,
-        "documents": [],
+
+    cust_dict = {
+        "id": customer.id if customer else company.id,
+        "name": customer.name if customer else company.company_name,
+        "company": customer.company if customer else company.company_name,
+        "mobile": customer.mobile if customer else company.mobile,
+        "whatsapp": (customer.whatsapp or customer.mobile) if customer else company.mobile,
+        "email": (customer.email if customer else company.email) or "",
+        "address": (customer.address if customer else company.billing_address) or "",
+        "id_proof": (customer.id_proof if customer else None) or "",
+        "customer_type": customer.customer_type if customer else "B2B",
+        "center": customer.center if customer else "Main Hub (Bangalore)",
+        "assigned_employee": customer.assigned_employee if customer else "Nawaz",
+        "credit_limit": float(customer.credit_limit if customer else company.credit_limit or 0),
+        "credit_period_days": int(customer.credit_period_days if customer else company.credit_period_days or 30),
+        "documents": customer.documents if customer and customer.documents else [],
+        "created_at": customer.created_at.isoformat() if customer and customer.created_at else None
     }
 
     shipments = []
@@ -173,29 +186,65 @@ def get_customer_360(
         }
         shipments.append(mask_shipment_financials(s_dict, ctx))
 
-    invoices = db.query(Invoice).filter(
-        or_(Invoice.customer_id.in_(customer_ids), Invoice.b2b_company_id == company.id) if company else Invoice.customer_id.in_(customer_ids)
-    ).order_by(desc(Invoice.created_at)).all()
+    invoices = []
+    try:
+        inv_filter = or_(Invoice.customer_id.in_(customer_ids), Invoice.b2b_company_id == company.id) if company else Invoice.customer_id.in_(customer_ids)
+        inv_rows = db.query(Invoice).filter(inv_filter).order_by(desc(Invoice.created_at)).all()
+        for inv in inv_rows:
+            invoices.append({
+                "id": inv.id, "invoice_no": inv.invoice_no, "date": inv.date,
+                "amount": float(inv.amount or 0), "gst": float(inv.gst or 0), "total": float(inv.total or 0),
+                "paid": float(inv.paid or 0), "balance": float(inv.balance or 0), "status": inv.status or "Due",
+                "awb": inv.awb, "courier": inv.courier, "service": inv.service
+            })
+    except Exception:
+        invoices = []
 
-    followups = db.query(Followup).filter(
-        Followup.customer_id.in_(customer_ids)
-    ).order_by(desc(Followup.created_at)).all()
+    followups = []
+    try:
+        fu_rows = db.query(Followup).filter(Followup.customer_id.in_(customer_ids)).order_by(desc(Followup.created_at)).all()
+        for fu in fu_rows:
+            followups.append({
+                "id": fu.id, "customer": fu.customer, "category": fu.category,
+                "due_date": fu.due_date, "priority": fu.priority, "status": fu.status,
+                "channel_action": fu.channel_action, "notes": fu.notes
+            })
+    except Exception:
+        followups = []
 
-    comms = db.query(CommunicationLog).filter(
-        CommunicationLog.customer_id.in_(customer_ids)
-    ).order_by(desc(CommunicationLog.created_at)).all()
+    comms = []
+    try:
+        comm_rows = db.query(CommunicationLog).filter(CommunicationLog.customer_id.in_(customer_ids)).order_by(desc(CommunicationLog.created_at)).all()
+        for c_log in comm_rows:
+            comms.append({
+                "id": c_log.id, "customer": c_log.customer, "date": c_log.date,
+                "channel": c_log.channel, "staff": c_log.staff, "message": c_log.message, "status": c_log.status
+            })
+    except Exception:
+        comms = []
 
-    refunds = db.query(Refund).filter(
-        Refund.customer_id.in_(customer_ids)
-    ).order_by(desc(Refund.created_at)).all()
+    refunds = []
+    try:
+        ref_rows = db.query(Refund).filter(Refund.customer_id.in_(customer_ids)).order_by(desc(Refund.created_at)).all()
+        for ref in ref_rows:
+            refunds.append({
+                "id": ref.id, "customer": ref.customer, "awb": ref.awb,
+                "amount": float(ref.amount or 0), "reason": ref.reason,
+                "status": ref.status, "request_date": ref.request_date
+            })
+    except Exception:
+        refunds = []
 
-    total_spent = sum(s.price for s in shipments_raw)
-    paid = shipment_paid_map(db)
-    billed = shipment_total_map(db, [s.id for s in shipments_raw])
-    total_outstanding = sum(max(0, billed.get(s.id, s.price) - paid.get(s.id, 0)) for s in shipments_raw)
+    total_spent = sum(float(s.price or 0) for s in shipments_raw)
+    try:
+        paid = shipment_paid_map(db)
+        billed = shipment_total_map(db, [s.id for s in shipments_raw])
+        total_outstanding = sum(max(0, billed.get(s.id, float(s.price or 0)) - paid.get(s.id, 0)) for s in shipments_raw)
+    except Exception:
+        total_outstanding = 0.0
 
     return {
-        "customer": customer_profile,
+        "customer": cust_dict,
         "total_bookings": len(shipments_raw),
         "total_spent": total_spent,
         "outstanding_balance": total_outstanding,
@@ -206,6 +255,7 @@ def get_customer_360(
         "refunds": refunds
     }
 
+@customers_router.post("", response_model=CustomerOut)
 @customers_router.post("/", response_model=CustomerOut)
 def create_customer(
     payload: CustomerCreate,

@@ -1,3 +1,4 @@
+import { businessDate } from '../utils/businessDates';
 import React, { useState, useEffect, useMemo } from 'react';
 import { 
     ShieldCheck, 
@@ -340,7 +341,7 @@ export const Users = ({ settings, onDataMutated }) => {
         const encodedUri = encodeURI(csvContent);
         const link = document.createElement('a');
         link.setAttribute('href', encodedUri);
-        link.setAttribute('download', `flymycart_staff_directory_${new Date().toISOString().slice(0, 10)}.csv`);
+        link.setAttribute('download', `flymycart_staff_directory_${businessDate()}.csv`);
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);

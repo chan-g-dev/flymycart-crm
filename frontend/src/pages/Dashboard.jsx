@@ -1,3 +1,4 @@
+import { businessDate } from '../utils/businessDates';
 import React, { useRef } from 'react';
 import { 
     Package, 
@@ -58,7 +59,7 @@ export const Dashboard = ({
         ? safeData.recent_shipments 
         : (shipments || []);
 
-    const todayStr = new Date().toISOString().slice(0, 10);
+    const todayStr = businessDate();
     const todayShipments = effectiveShipments.filter(s => s.date === todayStr);
 
     // Active operational metrics

@@ -1,5 +1,6 @@
 """Customer booking requests, staff quotes and single-entry conversion."""
 import datetime
+from app.business_dates import business_today
 import uuid
 from typing import List
 
@@ -111,7 +112,7 @@ def convert_booking(booking_id: str, payload: BookingConvertToShipmentRequest, r
         raise HTTPException(status_code=400, detail="Only an accepted, unconverted booking can be converted")
     if payload.price != booking.quoted_amount:
         raise HTTPException(status_code=400, detail="Selling price must match the accepted quote")
-    shipment_payload = ShipmentCreate(**payload.model_dump(), date=datetime.date.today().isoformat(),
+    shipment_payload = ShipmentCreate(**payload.model_dump(), date=business_today().isoformat(),
         customer_id=booking.customer_id, customer_name=booking.customer_name, customer_type=booking.customer_type,
         b2b_company_id=booking.b2b_company_id, pickup_date=booking.pickup_date,
         domestic_international=booking.shipment_type, status="Booked",

@@ -3,6 +3,7 @@
 # ================================================================
 
 import datetime
+from app.business_dates import business_today
 from typing import Dict, Any
 from fastapi import APIRouter, Depends, Request
 from sqlalchemy.orm import Session
@@ -27,7 +28,7 @@ def get_dashboard_summary(
     Returns current analytics using SQL aggregates instead of materializing shipment history.
     Automatically masks financial data for unauthorized staff roles.
     """
-    today_str = datetime.date.today().isoformat()
+    today_str = business_today().isoformat()
     paid = shipment_payments_query(db).subquery()
     balance = case((func.coalesce(paid.c.total, Shipment.price) > func.coalesce(paid.c.paid, 0), func.coalesce(paid.c.total, Shipment.price) - func.coalesce(paid.c.paid, 0)), else_=0)
     today = Shipment.date == today_str

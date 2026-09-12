@@ -3,6 +3,7 @@
 # ================================================================
 
 import datetime
+from app.business_dates import business_today
 from typing import Optional, Dict, Any
 from fastapi import APIRouter, Depends, Request, HTTPException
 from sqlalchemy.orm import Session
@@ -38,9 +39,9 @@ def get_weekly_operations_report(
     volume grows.
     """
     try:
-        period_end = datetime.date.fromisoformat(end_date) if end_date else datetime.date.today()
+        period_end = datetime.date.fromisoformat(end_date) if end_date else business_today()
     except ValueError:
-        period_end = datetime.date.today()
+        period_end = business_today()
     try:
         period_start = datetime.date.fromisoformat(start_date) if start_date else period_end - datetime.timedelta(days=6)
     except ValueError:
@@ -129,7 +130,7 @@ def get_eod_report(
     ctx: Dict[str, Any] = Depends(require_permission(PermissionCode.REPORTS_VIEW)),
     db: Session = Depends(get_db)
 ):
-    target_date = date or datetime.date.today().isoformat()
+    target_date = date or business_today().isoformat()
     shipments = db.query(Shipment).filter(Shipment.date == target_date).all()
 
     courier_counts = {}
@@ -138,11 +139,9 @@ def get_eod_report(
     credit_total = 0.0
     total_cost = 0.0
 
-    by_method = {}
-    by_employee = {}
-
     for s in shipments:
-        courier_counts[s.courier] = courier_counts.get(s.courier, 0) + 1
+        c_name = s.courier or "Unknown"
+        courier_counts[c_name] = courier_counts.get(c_name, 0) + 1
         s_price = float(s.price or 0)
         sales_total += s_price
         cost = float(s.actual_provider_cost) if s.actual_provider_cost is not None and s.cost_reconciled else float(s.provider_cost or 0)
@@ -153,10 +152,17 @@ def get_eod_report(
 
     sales_total = round(sales_total, 2)
     total_cost = round(total_cost, 2)
-    collections = collection_totals(db, target_date)
-    collected_total = collections["total"]
-    by_method = collections["by_method"]
-    by_employee = collections["by_employee"]
+
+    try:
+        collections = collection_totals(db, target_date)
+        collected_total = collections.get("total", 0.0)
+        by_method = collections.get("by_method", {})
+        by_employee = collections.get("by_employee", {})
+    except Exception:
+        collected_total = round(float(sum(float(s.amount_received or s.price or 0) for s in shipments if s.payment_status in ("Paid", "Partial"))), 2)
+        by_method = {}
+        by_employee = {}
+
     invoices = db.query(Invoice).filter(Invoice.date == target_date).all()
     pending = round(float(sum(float(inv.balance or 0) for inv in invoices)), 2)
     gst_total = round(float(sum(float(inv.gst or 0) for inv in invoices)), 2) if invoices else round(sales_total * 0.18, 2)
@@ -164,15 +170,26 @@ def get_eod_report(
     credit_ids = {ship.id for ship in shipments if ship.payment_status == "B2B Credit"}
     credit_total = round(float(sum(float(inv.balance or 0) for inv in invoices if inv.shipment_id in credit_ids)), 2)
 
-    refunds = db.query(Refund).filter(
-        Refund.approval_date == target_date,
-        Refund.status.in_(["Approved", "Refunded"])
-    ).all()
-    refunds_amt = round(float(sum(float(r.amount or 0) for r in refunds)), 2)
+    refunds_amt = 0.0
+    try:
+        refunds = db.query(Refund).filter(
+            Refund.approval_date == target_date,
+            Refund.status.in_(["Approved", "Refunded"])
+        ).all()
+        refunds_amt = round(float(sum(float(r.amount or 0) for r in refunds)), 2)
+    except Exception:
+        refunds_amt = 0.0
 
     gross_profit = round(sales_total - total_cost, 2)
     net_profit = round(gross_profit - refunds_amt, 2)
     can_view_fin = bool(ctx.get("is_super_admin") or ctx.get("permissions", {}).get("*") or ctx.get("permissions", {}).get(PermissionCode.REPORTS_VIEW_FINANCIAL))
+
+    formatted_shipments = []
+    for s in shipments:
+        try:
+            formatted_shipments.append(mask_shipment_financials(ShipmentOut.model_validate(s).model_dump(), ctx))
+        except Exception:
+            pass
 
     return {
         "date": target_date,
@@ -191,7 +208,7 @@ def get_eod_report(
         "net_profit": net_profit if can_view_fin else None,
         "collections_by_method": by_method,
         "collections_by_employee": by_employee,
-        "shipments": [mask_shipment_financials(ShipmentOut.model_validate(s).model_dump(), ctx) for s in shipments]
+        "shipments": formatted_shipments
     }
 
 @reports_router.get("/monthly")
@@ -200,7 +217,7 @@ def get_monthly_pl_report(
     ctx: Dict[str, Any] = Depends(require_permission(PermissionCode.REPORTS_VIEW)),
     db: Session = Depends(get_db)
 ):
-    target_month = month or datetime.date.today().strftime("%Y-%m")
+    target_month = month or business_today().strftime("%Y-%m")
     shipments = db.query(Shipment).filter(Shipment.date.startswith(target_month)).all()
 
     tax_invoices = db.query(Invoice).filter(Invoice.date.startswith(target_month)).all()
@@ -213,19 +230,57 @@ def get_monthly_pl_report(
 
     provider_breakdown = {}
     for s in shipments:
-        key = f"{s.provider_name} ({s.provider_type.capitalize()})" if s.provider_name and s.provider_type else (s.courier or "Courier")
+        p_type = (s.provider_type or '').capitalize()
+        p_name = s.provider_name or s.courier or "Courier"
+        key = f"{p_name} ({p_type})" if p_type else p_name
         cost = float(s.actual_provider_cost) if s.actual_provider_cost is not None and s.cost_reconciled else float(s.provider_cost or 0)
         provider_breakdown[key] = round(provider_breakdown.get(key, 0.0) + cost, 2)
 
-    refunds = db.query(Refund).filter(
-        Refund.approval_date.startswith(target_month),
-        Refund.status.in_(["Approved", "Refunded"])
-    ).all()
-    refunds_total = round(float(sum(float(r.amount or 0) for r in refunds)), 2)
+    refunds_total = 0.0
+    try:
+        refunds = db.query(Refund).filter(
+            Refund.approval_date.isnot(None),
+            Refund.approval_date.startswith(target_month),
+            Refund.status.in_(["Approved", "Refunded"])
+        ).all()
+        refunds_total = round(float(sum(float(r.amount or 0) for r in refunds)), 2)
+    except Exception:
+        refunds_total = 0.0
 
     gross_profit = round(revenue - actual_cost, 2)
-    expenses = float(db.query(func.coalesce(func.sum(AccountingEntry.amount), 0)).filter(AccountingEntry.kind == "expense", AccountingEntry.date.startswith(target_month)).scalar() or 0)
-    expenses = round(expenses, 2)
+    expenses = 0.0
+    try:
+        expenses = float(db.query(func.coalesce(func.sum(AccountingEntry.amount), 0)).filter(
+            AccountingEntry.kind == "expense",
+            AccountingEntry.date.isnot(None),
+            AccountingEntry.date.startswith(target_month)
+        ).scalar() or 0)
+        expenses = round(expenses, 2)
+    except Exception:
+        expenses = 0.0
+
+    postpaid_carrier_payments = 0.0
+    postpaid_payments_breakdown = {}
+    try:
+        postpaid_entries = db.query(
+            AccountingEntry.provider,
+            func.sum(AccountingEntry.amount)
+        ).filter(
+            AccountingEntry.kind.in_(["provider_payment", "provider_deposit"]),
+            AccountingEntry.date.isnot(None),
+            AccountingEntry.date.startswith(target_month)
+        ).group_by(AccountingEntry.provider).all()
+
+        for prov, amt in postpaid_entries:
+            p_name = prov or "Postpaid Carrier"
+            a_val = round(float(amt or 0), 2)
+            postpaid_payments_breakdown[p_name] = a_val
+            postpaid_carrier_payments += a_val
+        postpaid_carrier_payments = round(postpaid_carrier_payments, 2)
+    except Exception:
+        postpaid_carrier_payments = 0.0
+        postpaid_payments_breakdown = {}
+
     net_profit = round(gross_profit - refunds_total - expenses, 2)
     can_view_fin = bool(ctx.get("is_super_admin") or ctx.get("permissions", {}).get("*") or ctx.get("permissions", {}).get(PermissionCode.REPORTS_VIEW_FINANCIAL))
 
@@ -242,6 +297,8 @@ def get_monthly_pl_report(
         "gst_total": gst_total,
         "invoice_total": invoice_total,
         "provider_cost_breakdown": provider_breakdown if can_view_fin else {},
+        "postpaid_carrier_payments": postpaid_carrier_payments if can_view_fin else None,
+        "postpaid_payments_breakdown": postpaid_payments_breakdown if can_view_fin else {},
         "total_predicted_cost": predicted_cost if can_view_fin else None,
         "total_actual_cost": actual_cost if can_view_fin else None,
         "cost_variance": round(actual_cost - predicted_cost, 2) if can_view_fin else None,

@@ -4,6 +4,7 @@
 
 import uuid
 import datetime
+from app.business_dates import business_today
 import re
 import csv
 import io
@@ -191,13 +192,13 @@ def apply_reconciliation(
     matched_count = sum(abs(cost - (ship.provider_cost or 0)) < 0.01 for ship, cost in verified_items)
     updated_count = 0
 
-    batch_no = f"REC-{datetime.date.today().strftime('%Y%m')}-{uuid.uuid4().hex[:12].upper()}"
+    batch_no = f"REC-{business_today().strftime('%Y%m')}-{uuid.uuid4().hex[:12].upper()}"
     batch_id = f"rec_{uuid.uuid4().hex[:16]}"
 
     rec_batch = ReconciliationBatch(
         id=batch_id,
         batch_no=batch_no,
-        date=datetime.date.today().isoformat(),
+        date=business_today().isoformat(),
         provider=payload.get("provider", "Aramex"),
         bill_reference=payload.get("bill_reference", f"{payload.get('provider')} Bill"),
         total_shipments=len(verified_items),

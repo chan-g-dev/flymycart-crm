@@ -1,3 +1,4 @@
+import { businessDate } from '../utils/businessDates';
 import { providerCostLabel } from '../utils/costLabels';
 import ScheduleFollowup from '../components/ScheduleFollowup';
 import { dateAfter, followupBuckets } from '../utils/followupDates';
@@ -61,7 +62,7 @@ export const Refunds = ({ refunds = [], onOpenRefundModal, onApproveRefund, onPr
         const encodedUri = encodeURI(csvContent);
         const link = document.createElement('a');
         link.setAttribute('href', encodedUri);
-        link.setAttribute('download', `FMC_Refunds_${new Date().toISOString().slice(0, 10)}.csv`);
+        link.setAttribute('download', `FMC_Refunds_${businessDate()}.csv`);
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
@@ -254,7 +255,7 @@ export const Followups = ({ followups = [], customers = [], onRefresh, onComplet
         const encodedUri = encodeURI(csvContent);
         const link = document.createElement('a');
         link.setAttribute('href', encodedUri);
-        link.setAttribute('download', `FMC_Followups_${new Date().toISOString().slice(0, 10)}.csv`);
+        link.setAttribute('download', `FMC_Followups_${businessDate()}.csv`);
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
@@ -416,8 +417,8 @@ export const Reports = ({ activeTab, refreshKey }) => {
     const canViewFinancials = hasPermission('viewFinancials');
 
     const [tab, setTab] = useState('eod');
-    const [eodDate, setEodDate] = useState(new Date().toISOString().slice(0, 10));
-    const [monthVal, setMonthVal] = useState(new Date().toISOString().slice(0, 7));
+    const [eodDate, setEodDate] = useState(businessDate());
+    const [monthVal, setMonthVal] = useState(businessDate().slice(0, 7));
     const [eodReport, setEodReport] = useState(null);
     const [weeklyReport, setWeeklyReport] = useState(null);
     const [monthlyReport, setMonthlyReport] = useState(null);
@@ -999,6 +1000,20 @@ export const Reports = ({ activeTab, refreshKey }) => {
                                             ))
                                         )}
 
+                                        {monthlyReport.postpaid_carrier_payments > 0 && (
+                                            <div style={{ marginTop: '14px', paddingTop: '10px', borderTop: '1px dashed var(--card-border)' }}>
+                                                <div style={{ fontSize: '11.5px', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '6px' }}>
+                                                    Paid to Postpaid Carriers this month:
+                                                </div>
+                                                {Object.entries(monthlyReport.postpaid_payments_breakdown || {}).map(([carrier, amt]) => (
+                                                    <div key={carrier} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', padding: '2px 0' }}>
+                                                        <span>{carrier} Payments</span>
+                                                        <strong style={{ color: 'var(--text-main)' }}>{formatCurrency(amt)}</strong>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
+
                                         <div style={{ marginTop: '14px', paddingTop: '10px', borderTop: '1px dashed var(--card-border)', display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: 'var(--text-muted)' }}>
                                             <span>Predicted vs Actual Difference:</span>
                                             <strong style={{ color: monthlyReport.cost_variance > 0 ? 'var(--rose)' : 'var(--emerald)' }}>
@@ -1031,6 +1046,12 @@ export const Reports = ({ activeTab, refreshKey }) => {
                                         <span>2. Total Logistics Provider Cost (Carrier Invoices)</span>
                                         <span style={{ color: 'var(--rose)' }}>- {formatCurrency(monthlyReport.total_actual_cost)}</span>
                                     </div>
+                                    {monthlyReport.postpaid_carrier_payments > 0 && (
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', fontSize: '12px', color: 'var(--text-muted)', paddingLeft: '12px' }}>
+                                            <span>↳ Expenses Paid / Settled to Postpaid Carriers</span>
+                                            <strong style={{ color: 'var(--text-main)' }}>{formatCurrency(monthlyReport.postpaid_carrier_payments)}</strong>
+                                        </div>
+                                    )}
                                     <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderTop: '1px solid var(--card-border)', fontSize: '13.5px', fontWeight: 800 }}>
                                         <span>3. Gross Profit (Revenue &minus; Carrier Costs)</span>
                                         <span style={{ color: 'var(--emerald)' }}>{formatCurrency(monthlyReport.gross_profit)}</span>

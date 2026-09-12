@@ -4,6 +4,7 @@
 
 import uuid
 import datetime
+from app.business_dates import business_today
 from typing import List, Optional, Dict, Any
 from fastapi import APIRouter, Depends, HTTPException, Request, Query, Response
 from sqlalchemy.orm import Session
@@ -36,6 +37,7 @@ def log_invoice_audit(db: Session, user_name: str, inv_id: str, action: str, bef
     except Exception as e:
         print(f"Invoice audit error: {e}")
 
+@invoices_router.get("", response_model=List[InvoiceOut])
 @invoices_router.get("/", response_model=List[InvoiceOut])
 def get_invoices(
     response: Response,
@@ -100,7 +102,7 @@ def record_invoice_payment(
     inv.paid = round(inv.paid + pay_amt, 2)
     inv.balance = max(0.0, round(inv.total - inv.paid, 2))
     db.add(PaymentCollection(invoice_id=inv.id, shipment_id=inv.shipment_id,
-        date=datetime.date.today().isoformat(), amount=pay_amt,
+        date=business_today().isoformat(), amount=pay_amt,
         payment_method=payload.payment_method, paid_to=payload.paid_to,
         collected_by=payload.collected_by, reference=payload.reference))
 

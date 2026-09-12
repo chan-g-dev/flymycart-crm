@@ -22,9 +22,23 @@ def migrate_database_schema(db: Session):
         "sender_email": "VARCHAR(150)", "sender_id_proof": "VARCHAR(100)",
         "receiver_email": "VARCHAR(150)", "receiver_state": "VARCHAR(100)",
         "boxes": "JSON DEFAULT '[]'",
+        "is_gst_applicable": "BOOLEAN DEFAULT TRUE",
+        "gst_rate": "FLOAT DEFAULT 18.0",
+        "gst_amount": "FLOAT DEFAULT 0.0",
+        "total_amount": "FLOAT",
     }.items():
         if name not in shipment_columns:
             db.execute(text(f"ALTER TABLE shipments ADD COLUMN {name} {definition}"))
+    invoice_columns = {column["name"] for column in inspect(db.bind).get_columns("invoices")}
+    for name, definition in {
+        "is_gst_invoice": "BOOLEAN DEFAULT TRUE",
+        "tax_rate": "FLOAT DEFAULT 18.0",
+        "cgst": "FLOAT DEFAULT 0.0",
+        "sgst": "FLOAT DEFAULT 0.0",
+        "igst": "FLOAT DEFAULT 0.0",
+    }.items():
+        if name not in invoice_columns:
+            db.execute(text(f"ALTER TABLE invoices ADD COLUMN {name} {definition}"))
     db.commit()
     is_sqlite = (db.bind.dialect.name == "sqlite") if db.bind else False
     if is_sqlite:
@@ -44,6 +58,43 @@ def migrate_database_schema(db: Session):
         return
 
     migration_sqls = [
+        """CREATE TABLE IF NOT EXISTS payment_collections (
+            id VARCHAR(50) PRIMARY KEY,
+            invoice_id VARCHAR(50) NOT NULL,
+            shipment_id VARCHAR(50),
+            date VARCHAR(20) NOT NULL,
+            amount FLOAT NOT NULL,
+            payment_method VARCHAR(100) NOT NULL,
+            paid_to VARCHAR(100) NOT NULL,
+            collected_by VARCHAR(100) NOT NULL,
+            reference VARCHAR(200),
+            created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT (NOW() AT TIME ZONE 'UTC')
+        );""",
+        """CREATE TABLE IF NOT EXISTS accounting_entries (
+            id VARCHAR(50) PRIMARY KEY,
+            date VARCHAR(20) NOT NULL,
+            kind VARCHAR(30) NOT NULL,
+            provider VARCHAR(100),
+            amount FLOAT NOT NULL,
+            reference VARCHAR(200) NOT NULL,
+            account VARCHAR(100) NOT NULL,
+            created_by VARCHAR(50) NOT NULL,
+            created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT (NOW() AT TIME ZONE 'UTC')
+        );""",
+        """CREATE TABLE IF NOT EXISTS account_checks (
+            id VARCHAR(50) PRIMARY KEY,
+            date VARCHAR(20) NOT NULL,
+            account VARCHAR(100) NOT NULL,
+            center VARCHAR(100),
+            expected_amount FLOAT NOT NULL,
+            counted_amount FLOAT NOT NULL,
+            difference FLOAT NOT NULL,
+            receipt_count INTEGER NOT NULL,
+            notes VARCHAR(1000),
+            checked_by VARCHAR(100) NOT NULL,
+            created_by VARCHAR(50) NOT NULL,
+            created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT (NOW() AT TIME ZONE 'UTC')
+        );""",
         "ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS event_type VARCHAR(100) DEFAULT 'audit';",
         "ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS result VARCHAR(20) DEFAULT 'success';",
         "ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS reason TEXT;",
@@ -65,6 +116,9 @@ def migrate_database_schema(db: Session):
         "CREATE INDEX IF NOT EXISTS idx_shipments_center_status ON shipments (center, status);",
         "CREATE INDEX IF NOT EXISTS idx_shipments_customer_created ON shipments (customer_id, created_at);",
         "CREATE INDEX IF NOT EXISTS idx_invoices_customer_created ON invoices (customer_id, created_at);",
+        "CREATE INDEX IF NOT EXISTS idx_pay_collections_date ON payment_collections (date);",
+        "CREATE INDEX IF NOT EXISTS idx_pay_collections_inv ON payment_collections (invoice_id);",
+        "CREATE INDEX IF NOT EXISTS idx_pay_collections_ship ON payment_collections (shipment_id);",
     ]
     for sql in migration_sqls:
         try:

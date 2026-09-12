@@ -1,3 +1,4 @@
+import { businessDate } from '../utils/businessDates';
 import { providerCostLabel } from '../utils/costLabels';
 import AccountChecks from '../components/AccountChecks';
 import React, { useState } from 'react';
@@ -55,7 +56,7 @@ export const Invoices = ({ invoices, onPreviewInvoice }) => {
         const encodedUri = encodeURI(csvContent);
         const link = document.createElement('a');
         link.setAttribute('href', encodedUri);
-        link.setAttribute('download', `FMC_Invoices_${new Date().toISOString().slice(0, 10)}.csv`);
+        link.setAttribute('download', `FMC_Invoices_${businessDate()}.csv`);
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
@@ -632,7 +633,7 @@ export const B2B = ({ b2bData, onOpenCustomerDrawer, onOpenB2BModal, onRefresh }
         const encodedUri = encodeURI(csvContent);
         const link = document.createElement('a');
         link.setAttribute('href', encodedUri);
-        link.setAttribute('download', `FMC_B2B_Accounts_${new Date().toISOString().slice(0, 10)}.csv`);
+        link.setAttribute('download', `FMC_B2B_Accounts_${businessDate()}.csv`);
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);

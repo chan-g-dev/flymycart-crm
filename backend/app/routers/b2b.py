@@ -5,6 +5,7 @@
 import uuid
 from collections import defaultdict
 import datetime
+from app.business_dates import business_today
 from typing import List, Dict, Any
 from fastapi import APIRouter, Depends, HTTPException, Request, Query, Response
 from sqlalchemy.orm import Session
@@ -76,7 +77,7 @@ def get_b2b_summary(
                 })
 
         aging = calculate_b2b_aging_buckets(aging_items)
-        today = datetime.date.today()
+        today = business_today()
         due_this_week = round(sum(item["balance"] for item in aging_items if today <= datetime.date.fromisoformat(item["date"]) + datetime.timedelta(days=item["credit_period_days"]) <= today + datetime.timedelta(days=7)), 2)
         overdue = aging.get("overdue_total", 0.0)
 
