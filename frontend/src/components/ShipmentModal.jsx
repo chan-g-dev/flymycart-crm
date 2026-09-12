@@ -136,10 +136,22 @@ const ShipmentModal = ({ isOpen, onClose, onCreated, settings }) => {
     }, [form.length, form.width, form.height, form.actual_weight, form.service_type, form.courier, form.boxes]);
 
     const courierKey = (name) => {
-        const key = name.toLowerCase().replace(/[^a-z0-9]/g, '');
+        const key = (name || '').toLowerCase().replace(/[^a-z0-9]/g, '');
         return ({ dhlexpress: 'dhl' })[key] || key;
     };
-    const defaultPostpaid = [{ name: 'Aramex' }, { name: 'Blue Dart' }, { name: 'FedEx' }, { name: 'DHL Express' }, { name: 'Delhivery' }, { name: 'UPS' }, { name: 'Sree Maruthi' }];
+    const defaultPostpaid = [
+        { name: 'Aramex' },
+        { name: 'Blue Dart' },
+        { name: 'FedEx' },
+        { name: 'DHL Express' },
+        { name: 'DHL' },
+        { name: 'Delhivery' },
+        { name: 'UPS' },
+        { name: 'Sree Maruthi' },
+        { name: 'Trackon' },
+        { name: 'DTDC' },
+        { name: 'Speed Post' }
+    ];
     const defaultPrepaid = [{ name: 'ICL' }, { name: 'BRV' }];
     const postpaidProviders = (settings?.postpaidProviders && settings.postpaidProviders.length > 0) ? settings.postpaidProviders : defaultPostpaid;
     const prepaidWallets = (settings?.prepaidWallets && settings.prepaidWallets.length > 0) ? settings.prepaidWallets : defaultPrepaid;
@@ -149,7 +161,7 @@ const ShipmentModal = ({ isOpen, onClose, onCreated, settings }) => {
         setForm(prev => {
             if (prev.provider_type === 'prepaid' && prepaidWallets.some(p => p.name === prev.provider_name)) return prev;
             const account = postpaidProviders.find(p => courierKey(p.name) === courierKey(prev.courier)) || postpaidProviders[0];
-            return { ...prev, provider_type: account ? 'postpaid' : '', provider_name: account?.name || '' };
+            return { ...prev, provider_type: 'postpaid', provider_name: account?.name || prev.courier || postpaidProviders[0]?.name || 'FedEx' };
         });
     }, [isOpen, settings]);
 
@@ -159,8 +171,8 @@ const ShipmentModal = ({ isOpen, onClose, onCreated, settings }) => {
             ...prev,
             courier: courierName,
             ...(prev.provider_type === 'prepaid' ? {} : {
-                provider_type: account ? 'postpaid' : '',
-                provider_name: account?.name || ''
+                provider_type: 'postpaid',
+                provider_name: account?.name || courierName
             })
         }));
     };
@@ -173,8 +185,8 @@ const ShipmentModal = ({ isOpen, onClose, onCreated, settings }) => {
 
         setForm(prev => ({ 
             ...prev, 
-            provider_type: providerType, 
-            provider_name: providerName,
+            provider_type: providerType || 'postpaid', 
+            provider_name: providerName || prev.courier,
             ...(providerType === 'postpaid' ? { courier: matchedCourier } : {})
         }));
     };
@@ -308,13 +320,32 @@ const ShipmentModal = ({ isOpen, onClose, onCreated, settings }) => {
             };
 
             await apiClient.createShipment(payload);
-            // Wait for the parent refresh to finish before closing the modal. This
-            // keeps the dashboard and shipment list in sync with the new booking.
-            await onCreated(false);
+            try {
+                if (typeof onCreated === 'function') {
+                    await onCreated(false);
+                }
+            } catch (refreshErr) {
+                console.warn('Post-creation refresh error:', refreshErr);
+            }
             alert(`Shipment ${payload.awb} booked successfully! Invoice generated.`);
             onClose();
         } catch (err) {
-            alert(err.response?.data?.detail || 'Error booking shipment');
+            let errorMsg = 'Error booking shipment';
+            if (err.code === 'ECONNABORTED' || err.message?.includes('timeout')) {
+                errorMsg = 'Server request timed out. If the backend is waking up, please retry in a few moments.';
+            } else if (err.code === 'ERR_NETWORK' || !err.response) {
+                errorMsg = 'Cannot reach backend server. Please check your internet connection or verify the backend service status.';
+            } else {
+                const detail = err.response?.data?.detail || err.response?.data?.message || err.message;
+                if (typeof detail === 'string') {
+                    errorMsg = detail;
+                } else if (Array.isArray(detail)) {
+                    errorMsg = detail.map(d => (d.loc ? `${d.loc.slice(-1)[0]}: ` : '') + (d.msg || JSON.stringify(d))).join('\n');
+                } else if (detail && typeof detail === 'object') {
+                    errorMsg = detail.message || detail.msg || JSON.stringify(detail);
+                }
+            }
+            alert(errorMsg);
         } finally {
             setIsSubmitting(false);
         }

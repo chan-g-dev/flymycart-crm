@@ -100,18 +100,44 @@ def create_shipment(
     validate_shipment_status(payload.status, payload.delay_reason)
     # Direct postpaid bookings must use the selected courier's configured account.
     def courier_key(name):
-        key = ''.join(ch for ch in name.lower() if ch.isalnum())
+        if not name:
+            return ""
+        key = ''.join(ch for ch in str(name).lower() if ch.isalnum())
         return {'dhlexpress': 'dhl'}.get(key, key)
+
+    def get_account_name(acc):
+        if isinstance(acc, dict):
+            return acc.get('name', '')
+        return str(acc) if acc else ''
 
     config = db.query(SystemSettings).first()
     settings = config.config_json if config else {}
     if payload.provider_type not in {'prepaid', 'postpaid'}:
         raise HTTPException(status_code=400, detail="Select prepaid or postpaid billing")
+
+    default_postpaid_couriers = {"fedex", "aramex", "dhl", "dhlexpress", "bluedart", "delhivery", "ups", "sreemaruthi", "trackon", "dtdc", "speedpost", "icl", "brv"}
+    default_prepaid_wallets = {"icl", "brv"}
+
     accounts = settings.get('prepaidWallets' if payload.provider_type == 'prepaid' else 'postpaidProviders', [])
-    if not any(account['name'] == payload.provider_name for account in accounts):
+    configured_account_keys = {courier_key(get_account_name(account)) for account in accounts if get_account_name(account)}
+    fallback_keys = default_prepaid_wallets if payload.provider_type == 'prepaid' else default_postpaid_couriers
+
+    provider_k = courier_key(payload.provider_name)
+    courier_k = courier_key(payload.courier)
+
+    # Valid if in configured accounts, in standard fallback lists, or matches the shipment courier
+    is_valid_account = (
+        provider_k in configured_account_keys
+        or provider_k in fallback_keys
+        or (payload.provider_type == 'postpaid' and (provider_k == courier_k or not accounts))
+    )
+    if not is_valid_account:
         raise HTTPException(status_code=400, detail="Select a configured billing account")
-    if payload.provider_type == 'postpaid' and courier_key(payload.courier) != courier_key(payload.provider_name):
-        raise HTTPException(status_code=400, detail="Direct postpaid billing must match the courier. Select its account or a prepaid wallet.")
+
+    if payload.provider_type == 'postpaid' and provider_k != courier_k and configured_account_keys:
+        # If specific accounts are configured and user picked an account of another courier
+        if provider_k in configured_account_keys and courier_k in configured_account_keys:
+            raise HTTPException(status_code=400, detail=f"Direct postpaid billing for {payload.courier} must match its account ({payload.courier}) or use a prepaid wallet.")
 
     is_gst = bool(getattr(payload, 'is_gst_applicable', True))
     raw_rate = float(getattr(payload, 'gst_rate', 18.0) if getattr(payload, 'gst_rate', 18.0) is not None else 18.0) if is_gst else 0.0

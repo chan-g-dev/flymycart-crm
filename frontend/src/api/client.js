@@ -18,7 +18,7 @@ if (configuredUrl) {
 const api = axios.create({
     baseURL: API_BASE_URL,
     withCredentials: true, // Enables HttpOnly session cookies across requests
-    timeout: 15000, // 15s timeout prevents infinite spinners if server is unreachable
+    timeout: 60000, // 60s timeout allows cloud servers (e.g. Render) to wake from cold sleep
     headers: {
         'Content-Type': 'application/json'
     }
