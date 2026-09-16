@@ -17,11 +17,34 @@ from app.auth import hash_password
 
 def migrate_database_schema(db: Session):
     """Ensures newly added columns exist in live Postgres or SQLite tables if running against pre-existing tables."""
+    from app.models import PaymentRequest
+    PaymentRequest.__table__.create(bind=db.bind, checkfirst=True)
+    if db.bind.dialect.name == 'postgresql':
+        db.execute(text('ALTER TABLE payment_requests ENABLE ROW LEVEL SECURITY'))
+        db.execute(text("""DO $$ BEGIN
+            IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon') THEN
+                REVOKE ALL ON payment_requests FROM anon;
+            END IF;
+            IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated') THEN
+                REVOKE ALL ON payment_requests FROM authenticated;
+            END IF;
+        END $$"""))
+    optional = 'IF NOT EXISTS ' if db.bind.dialect.name == 'postgresql' else ''
+    for table in ("payment_collections", "accounting_entries", "wallet_transactions", "refunds"):
+        if inspect(db.bind).has_table(table) and "payment_details" not in {c["name"] for c in inspect(db.bind).get_columns(table)}:
+            db.execute(text(f"ALTER TABLE {table} ADD COLUMN {optional}payment_details JSON"))
+    db.commit()
     if inspect(db.bind).has_table("accounting_entries"):
         entry_columns = {column["name"] for column in inspect(db.bind).get_columns("accounting_entries")}
-        if "category" not in entry_columns:
-            db.execute(text("ALTER TABLE accounting_entries ADD COLUMN category VARCHAR(100)"))
-            db.commit()
+        for name, definition in {
+            "category": "VARCHAR(100)", "vendor": "VARCHAR(150)",
+            "payment_mode": "VARCHAR(100)", "transfer_to": "VARCHAR(100)",
+            "center": "VARCHAR(100)", "shipment_id": "VARCHAR(50)",
+            "bill_key": "VARCHAR(500)", "bill_name": "VARCHAR(200)",
+        }.items():
+            if name not in entry_columns:
+                db.execute(text(f"ALTER TABLE accounting_entries ADD COLUMN {optional}{name} {definition}"))
+        db.commit()
     shipment_columns = {column["name"] for column in inspect(db.bind).get_columns("shipments")}
     for name, definition in {
         "sender_email": "VARCHAR(150)", "sender_id_proof": "VARCHAR(100)",
@@ -33,7 +56,7 @@ def migrate_database_schema(db: Session):
         "total_amount": "FLOAT",
     }.items():
         if name not in shipment_columns:
-            db.execute(text(f"ALTER TABLE shipments ADD COLUMN {name} {definition}"))
+            db.execute(text(f"ALTER TABLE shipments ADD COLUMN {optional}{name} {definition}"))
     invoice_columns = {column["name"] for column in inspect(db.bind).get_columns("invoices")}
     for name, definition in {
         "is_gst_invoice": "BOOLEAN DEFAULT TRUE",
@@ -43,7 +66,7 @@ def migrate_database_schema(db: Session):
         "igst": "FLOAT DEFAULT 0.0",
     }.items():
         if name not in invoice_columns:
-            db.execute(text(f"ALTER TABLE invoices ADD COLUMN {name} {definition}"))
+            db.execute(text(f"ALTER TABLE invoices ADD COLUMN {optional}{name} {definition}"))
     db.commit()
     is_sqlite = (db.bind.dialect.name == "sqlite") if db.bind else False
     if is_sqlite:
@@ -137,7 +160,11 @@ SUPERADMIN_NAME = "Fly My Cart"
 SUPERADMIN_USERNAME = "admin@flymycart.com"
 SUPERADMIN_ID = "055d37da-38d0-4fe9-9ca3-4b956dede81d"
 def bootstrap_password_hash():
-    password = os.getenv("BOOTSTRAP_ADMIN_PASSWORD", "flymycart@2190")
+    password = os.getenv("BOOTSTRAP_ADMIN_PASSWORD")
+    if not password:
+        if settings.ENVIRONMENT == "production":
+            raise RuntimeError("Set BOOTSTRAP_ADMIN_PASSWORD to create the initial administrator")
+        password = "flymycart@2190"
     return hash_password(password)
 
 STANDARD_PERMISSIONS = [
@@ -314,7 +341,7 @@ def seed_super_admin(db: Session):
     prof = db.query(UserProfile).filter(
         (UserProfile.id == SUPERADMIN_ID) | (UserProfile.email == SUPERADMIN_EMAIL)
     ).first()
-    password_hash = bootstrap_password_hash()
+    password_hash = prof.password_hash if prof and prof.password_hash else bootstrap_password_hash()
 
     if not prof:
         prof = UserProfile(
@@ -335,7 +362,6 @@ def seed_super_admin(db: Session):
         db.add(prof)
         db.flush()
     else:
-        prof.id = SUPERADMIN_ID
         prof.email = SUPERADMIN_EMAIL
         prof.display_name = SUPERADMIN_NAME
         prof.role = "super_admin"

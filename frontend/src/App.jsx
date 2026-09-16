@@ -1,3 +1,4 @@
+import RefundPayoutModal from './components/RefundPayoutModal';
 import { businessDate } from './utils/businessDates';
 import React, { useState, useEffect, useMemo } from 'react';
 import { useAuth } from './context/AuthContext';
@@ -351,14 +352,8 @@ export function App() {
         }
     };
 
-    const handleProcessRefund = async (id) => {
-        try {
-            await apiClient.updateRefundStatus(id, 'Refunded');
-            refreshAll();
-        } catch (err) {
-            alert(err.response?.data?.detail || 'Error processing refund');
-        }
-    };
+    const [payoutRefundId, setPayoutRefundId] = useState(null);
+    const handleProcessRefund = id => setPayoutRefundId(id);
 
     const handleRejectRefund = async (id) => {
         try {
@@ -512,7 +507,7 @@ export function App() {
     }
 
     return (
-        <div className="app-shell">
+        <div className={`app-shell ${currentPage === 'accounts' ? 'accounts-shell' : ''}`}>
             <Sidebar
                 settings={settings}
                 currentPage={currentPage}
@@ -637,6 +632,13 @@ export function App() {
 
                     {currentPage === 'accounts' && (
                         <Accounts
+                            settings={settings}
+                            onSectionChange={setActiveSubPage}
+                            renderRelatedSection={tab => tab === 'b2b'
+                                ? <B2B b2bData={filteredB2BData} selectedCenter={selectedCenter} onOpenCustomerDrawer={handleOpenCustomerDrawer} onOpenB2BModal={() => setIsB2BModalOpen(true)} onRefresh={() => refreshAll(false)} />
+                                : <Refunds refunds={filteredRefunds} selectedCenter={selectedCenter} onOpenRefundModal={() => setIsRefundModalOpen(true)} onApproveRefund={handleApproveRefund} onProcessRefund={handleProcessRefund} onRejectRefund={handleRejectRefund} />}
+                            overviewData={accountsData}
+                            shipments={filteredShipments}
                             onRefresh={refreshAll}
                             accountsData={filteredAccountsData}
                             reconciliations={reconciliations}
@@ -695,8 +697,9 @@ export function App() {
                         <Settings
                             settings={settings}
                             onUpdateSettings={async (newSetts) => {
-                                await apiClient.updateSettings(newSetts);
-                                refreshAll();
+                                const saved = await apiClient.updateSettings(newSetts);
+                                setSettings(saved);
+                                await refreshAll(true);
                             }}
                         />
                     )}
@@ -752,6 +755,7 @@ export function App() {
                 settings={settings}
             />
 
+            {payoutRefundId && <RefundPayoutModal settings={settings} id={payoutRefundId} onClose={() => setPayoutRefundId(null)} onSaved={refreshAll} />}
             <RefundModal
                 isOpen={isRefundModalOpen}
                 onClose={() => setIsRefundModalOpen(false)}
@@ -767,6 +771,7 @@ export function App() {
             />
 
             <B2BCompanyModal
+                settings={settings}
                 isOpen={isB2BModalOpen}
                 onClose={() => setIsB2BModalOpen(false)}
                 onCreated={refreshAll}

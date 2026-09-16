@@ -1,3 +1,7 @@
+import '../components/SettingsWorkspace.css';
+import BusinessDefaults from '../components/BusinessDefaults';
+import PaymentDetailsSummary from '../components/PaymentDetailsSummary';
+import PaymentAccounts from '../components/PaymentAccounts';
 import { businessDate } from '../utils/businessDates';
 import { providerCostLabel } from '../utils/costLabels';
 import ScheduleFollowup from '../components/ScheduleFollowup';
@@ -149,7 +153,7 @@ export const Refunds = ({ refunds = [], onOpenRefundModal, onApproveRefund, onPr
                                 filteredRefunds.map(r => (
                                     <tr key={r.id}>
                                         <td>
-                                            <strong style={{ color: 'var(--text-main)', fontSize: '12px' }}>{r.customer}</strong>
+                                            <strong style={{ color: 'var(--text-main)', fontSize: '12px' }}>{r.customer}</strong><PaymentDetailsSummary details={r.payment_details} />
                                         </td>
                                         <td>
                                             <strong style={{ color: 'var(--primary-blue)', fontFamily: 'monospace', fontSize: '12px' }}>{r.awb}</strong>
@@ -1076,6 +1080,21 @@ export const Reports = ({ activeTab, refreshKey }) => {
                     )}
                 </>
             )}
+            {!loading && !reportError && canViewFinancials && expenseReport && (
+                <section className="table-card" aria-label="Operating expenses by category">
+                    <div className="dash-box-header"><h3>Operating Expenses by Category</h3></div>
+                    <div className="table-wrap"><table className="data-table">
+                        <thead><tr><th>Category</th><th>Amount</th></tr></thead>
+                        <tbody>
+                            {Object.entries(expenseReport.expense_breakdown || {}).map(([category, amount]) => (
+                                <tr key={category}><td>{category}</td><td>{formatCurrency(amount)}</td></tr>
+                            ))}
+                            {!Object.keys(expenseReport.expense_breakdown || {}).length && <tr><td colSpan="2">No operating expenses recorded for this period.</td></tr>}
+                        </tbody>
+                        <tfoot><tr><th>Total Operating Expenses</th><th>{formatCurrency(expenseReport.operational_expenses)}</th></tr></tfoot>
+                    </table></div>
+                </section>
+            )}
         </div>
     );
 };
@@ -1118,6 +1137,7 @@ export const Settings = ({ settings, onUpdateSettings }) => {
             { name: 'DHL Express', deposit: 0.0, paymentTerms: '30 Days' }
         ];
 
+    const [settingsView, setSettingsView] = useState('business');
     const [newCourier, setNewCourier] = useState('');
     const [newCenter, setNewCenter] = useState('');
     const [newEmployee, setNewEmployee] = useState('');
@@ -1245,19 +1265,26 @@ export const Settings = ({ settings, onUpdateSettings }) => {
     };
 
     return (
-        <div>
-            <div className="page-header" style={{ marginBottom: '18px' }}>
+        <div className="settings-workspace">
+            <div className="page-header settings-header" style={{ marginBottom: '18px' }}>
                 <div>
-                    <h2 className="page-title" style={{ fontSize: '20px', fontWeight: 800 }}>⚙️ Global System Configuration</h2>
+                    <h2 className="page-title">Business Settings</h2>
                     <p className="page-subtitle" style={{ fontSize: '12.5px', color: 'var(--text-muted)' }}>
-                        Configure business centers, couriers, staff collectors, payment channels, prepaid wallets, and postpaid accounts with zero code changes.
+                        Your business, configured your way. Manage the details your team uses every day.
                     </p>
                 </div>
             </div>
 
+            <nav className="settings-nav" aria-label="Settings sections">
+                {[['business', 'Business & Billing', 'Company details, GST and defaults'], ['operations', 'Team & Services', 'Couriers, centers and collectors'], ['payments', 'Payments & Carriers', 'Saved accounts, wallets and deposits'], ['audit', 'Activity', 'Review configuration changes']].filter(([key]) => key !== 'audit' || hasPermission('viewFinancials')).map(([key, title, subtitle]) => (
+                    <button key={key} type="button" aria-pressed={settingsView === key} onClick={() => setSettingsView(key)}><strong>{title}</strong><span>{subtitle}</span></button>
+                ))}
+            </nav>
+            <div hidden={settingsView !== 'business'}><BusinessDefaults settings={settings} onSave={onUpdateSettings} canManage={canManageSettings} /></div>
+
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 320px), 1fr))', gap: '16px', marginBottom: '22px' }}>
                 {/* 1. Couriers */}
-                <div className="dash-box">
+                <div className="dash-box settings-card" hidden={settingsView !== 'operations'}>
                     <h4 style={{ fontSize: '13.5px', fontWeight: 800, marginBottom: '10px', color: 'var(--text-main)' }}>📦 Configurable Couriers</h4>
                     <div className="settings-chips-scroll">
                         {visibleCouriers.map(c => (
@@ -1276,7 +1303,7 @@ export const Settings = ({ settings, onUpdateSettings }) => {
                 </div>
 
                 {/* 2. Centers */}
-                <div className="dash-box">
+                <div className="dash-box settings-card" hidden={settingsView !== 'operations'}>
                     <h4 style={{ fontSize: '13.5px', fontWeight: 800, marginBottom: '10px', color: 'var(--text-main)' }}>🏢 Business Hubs & Centers</h4>
                     <div className="settings-chips-scroll">
                         {visibleCenters.map(c => (
@@ -1292,7 +1319,7 @@ export const Settings = ({ settings, onUpdateSettings }) => {
                 </div>
 
                 {/* 3. Staff Collectors & Cash Receivers */}
-                <div className="dash-box">
+                <div className="dash-box settings-card" hidden={settingsView !== 'operations'}>
                     <h4 style={{ fontSize: '13.5px', fontWeight: 800, marginBottom: '10px', color: 'var(--text-main)' }}>👤 Cash Collectors & Staff Members</h4>
                     <div className="settings-chips-scroll">
                         {visibleEmployees.map(emp => (
@@ -1319,8 +1346,9 @@ export const Settings = ({ settings, onUpdateSettings }) => {
                     )}
                 </div>
 
+                <div className="settings-payment-wrapper" hidden={settingsView !== 'payments'}><PaymentAccounts settings={settings} onUpdateSettings={onUpdateSettings} canManage={canManageSettings} /></div>
                 {/* 4. Payment Accounts (paid_to) */}
-                <div className="dash-box">
+                <div className="dash-box settings-card" hidden={settingsView !== 'payments'}>
                     <h4 style={{ fontSize: '13.5px', fontWeight: 800, marginBottom: '10px', color: 'var(--text-main)' }}>🏦 Payment Accounts & Channels (paid_to)</h4>
                     <div className="settings-chips-scroll">
                         {visiblePaidToAccounts.map(acc => (
@@ -1348,7 +1376,7 @@ export const Settings = ({ settings, onUpdateSettings }) => {
                 </div>
 
                 {/* 5. Prepaid Wallets */}
-                <div className="dash-box">
+                <div className="dash-box settings-card" hidden={settingsView !== 'payments'}>
                     <h4 style={{ fontSize: '13.5px', fontWeight: 800, marginBottom: '10px', color: 'var(--text-main)' }}>💳 Prepaid Partner Wallets</h4>
                     <div className="settings-chips-scroll">
                         {visiblePrepaidWallets.map(w => (
@@ -1392,7 +1420,7 @@ export const Settings = ({ settings, onUpdateSettings }) => {
                 </div>
 
                 {/* 6. Postpaid Accounts */}
-                <div className="dash-box">
+                <div className="dash-box settings-card" hidden={settingsView !== 'payments'}>
                     <h4 style={{ fontSize: '13.5px', fontWeight: 800, marginBottom: '10px', color: 'var(--text-main)' }}>📋 Postpaid Courier Accounts</h4>
                     <div className="settings-chips-scroll">
                         {visiblePostpaidProviders.map(p => (
@@ -1438,7 +1466,7 @@ export const Settings = ({ settings, onUpdateSettings }) => {
 
             {/* Financial Audit Trail */}
             {hasPermission('viewFinancials') && (
-                <div className="table-card" style={{ marginTop: '10px' }}>
+                <div hidden={settingsView !== 'audit'} className="table-card" style={{ marginTop: '10px' }}>
                     <div className="dash-box-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                             <h3 style={{ margin: 0 }}>Financial Modifications Audit Log</h3>
@@ -1475,21 +1503,7 @@ export const Settings = ({ settings, onUpdateSettings }) => {
                     </div>
                 </div>
             )}
-            {!loading && !reportError && canViewFinancials && expenseReport && (
-                <section className="table-card" aria-label="Operating expenses by category">
-                    <div className="dash-box-header"><h3>Operating Expenses by Category</h3></div>
-                    <div className="table-wrap"><table className="data-table">
-                        <thead><tr><th>Category</th><th>Amount</th></tr></thead>
-                        <tbody>
-                            {Object.entries(expenseReport.expense_breakdown || {}).map(([category, amount]) => (
-                                <tr key={category}><td>{category}</td><td>{formatCurrency(amount)}</td></tr>
-                            ))}
-                            {!Object.keys(expenseReport.expense_breakdown || {}).length && <tr><td colSpan="2">No operating expenses recorded for this period.</td></tr>}
-                        </tbody>
-                        <tfoot><tr><th>Total Operating Expenses</th><th>{formatCurrency(expenseReport.operational_expenses)}</th></tr></tfoot>
-                    </table></div>
-                </section>
-            )}
+
         </div>
     );
 };

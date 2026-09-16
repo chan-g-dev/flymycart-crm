@@ -1,3 +1,5 @@
+from app.payment_requests import claim_payment_request, finish_payment_request
+from app.payment_details import validate_payment, validate_amount
 # ================================================================
 # FLY MY CART CRM - SHIPMENTS ROUTER (routers/shipments.py)
 # ================================================================
@@ -96,6 +98,15 @@ def create_shipment(
     ctx: Dict[str, Any] = Depends(require_permission(PermissionCode.SHIPMENTS_ADD)),
     db: Session = Depends(get_db)
 ):
+    claim = claim_payment_request(db, request, ctx, payload)
+    if claim and claim.resource_id:
+        existing = db.query(Shipment).filter(Shipment.id == claim.resource_id).first()
+        if not existing:
+            raise HTTPException(404, "Shipment not found")
+        output = ShipmentOut.model_validate(existing)
+        if not (ctx.get("is_super_admin") or "*" in ctx.get("permissions", {}) or ctx.get("permissions", {}).get("viewCostMargins") or ctx.get("permissions", {}).get("reports.view_financial")):
+            output.provider_cost = output.actual_provider_cost = output.gross_profit = None
+        return output
     # 1. Check duplicate AWB
     awb_clean = payload.awb.strip()
     if not awb_clean:
@@ -114,7 +125,11 @@ def create_shipment(
         return str(acc) if acc else ''
 
     config = db.query(SystemSettings).first()
-    settings = config.config_json if config else {}
+    settings = (config.config_json or {}) if config else {}
+    if 'gst_rate' not in payload.model_fields_set:
+        payload.gst_rate = settings.get('defaultGstRate', 18.0)
+    if 'service_type' not in payload.model_fields_set and settings.get('serviceTypes'):
+        payload.service_type = settings['serviceTypes'][0]
     if payload.provider_type not in {'prepaid', 'postpaid'}:
         raise HTTPException(status_code=400, detail="Select prepaid or postpaid billing")
 
@@ -165,6 +180,13 @@ def create_shipment(
         raise HTTPException(status_code=400, detail="Partial payment must specify an amount between zero and the invoice total")
     if payload.payment_status not in ["Paid", "Partial"] and paid_amt:
         raise HTTPException(status_code=400, detail="Amount received requires Paid or Partial payment status")
+    if paid_amt > 0:
+        paid_amt = validate_amount(paid_amt)
+        payload.payment_reference = (payload.payment_reference or "").strip()
+        payload.paid_to = payload.paid_to.strip()
+        payload.payment_details = validate_payment(payload.payment_method, payload.paid_to, payload.payment_reference, payload.payment_details, db=db)
+        if not payload.collected_by.strip():
+            raise HTTPException(400, "Collector name is required")
     if db.query(Shipment).filter(func.lower(Shipment.awb) == awb_clean.lower()).first():
         raise HTTPException(status_code=400, detail=f"AWB tracking number '{awb_clean}' already exists!")
 
@@ -305,7 +327,7 @@ def create_shipment(
         db.add(wallet_tx)
 
     # 6. Auto-generate Official Invoice
-    inv_no = f"FMC-{business_today().strftime('%Y%m')}-{uuid.uuid4().hex[:12].upper()}"
+    inv_no = f"{settings.get('invoicePrefix') or 'FMC-'}{business_today().strftime('%Y%m')}-{uuid.uuid4().hex[:12].upper()}"
     bal_amt = round(invoice_total - paid_amt, 2)
 
     new_invoice = Invoice(
@@ -338,20 +360,11 @@ def create_shipment(
         from app.models import PaymentCollection
         db.add(PaymentCollection(invoice_id=new_invoice.id, shipment_id=ship_id,
             date=payload.date, amount=paid_amt, payment_method=payload.payment_method,
-            paid_to=payload.paid_to, collected_by=payload.collected_by, reference=payload.payment_reference))
+            paid_to=payload.paid_to, collected_by=payload.collected_by, reference=payload.payment_reference, payment_details=payload.payment_details))
 
     if payload.provider_type == "prepaid":
         from app.wallets import rebuild_wallet_balances
         rebuild_wallet_balances(db, payload.provider_name)
-    try:
-        db.commit()
-    except IntegrityError as exc:
-        db.rollback()
-        raise HTTPException(status_code=409, detail=f"AWB tracking number '{awb_clean}' already exists!") from exc
-    db.refresh(new_shipment)
-
-    cache_engine.invalidate_prefix("dashboard_summary")
-    cache_engine.invalidate_prefix("shipments:")
     create_audit_log(
         db=db,
         actor_user_id=ctx["user_id"],
@@ -361,8 +374,19 @@ def create_shipment(
         resource_id=ship_id,
         action="create",
         after_data={"awb": awb_clean, "customer": customer.name, "price": payload.price, "provider_cost": payload.provider_cost},
-        ip_address=request.client.host if request.client else None
+        ip_address=request.client.host if request.client else None, auto_commit=False
     )
+    finish_payment_request(claim, ship_id)
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail=f"AWB tracking number '{awb_clean}' already exists!") from exc
+    db.refresh(new_shipment)
+
+    cache_engine.invalidate_prefix("dashboard_summary")
+    cache_engine.invalidate_prefix("shipments:")
+
 
     can_view_margins = bool(
         ctx.get("is_super_admin")

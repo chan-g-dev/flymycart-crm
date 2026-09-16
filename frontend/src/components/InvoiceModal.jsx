@@ -1,9 +1,13 @@
+import { paymentOptions } from '../utils/businessOptions';
+import PaymentDetails from './PaymentDetails';
 import React, { useState } from 'react';
+import { createPortal } from 'react-dom';
+import './InvoicePrint.css';
 import { X, Printer, Mail, CreditCard, CheckCircle2, Loader2 } from 'lucide-react';
 import { apiClient } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import { WhatsAppIcon, CourierLogo } from './CourierLogos';
-import { FlyMyCartLogo } from './FlyMyCartLogo';
+import InvoiceLogo from './InvoiceLogo';
 import { getTrackingUrl, TrackingLink } from './TrackingLink';
 
 const InvoiceModal = ({ isOpen, onClose, invoice, onPaymentRecorded, settings }) => {
@@ -12,7 +16,9 @@ const InvoiceModal = ({ isOpen, onClose, invoice, onPaymentRecorded, settings })
     const [isRecordingPayment, setIsRecordingPayment] = useState(false);
     const [isSubmittingPayment, setIsSubmittingPayment] = useState(false);
     const [paymentAmount, setPaymentAmount] = useState('');
-    const [paymentMethod, setPaymentMethod] = useState('PhonePe');
+    const [paymentDetails, setPaymentDetails] = useState({});
+    const [reference, setReference] = useState('');
+    const [paymentMethod, setPaymentMethod] = useState(paymentOptions(settings)[0]);
 
     const employeesList = (settings?.employees || [{ name: 'Nawaz' }, { name: 'Lata' }, { name: 'Umesh' }, { name: 'Uma' }]).map(e => typeof e === 'string' ? e : e.name);
     const paidToList = settings?.paidToAccounts || ['Office QR', 'Current Account (HDFC)', 'Savings Account (ICICI)', 'Lata UPI', 'Nawaz UPI'];
@@ -34,18 +40,32 @@ const InvoiceModal = ({ isOpen, onClose, invoice, onPaymentRecorded, settings })
     };
 
     const handleWhatsAppShare = () => {
+        let phone = String(invoice.customer_phone || '').trim().replace(/[\s().-]/g, '');
+        if (phone.startsWith('00')) phone = '+' + phone.slice(2);
+        if (/^0[6-9]\d{9}$/.test(phone)) phone = phone.slice(1);
+        if (/^[6-9]\d{9}$/.test(phone)) phone = '91' + phone;
+        phone = phone.replace(/^\+/, '');
+        if (!/^[1-9]\d{7,14}$/.test(phone)) {
+            alert('Please add a valid customer WhatsApp or mobile number with country code in the customer or booking details.');
+            return;
+        }
         const msg = encodeURIComponent(
-            `Dear ${invoice.customer_name},\n\nThank you for choosing Fly My Cart Logistics!\n\n📄 Document: ${docTitle}\n🧾 No: ${invoice.invoice_no}\n📦 AWB: ${invoice.awb}\n💰 Total Amount: ₹${invoice.total}\n💳 Amount Paid: ₹${invoice.paid}\n⚠️ Balance: ₹${invoice.balance}\n\n${getTrackingUrl(invoice.courier) ? `Track your ${invoice.courier} shipment: ${getTrackingUrl(invoice.courier)}` : `Contact Fly My Cart for tracking assistance.`}\n\nFly My Cart Bangalore Hub`
+            `Dear ${invoice.customer_name},\n\nThank you for choosing ${settings?.companyName || 'Fly My Cart Logistics'}!\n\n📄 Document: ${docTitle}\n🧾 No: ${invoice.invoice_no}\n📦 AWB: ${invoice.awb}\n💰 Total Amount: ₹${invoice.total}\n💳 Amount Paid: ₹${invoice.paid}\n⚠️ Balance: ₹${invoice.balance}\n\n${getTrackingUrl(invoice.courier) ? `Track your ${invoice.courier} shipment: ${getTrackingUrl(invoice.courier)}` : `Contact ${settings?.companyName || 'Fly My Cart'} for tracking assistance.`}\n\n${settings?.companyName || 'Fly My Cart Logistics'}`
         );
-        window.open(`https://wa.me/?text=${msg}`, '_blank');
+        window.open(`https://wa.me/${phone}?text=${msg}`, '_blank', 'noopener,noreferrer');
     };
 
     const handleEmailShare = () => {
-        const subject = encodeURIComponent(`${docTitle} - ${invoice.invoice_no} - Fly My Cart Logistics`);
+        const email = String(invoice.customer_email || '').trim();
+        if (!/^[^\s@,;?&#]+@[^\s@,;?&#]+\.[^\s@,;?&#]+$/.test(email)) {
+            alert('Please add a valid customer email address in the customer or booking details.');
+            return;
+        }
+        const subject = encodeURIComponent(`${docTitle} - ${invoice.invoice_no} - ${settings?.companyName || 'Fly My Cart Logistics'}`);
         const body = encodeURIComponent(
-            `Dear ${invoice.customer_name},\n\nPlease find attached your invoice details for shipment AWB ${invoice.awb}.\n\nDocument: ${docTitle}\nTotal: ₹${invoice.total}\nPaid: ₹${invoice.paid}\nBalance: ₹${invoice.balance}\n\nThank you for partnering with Fly My Cart.`
+            `Dear ${invoice.customer_name},\n\nHere are your invoice details for shipment AWB ${invoice.awb}.\n\nDocument: ${docTitle}\nTotal: ₹${invoice.total}\nPaid: ₹${invoice.paid}\nBalance: ₹${invoice.balance}\n\nThank you for partnering with ${settings?.companyName || 'Fly My Cart Logistics'}.`
         );
-        window.open(`mailto:?subject=${subject}&body=${body}`, '_blank');
+        window.open(`mailto:${encodeURIComponent(email)}?subject=${subject}&body=${body}`, '_blank');
     };
 
     const handleSubmitPayment = async (e) => {
@@ -63,7 +83,8 @@ const InvoiceModal = ({ isOpen, onClose, invoice, onPaymentRecorded, settings })
                 amount: amt,
                 payment_method: paymentMethod,
                 paid_to: paidTo,
-                collected_by: collectedBy
+                collected_by: collectedBy,
+                reference, payment_details: paymentDetails
             });
             alert('Payment recorded successfully!');
             setIsRecordingPayment(false);
@@ -76,8 +97,8 @@ const InvoiceModal = ({ isOpen, onClose, invoice, onPaymentRecorded, settings })
         }
     };
 
-    return (
-        <div className="modal-overlay">
+    return createPortal(
+        <div className="modal-overlay invoice-print-overlay">
             <div className="modal modal-lg" style={{ maxWidth: '680px' }}>
                 <div className="modal-header">
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -95,13 +116,16 @@ const InvoiceModal = ({ isOpen, onClose, invoice, onPaymentRecorded, settings })
                     <div className="invoice-brand" style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '2px solid var(--primary-blue)', paddingBottom: '16px', marginBottom: '18px' }}>
                         <div>
                             <div style={{ marginBottom: '6px' }}>
-                                <FlyMyCartLogo height={42} theme="light" />
+                                <InvoiceLogo />
                             </div>
                             <div style={{ fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px', marginTop: '2px' }}>
                                 International Courier & Cargo Logistics
                             </div>
                             <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
-                                GSTIN: <strong>29AAACF9842M1Z0</strong> • Bangalore Main Hub
+                                {settings?.companyName || 'Fly My Cart Logistics'}<br />
+                                GSTIN: <strong>{settings?.gstin || 'Not configured'}</strong><br />
+                                {settings?.centerAddress || settings?.centerName || ''}<br />
+                                {[settings?.companyPhone, settings?.companyEmail].filter(Boolean).join(' | ')}
                             </div>
                         </div>
                         <div style={{ textAlign: 'right' }}>
@@ -198,11 +222,7 @@ const InvoiceModal = ({ isOpen, onClose, invoice, onPaymentRecorded, settings })
                             <div className="form-group">
                                 <label>Payment Mode</label>
                                 <select value={paymentMethod} onChange={e => setPaymentMethod(e.target.value)}>
-                                    <option value="PhonePe">PhonePe / UPI</option>
-                                    <option value="Google Pay">Google Pay</option>
-                                    <option value="Cash">Cash</option>
-                                    <option value="Office QR">Office QR</option>
-                                    <option value="Bank Transfer">Bank Transfer</option>
+                                    {paymentOptions(settings).map(method => <option key={method}>{method}</option>)}
                                 </select>
                             </div>
                             <div className="form-group">
@@ -222,6 +242,7 @@ const InvoiceModal = ({ isOpen, onClose, invoice, onPaymentRecorded, settings })
                                 </select>
                             </div>
                         </div>
+                        <PaymentDetails onAccountChange={setPaidTo} method={paymentMethod} value={paymentDetails} onChange={setPaymentDetails} reference={reference} onReferenceChange={setReference} profiles={settings?.paymentAccounts || []} />
                         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '10px' }}>
                             <button type="button" className="btn btn-sm btn-outline" onClick={() => setIsRecordingPayment(false)} disabled={isSubmittingPayment}>Cancel</button>
                             <button type="submit" className="btn btn-sm btn-primary-blue" disabled={isSubmittingPayment} style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', cursor: isSubmittingPayment ? 'wait' : 'pointer' }}>
@@ -322,7 +343,8 @@ const InvoiceModal = ({ isOpen, onClose, invoice, onPaymentRecorded, settings })
                     </div>
                 </div>
             </div>
-        </div>
+        </div>,
+        document.body
     );
 };
 

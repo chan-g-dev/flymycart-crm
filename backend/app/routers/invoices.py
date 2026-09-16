@@ -1,3 +1,5 @@
+from app.payment_requests import claim_payment_request, finish_payment_request
+from app.payment_details import validate_payment, validate_amount
 # ================================================================
 # FLY MY CART CRM - INVOICES ROUTER (routers/invoices.py)
 # ================================================================
@@ -7,18 +9,46 @@ import datetime
 from app.business_dates import business_today
 from typing import List, Optional, Dict, Any
 from fastapi import APIRouter, Depends, HTTPException, Request, Query, Response
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 from sqlalchemy import desc, func, or_
 
 from app.database import get_db
-from app.models import Invoice, Shipment, AuditLog, PaymentCollection
+from app.models import Invoice, Shipment, AuditLog, PaymentCollection, SystemSettings
 from app.cache import cache_engine
 from app.schemas import InvoiceOut, InvoicePaymentCreate
 from app.auth import get_current_user_context, create_audit_log
-from app.dependencies import require_permission
+from app.dependencies import require_permission, require_super_admin
+from pydantic import BaseModel
+from typing import Literal
 from app.permissions import PermissionCode
 
 invoices_router = APIRouter(prefix="/invoices", tags=["Invoices"])
+
+
+class InvoiceBrandingUpdate(BaseModel):
+    logo: Literal['original', 'express-wing', 'global-orbit', 'parcel-flight', 'swift-arrow', 'fmc-monogram']
+
+
+@invoices_router.get('/branding')
+def get_invoice_branding(ctx=Depends(require_permission('invoices.view')), db: Session = Depends(get_db)):
+    rec = db.query(SystemSettings).first()
+    return {'logo': (rec.config_json or {}).get('invoiceLogo', 'original') if rec else 'original'}
+
+
+@invoices_router.put('/branding')
+def update_invoice_branding(payload: InvoiceBrandingUpdate, ctx=Depends(require_super_admin), db: Session = Depends(get_db)):
+    rec = db.query(SystemSettings).with_for_update().first()
+    if not rec:
+        rec = SystemSettings(id=1, config_json={})
+        db.add(rec)
+    config = dict(rec.config_json or {})
+    previous = config.get('invoiceLogo', 'original')
+    rec.config_json = {**config, 'invoiceLogo': payload.logo}
+    create_audit_log(db, ctx['user_id'], ctx['display_name'], 'invoices.branding', 'settings', 'change_invoice_logo',
+        resource_id='system_settings', before_data={'logo': previous}, after_data={'logo': payload.logo}, auto_commit=False)
+    db.commit()
+    cache_engine.delete('global_system_settings')
+    return {'logo': payload.logo}
 
 def log_invoice_audit(db: Session, user_name: str, inv_id: str, action: str, before_val=None, after_val=None):
     try:
@@ -49,7 +79,7 @@ def get_invoices(
     ctx: Dict[str, Any] = Depends(require_permission(PermissionCode.INVOICES_VIEW)),
     db: Session = Depends(get_db)
 ):
-    query = db.query(Invoice)
+    query = db.query(Invoice).options(selectinload(Invoice.customer_rel), selectinload(Invoice.shipment_rel))
     if status:
         query = query.filter(Invoice.status == status)
     if customer_id:
@@ -86,11 +116,17 @@ def record_invoice_payment(
     ctx: Dict[str, Any] = Depends(require_permission(PermissionCode.INVOICES_EDIT)),
     db: Session = Depends(get_db)
 ):
+    claim = claim_payment_request(db, request, ctx, payload)
+    if claim and claim.resource_id:
+        inv = db.query(Invoice).filter(Invoice.id == claim.resource_id).first()
+        if not inv:
+            raise HTTPException(404, "Invoice not found")
+        return {"message": "Payment already recorded", "invoice": inv}
     inv = db.query(Invoice).filter((Invoice.id == invoice_id) | (Invoice.invoice_no == invoice_id)).with_for_update().first()
     if not inv:
         raise HTTPException(status_code=404, detail="Invoice not found")
 
-    pay_amt = float(payload.amount)
+    pay_amt = validate_amount(payload.amount)
     if pay_amt <= 0:
         raise HTTPException(status_code=400, detail="Payment amount must be greater than 0")
     if pay_amt > round(inv.total - inv.paid, 2):
@@ -98,13 +134,17 @@ def record_invoice_payment(
     if not all(value.strip() for value in (payload.payment_method, payload.paid_to, payload.collected_by)):
         raise HTTPException(status_code=400, detail="Payment method, destination account and collector are required")
 
+    payload.reference = (payload.reference or "").strip()
+    payload.paid_to = payload.paid_to.strip()
+    payload.collected_by = payload.collected_by.strip()
+    details = validate_payment(payload.payment_method, payload.paid_to, payload.reference, payload.payment_details, db=db)
     before_paid = inv.paid
     inv.paid = round(inv.paid + pay_amt, 2)
     inv.balance = max(0.0, round(inv.total - inv.paid, 2))
     db.add(PaymentCollection(invoice_id=inv.id, shipment_id=inv.shipment_id,
         date=business_today().isoformat(), amount=pay_amt,
         payment_method=payload.payment_method, paid_to=payload.paid_to,
-        collected_by=payload.collected_by, reference=payload.reference))
+        collected_by=payload.collected_by, reference=payload.reference, payment_details=details))
 
     if inv.balance <= 0:
         inv.status = "Paid"
@@ -120,18 +160,12 @@ def record_invoice_payment(
             ship.paid_to = payload.paid_to
             ship.collected_by = payload.collected_by
 
+    finish_payment_request(claim, inv.id)
+    create_audit_log(db, ctx["user_id"], ctx["display_name"], "invoices.payment", "invoice", "record_payment",
+                     resource_id=inv.id, before_data={"paid": before_paid},
+                     after_data={"paid": inv.paid, "balance": inv.balance, "status": inv.status, "reference": payload.reference}, auto_commit=False)
     db.commit()
     db.refresh(inv)
     cache_engine.invalidate_prefix("dashboard_summary")
     cache_engine.invalidate_prefix("shipments:")
-
-    log_invoice_audit(
-        db,
-        ctx["display_name"],
-        inv.id,
-        "RECORD_PAYMENT",
-        {"paid": before_paid},
-        {"paid": inv.paid, "balance": inv.balance, "status": inv.status, "collected_by": payload.collected_by}
-    )
-
     return {"message": "Payment recorded successfully", "invoice": inv}

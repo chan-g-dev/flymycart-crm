@@ -1,3 +1,4 @@
+import PaymentDetailsSummary from './PaymentDetailsSummary';
 import React, { useEffect, useState } from 'react';
 import { apiClient } from '../api/client';
 import { useAuth } from '../context/AuthContext';
@@ -70,7 +71,7 @@ export default function AccountChecks() {
             </form>
             {receipts && <p><strong>{receipts.total_count} receipts · {currency(receipts.total_amount)}</strong> across the selected filters</p>}
             <div className="table-wrap"><table className="data-table"><thead><tr><th>Date</th><th>AWB</th><th>Customer</th><th>Amount</th><th>Method</th><th>Paid to</th><th>Collected by</th><th>Reference</th></tr></thead><tbody>
-                {receiptResult.error ? <tr><td colSpan="8" role="alert">{receiptResult.error} <button className="btn btn-sm btn-outline" onClick={() => setRevision(value => value + 1)}>Retry</button></td></tr> : !receipts ? <tr><td colSpan="8">Loading receipts…</td></tr> : receipts.items.length === 0 ? <tr><td colSpan="8">No receipts in this period.</td></tr> : receipts.items.map(r => <tr key={r.id}><td>{r.date}</td><td>{r.awb || '—'}</td><td>{r.customer || '—'}</td><td>{currency(r.amount)}</td><td>{r.payment_method}</td><td>{r.paid_to}</td><td>{r.collected_by}</td><td>{r.reference || '—'}</td></tr>)}
+                {receiptResult.error ? <tr><td colSpan="8" role="alert">{receiptResult.error} <button className="btn btn-sm btn-outline" onClick={() => setRevision(value => value + 1)}>Retry</button></td></tr> : !receipts ? <tr><td colSpan="8">Loading receipts…</td></tr> : receipts.items.length === 0 ? <tr><td colSpan="8">No receipts in this period.</td></tr> : receipts.items.map(r => <tr key={r.id}><td>{r.date}</td><td>{r.awb || '—'}</td><td>{r.customer || '—'}</td><td>{currency(r.amount)}</td><td>{r.payment_method}</td><td>{r.paid_to}</td><td>{r.collected_by}</td><td>{r.reference || '—'}<PaymentDetailsSummary details={r.payment_details} /></td></tr>)}
             </tbody></table></div>
             <div className="account-check-pagination"><button className="btn btn-sm btn-outline" disabled={!receiptPage} onClick={() => setReceiptPage(p => p - 1)}>Previous</button><span>Page {receiptPage + 1}</span><button className="btn btn-sm btn-outline" disabled={!receipts || (receiptPage + 1) * 50 >= receipts.total_count} onClick={() => setReceiptPage(p => p + 1)}>Next</button></div>
         </div>

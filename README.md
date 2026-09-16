@@ -194,3 +194,24 @@ node --test src/utils/businessDates.test.js
 ```
 
 Redeploy both services to apply these changes. In Vercel, leave `VITE_API_URL` empty to use the same-origin proxy and ensure the destinations in `frontend/vercel.json` point to the actual Render service. If using a direct HTTPS API URL, set Render's `FRONTEND_URL` to the exact frontend origin.
+
+## Required payment details
+
+New payments require mode-specific details in both the UI and API. This applies to shipment collections, invoice settlements, expenses, provider payments and deposits, account transfers, wallet recharges, and completed refund payouts.
+
+- UPI (including PhonePe, Google Pay and Office QR): account owner, UPI ID and transaction reference.
+- Bank transfers: account owner, bank name, account number, IFSC and transaction reference / UTR.
+- Cheques: bank details and a six-digit cheque number.
+- Cards: owner, last four card digits and transaction reference. Do not enter a full card number or CVV.
+- Cash: named custodian or recipient; a digital transaction ID is not required.
+- Other: owner, payment method/destination description and reference.
+
+In **Settings > Payment account owners and details**, save Business, Proprietor or Individual accounts. Choosing a saved account in a payment form fills its owner and payment details. Each recorded payment retains its own snapshot. Expense remarks are separate from the transaction reference. Refunds require a completed-payout form before they can be marked Refunded.
+
+Existing records remain readable and may show ?Details not recorded (legacy)?. Unpaid bookings do not require collection details. Validation checks completeness and format; it does not verify settlement with a bank or UPI provider.
+
+Deploy frontend and backend together. The database change is `supabase/migrations/20260915_payment_details.sql`; backend startup also adds the missing nullable columns to existing SQLite/PostgreSQL tables. Apply migrations in filename order using the deployment procedure above.
+
+### Production payment release
+
+Payment retries now use database-backed request keys, and saved account edits use revision checks. See [the payment release checklist](docs/payment-release.md) for PostgreSQL verification, migration order, coordinated deployment and rollback. Production requires the updated frontend to send payment request keys.

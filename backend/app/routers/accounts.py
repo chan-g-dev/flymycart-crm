@@ -1,3 +1,5 @@
+from app.payment_requests import claim_payment_request, finish_payment_request
+from app.payment_details import validate_payment, validate_amount
 # ================================================================
 # FLY MY CART CRM - ACCOUNTS & WALLETS ROUTER (routers/accounts.py)
 # ================================================================
@@ -54,7 +56,7 @@ def get_receipts(date_from: datetime.date, date_to: datetime.date, account: Opti
     return {"total_count": count, "total_amount": money(total), "items": [
         {"id": receipt.id, "date": receipt.date, "awb": awb, "customer": customer, "center": hub,
          "amount": receipt.amount, "payment_method": receipt.payment_method, "paid_to": receipt.paid_to,
-         "collected_by": receipt.collected_by, "reference": receipt.reference}
+         "collected_by": receipt.collected_by, "reference": receipt.reference, "payment_details": receipt.payment_details}
         for receipt, awb, customer, hub in rows]}
 
 
@@ -125,18 +127,47 @@ class AccountingEntryCreate(BaseModel):
         return value
 
     date: datetime.date
-    kind: Literal["provider_payment", "provider_deposit", "expense"]
+    kind: Literal["provider_payment", "provider_deposit", "expense", "transfer"]
+    vendor: Optional[str] = Field(default=None, max_length=150)
+    payment_details: Dict[str, str] = Field(default_factory=dict)
+    payment_mode: str = Field(min_length=1, max_length=100)
+    transfer_to: Optional[str] = Field(default=None, max_length=100)
+    center: Optional[str] = Field(default=None, max_length=100)
+    shipment_id: Optional[str] = Field(default=None, max_length=50)
     provider: Optional[str] = None
     amount: float = Field(gt=0, allow_inf_nan=False)
-    reference: str = Field(min_length=1, max_length=200)
+    reference: str = Field(default="", max_length=100)
     account: str = Field(min_length=1, max_length=100)
 
 
 @accounts_router.post("/entries", status_code=201)
-def record_accounting_entry(payload: AccountingEntryCreate, ctx=Depends(require_super_admin), db: Session = Depends(get_db)):
-    if not payload.reference.strip() or not payload.account.strip():
+def record_accounting_entry(payload: AccountingEntryCreate, request: Request, ctx=Depends(require_super_admin), db: Session = Depends(get_db)):
+    claim = claim_payment_request(db, request, ctx, payload)
+    if claim and claim.resource_id:
+        return {"id": claim.resource_id, "status": "recorded"}
+    if not payload.account.strip():
         raise HTTPException(status_code=400, detail="Reference and payment account are required")
-    if payload.kind != "expense":
+    payload.amount = validate_amount(payload.amount)
+    payload.payment_details = validate_payment(payload.payment_mode, payload.account, payload.reference, payload.payment_details, db=db)
+    if payload.kind == "expense" and not (payload.vendor or "").strip():
+        raise HTTPException(400, "Vendor / person paid is required")
+    payload.account = payload.account.strip()
+    payload.reference = payload.reference.strip()
+    if payload.shipment_id:
+        shipment = db.query(Shipment).filter(Shipment.id == payload.shipment_id).first()
+        if not shipment:
+            raise HTTPException(400, "Shipment not found")
+        if payload.kind != "expense":
+            raise HTTPException(400, "Only expenses can be linked to shipments")
+        payload.center = shipment.center
+    if payload.kind == "transfer":
+        payload.transfer_to = (payload.transfer_to or "").strip()
+        if not payload.transfer_to or payload.transfer_to.casefold() == payload.account.casefold():
+            raise HTTPException(400, "Choose two different accounts for a transfer")
+        payload.provider = None
+    else:
+        payload.transfer_to = None
+    if payload.kind in ("provider_payment", "provider_deposit"):
         config = db.query(SystemSettings).first()
         providers = (config.config_json if config else {}).get("postpaidProviders", [])
         if payload.provider not in [p["name"] for p in providers]:
@@ -152,7 +183,8 @@ def record_accounting_entry(payload: AccountingEntryCreate, ctx=Depends(require_
     entry = AccountingEntry(**{**payload.model_dump(), "date": payload.date.isoformat()}, created_by=ctx["user_id"])
     db.add(entry)
     db.flush()
-    create_audit_log(db, ctx["user_id"], ctx["display_name"], "accounts.entry", "accounting_entry", "create", resource_id=entry.id, after_data={"kind": entry.kind, "category": entry.category, "amount": entry.amount, "reference": entry.reference}, auto_commit=False)
+    finish_payment_request(claim, entry.id)
+    create_audit_log(db, ctx["user_id"], ctx["display_name"], "accounts.entry", "accounting_entry", "create", resource_id=entry.id, after_data={"kind": entry.kind, "category": entry.category, "amount": entry.amount, "reference": entry.reference, "account": entry.account, "transfer_to": entry.transfer_to, "center": entry.center, "shipment_id": entry.shipment_id}, auto_commit=False)
     db.commit()
     return {"id": entry.id, "status": "recorded"}
 
@@ -272,6 +304,8 @@ def get_accounts_summary(
 
     return {
         "expense_categories": sorted({row[0] or "General" for row in db.query(AccountingEntry.category).filter(AccountingEntry.kind == "expense").distinct().all()}, key=str.casefold),
+        "expenses_by_category": {category or "General": money(amount) for category, amount in db.query(AccountingEntry.category, func.sum(AccountingEntry.amount)).filter(AccountingEntry.kind == "expense").group_by(AccountingEntry.category).all()} if can_view_financials else None,
+        "total_courier_cost": money(db.query(func.coalesce(func.sum(case((Shipment.cost_reconciled.is_(True), Shipment.actual_provider_cost), else_=Shipment.provider_cost)), 0)).scalar()) if can_view_financials else None,
         "total_sales": total_sales,
         "total_sales_with_gst": total_sales_with_gst,
         "gst_total": gst_total,
@@ -305,26 +339,38 @@ def record_wallet_recharge(
     ctx: Dict[str, Any] = Depends(require_permission(PermissionCode.ACCOUNTS_EDIT)),
     db: Session = Depends(get_db)
 ):
+    claim = claim_payment_request(db, request, ctx, payload)
+    if claim and claim.resource_id:
+        return db.get(WalletTransaction, claim.resource_id)
     if payload.amount <= 0:
         raise HTTPException(status_code=400, detail="Recharge amount must be greater than 0")
 
+    payload.amount = validate_amount(payload.amount)
+    config = db.query(SystemSettings).with_for_update().first()
+    wallets = (config.config_json or {}).get('prepaidWallets', []) if config else []
+    wallet = next((w['name'] for w in wallets if w['name'].strip().casefold() == payload.wallet.strip().casefold()), None)
+    if not wallet:
+        raise HTTPException(400, 'Select a configured prepaid wallet')
+    payload.wallet = wallet
+    payload.paid_from = payload.paid_from.strip()
+    payload.reference = (payload.reference or '').strip()
+    details = validate_payment(payload.payment_method, payload.paid_from, payload.reference, payload.payment_details, db=db)
     tx = WalletTransaction(
+        payment_details={**details, "payment_method": payload.payment_method},
         id=f"tx_{uuid.uuid4().hex[:8]}",
         date=payload.date,
         wallet=payload.wallet.strip(),
         type="recharge",
         amount=payload.amount,
         paid_from=payload.paid_from,
-        reference=payload.reference or "Bank Transfer",
+        reference=payload.reference,
         awb="-",
-        notes=f"Bank Transfer ({payload.paid_from} -> {payload.wallet} Provider Wallet)",
+        notes=f"{payload.payment_method} ({payload.paid_from} -> {payload.wallet} Provider Wallet)",
         balance_after=0.0
     )
     db.add(tx)
     rebuild_wallet_balances(db, tx.wallet)
-    db.commit()
-    db.refresh(tx)
-
+    finish_payment_request(claim, tx.id)
     create_audit_log(
         db=db,
         actor_user_id=ctx["user_id"],
@@ -334,7 +380,13 @@ def record_wallet_recharge(
         resource_id=tx.id,
         action="wallet_recharge",
         after_data={"wallet": payload.wallet, "amount": payload.amount, "paid_from": payload.paid_from},
-        ip_address=request.client.host if request.client else None
+        ip_address=request.client.host if request.client else None,
+        auto_commit=False
     )
-
+    db.commit()
+    db.refresh(tx)
     return tx
+
+# Workspace endpoints share the accounts permission and URL prefix.
+from app.routers.account_workspace import workspace_router
+accounts_router.include_router(workspace_router)

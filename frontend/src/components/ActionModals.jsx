@@ -1,3 +1,4 @@
+import PaymentDetails from './PaymentDetails';
 import { businessDate } from '../utils/businessDates';
 import React, { useState } from 'react';
 import { X, Check, RotateCcw, MessageSquare, Send, Save, CreditCard, Building, Truck, Loader2 } from 'lucide-react';
@@ -7,6 +8,7 @@ export const WalletRechargeModal = ({ isOpen, onClose, walletName, onRecharged, 
     const [amount, setAmount] = useState('');
     const [paidFrom, setPaidFrom] = useState('Current Account (HDFC)');
     const [reference, setReference] = useState('');
+    const [paymentDetails, setPaymentDetails] = useState({});
     const [isSubmitting, setIsSubmitting] = useState(false);
     const todayStr = businessDate();
 
@@ -25,7 +27,7 @@ export const WalletRechargeModal = ({ isOpen, onClose, walletName, onRecharged, 
                 date: todayStr,
                 amount: amt,
                 paid_from: paidFrom,
-                reference: reference || 'Bank Transfer'
+                reference, payment_method: 'Bank Transfer', payment_details: paymentDetails
             });
             alert(`₹${amt.toLocaleString('en-IN')} transferred to ${walletName} wallet successfully!`);
             onRecharged();
@@ -39,10 +41,10 @@ export const WalletRechargeModal = ({ isOpen, onClose, walletName, onRecharged, 
 
     if (!isOpen) return null;
 
-    const paidFromAccounts = settings?.paidToAccounts?.filter(a => a.toLowerCase().includes('account') || a.toLowerCase().includes('bank')) || [
-        'Current Account (HDFC)',
-        'Savings Account (ICICI)'
-    ];
+    const paidFromAccounts = [...new Set([
+        ...(settings?.paidToAccounts || []),
+        ...(settings?.paymentAccounts || []).filter(p => p.method === 'Bank Transfer').map(p => p.name),
+    ])];
 
     return (
         <div className="modal-overlay">
@@ -60,6 +62,7 @@ export const WalletRechargeModal = ({ isOpen, onClose, walletName, onRecharged, 
                     <button className="modal-close" onClick={onClose} disabled={isSubmitting}><X size={18} /></button>
                 </div>
                 <form onSubmit={handleSubmit}>
+                    <PaymentDetails onAccountChange={setPaidFrom} method="Bank Transfer" value={paymentDetails} onChange={setPaymentDetails} profiles={settings?.paymentAccounts || []} />
                     <div className="form-grid" style={{ gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
                         <div className="form-group">
                             <label>Transfer Amount (₹) <span className="required">*</span></label>
@@ -67,13 +70,13 @@ export const WalletRechargeModal = ({ isOpen, onClose, walletName, onRecharged, 
                         </div>
                         <div className="form-group">
                             <label>Paid From Bank Account</label>
-                            <select value={paidFrom} onChange={e => setPaidFrom(e.target.value)}>
-                                {paidFromAccounts.map(a => <option key={a} value={a}>{a}</option>)}
+                            <select required value={paidFrom} onChange={e => setPaidFrom(e.target.value)}>
+                                <option value="">Select bank account</option>{paidFromAccounts.map(a => <option key={a} value={a}>{a}</option>)}
                             </select>
                         </div>
                         <div className="form-group" style={{ gridColumn: '1 / -1' }}>
                             <label>Reference / Bank UTR Number</label>
-                            <input type="text" value={reference} onChange={e => setReference(e.target.value)} placeholder="e.g. RTGS/HDFC982103..." />
+                            <input required minLength={4} maxLength={100} type="text" value={reference} onChange={e => setReference(e.target.value)} placeholder="e.g. RTGS/HDFC982103..." />
                         </div>
                     </div>
 
@@ -110,7 +113,7 @@ export const RefundModal = ({ isOpen, onClose, onCreated }) => {
         invoice_no: '',
         amount: '',
         reason: '',
-        refund_method: 'UPI: 9820011223@paytm'
+        refund_method: ''
     });
     const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -314,13 +317,13 @@ const INITIAL_B2B_FORM = {
     payment_terms: 'Net 30 Days'
 };
 
-export const B2BCompanyModal = ({ isOpen, onClose, onCreated }) => {
+export const B2BCompanyModal = ({ isOpen, onClose, onCreated, settings }) => {
     const [form, setForm] = useState(INITIAL_B2B_FORM);
     const [isSubmitting, setIsSubmitting] = useState(false);
 
     React.useEffect(() => {
         if (isOpen) {
-            setForm(INITIAL_B2B_FORM);
+            setForm({...INITIAL_B2B_FORM, credit_limit: settings?.defaultB2BCreditLimit ?? 100000, credit_period_days: settings?.defaultB2BCreditDays ?? 30, payment_terms: `Net ${settings?.defaultB2BCreditDays ?? 30} Days`});
             setIsSubmitting(false);
         }
     }, [isOpen]);
@@ -331,8 +334,8 @@ export const B2BCompanyModal = ({ isOpen, onClose, onCreated }) => {
         try {
             await apiClient.createB2BCompany({
                 ...form,
-                credit_limit: parseFloat(form.credit_limit) || 100000,
-                credit_period_days: parseInt(form.credit_period_days) || 30
+                credit_limit: Number(form.credit_limit),
+                credit_period_days: Number(form.credit_period_days)
             });
             alert(`B2B Company ${form.company_name} registered successfully!`);
             onCreated();
@@ -389,13 +392,7 @@ export const B2BCompanyModal = ({ isOpen, onClose, onCreated }) => {
                         </div>
                         <div className="form-group">
                             <label>Credit Period (Days)</label>
-                            <select value={form.credit_period_days} onChange={e => setForm({ ...form, credit_period_days: e.target.value, payment_terms: `Net ${e.target.value} Days` })}>
-                                <option value="30">30 Days</option>
-                                <option value="40">40 Days</option>
-                                <option value="50">50 Days</option>
-                                <option value="60">60 Days</option>
-                                <option value="90">90 Days</option>
-                            </select>
+                            <input required type="number" min="1" max="365" step="1" value={form.credit_period_days} onChange={e => setForm({...form, credit_period_days: e.target.value, payment_terms: `Net ${e.target.value} Days`})} />
                         </div>
                         <div className="form-group">
                             <label>Payment Terms</label>

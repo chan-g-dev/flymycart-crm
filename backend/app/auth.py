@@ -261,7 +261,7 @@ def clear_session_cookie(response: Response):
 
 SENSITIVE_KEYS = {
     "password", "password_hash", "token", "session_token", "otp",
-    "mfa_secret", "recovery_codes", "id_proof", "secret", "secret_key"
+    "mfa_secret", "recovery_codes", "id_proof", "secret", "secret_key", "account_number"
 }
 
 def sanitize_audit_data(data: Any) -> Any:
@@ -372,21 +372,7 @@ def get_current_user_context(
                         "mfa_verified_at": session.mfa_verified_at
                     }
 
-        # Fallback for dev / super_admin default
-        role_key = (x_user_role or "super_admin").lower().strip()
-        user_name = x_user_name or "Fly My Cart"
-        return {
-            "user_id": "055d37da-38d0-4fe9-9ca3-4b956dede81d",
-            "email": "admin@flymycart.com",
-            "role_id": role_key,
-            "role_name": "Super Admin" if role_key == "super_admin" else role_key,
-            "user_name": user_name,
-            "auth_source": "header_fallback",
-            "permissions": {"*": "all", "shipments.view": "all", "shipments.add": "all", "viewCostMargins": True, "viewFinancials": True},
-            "is_super_admin": True,
-            "mfa_verified": True,
-            "mfa_verified_at": datetime.datetime.utcnow()
-        }
+        raise HTTPException(status_code=401, detail="Authentication required. Please log in.")
     finally:
         db.close()
 

@@ -364,9 +364,29 @@ class Invoice(Base):
     shipment_rel = relationship("Shipment", back_populates="invoice_rel")
     payments = relationship("PaymentCollection", cascade="all, delete-orphan")
 
+    @property
+    def customer_phone(self):
+        customer = self.customer_rel
+        shipment = self.shipment_rel
+        return ((customer.whatsapp or customer.mobile) if customer else None) or (shipment.sender_phone if shipment else None)
+
+    @property
+    def customer_email(self):
+        return (self.customer_rel.email if self.customer_rel else None) or (self.shipment_rel.sender_email if self.shipment_rel else None)
+
+
+
+class PaymentRequest(Base):
+    __tablename__ = "payment_requests"
+    id = Column(String(64), primary_key=True)
+    fingerprint = Column(String(64), nullable=False)
+    resource_id = Column(String(50), nullable=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
+
 
 class PaymentCollection(Base):
     __tablename__ = "payment_collections"
+    payment_details = Column(JSON, nullable=True)
 
     id = Column(String(50), primary_key=True, default=lambda: f"pay_{uuid.uuid4().hex[:12]}")
     invoice_id = Column(String(50), ForeignKey("invoices.id"), nullable=False, index=True)
@@ -398,7 +418,15 @@ class AccountCheck(Base):
 
 class AccountingEntry(Base):
     __tablename__ = "accounting_entries"
+    payment_details = Column(JSON, nullable=True)
     category = Column(String(100), nullable=True)
+    vendor = Column(String(150), nullable=True)
+    payment_mode = Column(String(100), nullable=True)
+    transfer_to = Column(String(100), nullable=True)
+    center = Column(String(100), nullable=True)
+    shipment_id = Column(String(50), ForeignKey("shipments.id"), nullable=True, index=True)
+    bill_key = Column(String(500), nullable=True)
+    bill_name = Column(String(200), nullable=True)
     id = Column(String(50), primary_key=True, default=lambda: f"entry_{uuid.uuid4().hex[:16]}")
     date = Column(String(20), nullable=False, index=True)
     kind = Column(String(30), nullable=False)
@@ -412,6 +440,7 @@ class AccountingEntry(Base):
 
 class WalletTransaction(Base):
     __tablename__ = "wallet_transactions"
+    payment_details = Column(JSON, nullable=True)
 
     id = Column(String(50), primary_key=True, default=lambda: f"tx_{uuid.uuid4().hex[:16]}")
     date = Column(String(20), nullable=False, index=True)
@@ -483,6 +512,7 @@ class ReconciliationItem(Base):
 
 class Refund(Base):
     __tablename__ = "refunds"
+    payment_details = Column(JSON, nullable=True)
 
     id = Column(String(50), primary_key=True, default=lambda: f"ref_{uuid.uuid4().hex[:16]}")
     customer = Column(String(100), nullable=False)

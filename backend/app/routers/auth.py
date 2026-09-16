@@ -75,14 +75,6 @@ async def login(
     raw_identifier = payload.email.strip()
     email = raw_identifier.lower()
     plain_password = payload.password
-    # 0. Master Super Admin instant self-healing bootstrap
-    if email == "admin@flymycart.com" and (plain_password == "flymycart@2190" or (os.getenv("BOOTSTRAP_ADMIN_PASSWORD") and plain_password == os.getenv("BOOTSTRAP_ADMIN_PASSWORD"))):
-        try:
-            from app.seed import seed_super_admin
-            seed_super_admin(db)
-        except Exception:
-            pass
-
     # 1. Flexible lookup with eager loading (loads user, roles, permissions, centers in 1 SQL query)
     profile = db.query(UserProfile).options(
         joinedload(UserProfile.roles).joinedload(Role.permissions),
@@ -212,24 +204,12 @@ async def login(
             detail=f"Access Denied: Account status is '{profile.status}'. Please contact Super Admin.",
         )
 
-    # 5. Fast password validation (with master admin auto-pass)
+    # Authenticate exclusively against this account's saved password.
     password_valid = False
-    is_master_admin = (
-        (email == "admin@flymycart.com" and plain_password == "flymycart@2190") or
-        (email == "chanakyagangabathina77@gmail.com" and plain_password == "Chanu@1234") or
-        (os.getenv("BOOTSTRAP_ADMIN_PASSWORD") and plain_password == os.getenv("BOOTSTRAP_ADMIN_PASSWORD"))
-    )
-
-    if is_master_admin:
+    if profile.password_hash and verify_password(plain_password, profile.password_hash):
         password_valid = True
-        profile.role = "super_admin"
-        profile.status = "active"
-        profile.password_hash = hash_password(plain_password)
-    elif profile.password_hash:
-        if verify_password(plain_password, profile.password_hash):
-            password_valid = True
-            if not profile.password_hash.startswith("pbkdf2_sha256$"):
-                profile.password_hash = hash_password(plain_password)
+        if not profile.password_hash.startswith("pbkdf2_sha256$"):
+            profile.password_hash = hash_password(plain_password)
     if not password_valid:
         create_audit_log(
             db=db, actor_user_id=profile.id, actor_name=profile.display_name,

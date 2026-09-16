@@ -1,0 +1,25 @@
+﻿.invoice-logo-customizer { position: relative; display: flex; flex-direction: column; align-items: flex-start; gap: 5px; }
+.invoice-selected-logo { height: 48px; width: auto; max-width: 235px; object-fit: contain; display: block; }
+.invoice-logo-change { display: inline-flex; gap: 5px; align-items: center; border: 1px solid #d9e5ff; border-radius: 4px; padding: 4px 7px; background: #f4f8ff; color: #175bda; font: 11px Arial, sans-serif; cursor: pointer; }
+.invoice-logo-picker { position: absolute; top: 100%; left: 0; width: min(500px, calc(100vw - 80px)); z-index: 20; border: 1px solid var(--card-border); border-radius: 10px; padding: 14px; background: var(--card-bg, white); color: var(--text-main); box-shadow: 0 12px 40px #10264d30; }
+.invoice-logo-picker header { display: flex; justify-content: space-between; align-items: start; gap: 10px; }
+.invoice-logo-picker h4 { margin: 0; font-size: 14px; }
+.invoice-logo-picker p { font-size: 11px; line-height: 1.5; margin: 5px 0 12px; color: var(--text-muted); }
+.invoice-logo-picker button { cursor: pointer; font-family: inherit; }
+.invoice-logo-picker button:disabled { opacity: .55; cursor: default; }
+.invoice-logo-picker header > button { background: none; border: 0; color: var(--text-muted); }
+.invoice-logo-options { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.invoice-logo-options button { border: 1px solid #dce3ec; border-radius: 6px; padding: 9px; background: #fff; color: #152d50; text-align: left; }
+.invoice-logo-options button.selected { border-color: #1965ef; outline: 2px solid #1965ef; outline-offset: -2px; background: #f5f9ff; }
+.invoice-logo-options img { width: 100%; height: 58px; object-fit: contain; }
+.invoice-logo-options span { display: flex; justify-content: space-between; align-items: center; font-size: 11px; font-weight: 700; }
+.invoice-logo-options small { display: block; font-size: 10px; color: #64748b; margin-top: 3px; }
+.invoice-logo-picker-footer { display: flex; justify-content: space-between; gap: 8px; margin-top: 14px; }
+.invoice-logo-picker-footer > div { display: flex; gap: 7px; }
+.invoice-logo-picker-footer button { border: 1px solid #dce3ec; background: #fff; color: #175bda; padding: 7px 10px; border-radius: 4px; font-size: 11px; }
+.invoice-logo-picker-footer .invoice-logo-save { background: #0755ee; border-color: #0755ee; color: white; }
+.invoice-logo-original-preview { width: 160px; height: 40px; object-fit: contain; margin-top: 10px; background: white; }
+.invoice-logo-controls[role=status], .invoice-logo-controls[role=alert] { font-size: 11px; color: var(--text-muted); }
+.invoice-logo-customizer :focus-visible { outline: 2px solid #0755ee; outline-offset: 3px; }
+@media (max-width: 480px) { .invoice-logo-picker { position: fixed; top: 10%; left: 12px; width: calc(100vw - 24px); max-height: 80dvh; overflow: auto; }.invoice-logo-picker-footer { flex-wrap: wrap; } }
+@media print { .invoice-logo-controls, .invoice-logo-picker { display: none !important; }.invoice-selected-logo { height: 48px !important; max-width: 235px !important; } }

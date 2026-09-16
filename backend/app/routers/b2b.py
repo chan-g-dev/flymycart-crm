@@ -11,7 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Query, Response
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import Customer, Shipment, B2BCompany, AuditLog
+from app.models import Customer, Shipment, B2BCompany, AuditLog, SystemSettings
 from app.schemas import B2BCompanyCreate, B2BCompanyOut
 from app.collections import shipment_total_map, shipment_paid_map
 from app.finance_engine import calculate_b2b_aging_buckets
@@ -90,7 +90,7 @@ def get_b2b_summary(
             c_billed = round(sum(billed.get(s.id, float(s.price or 0.0)) for s in c_ships), 2)
             c_paid = round(sum(paid.get(s.id, 0.0) for s in c_ships), 2)
             c_out = round(c_billed - c_paid, 2)
-            limit = float(comp.credit_limit or 100000.0)
+            limit = float(comp.credit_limit if comp.credit_limit is not None else 100000.0)
             util_pct = round((c_out / limit) * 100, 1) if limit > 0 else 0.0
 
             status_str = "Limit Exceeded" if c_out > limit else ("Payment Due" if c_out > 0 else "Good Standing")
@@ -119,7 +119,7 @@ def get_b2b_summary(
             c_billed = round(sum(billed.get(s.id, float(s.price or 0.0)) for s in ships), 2)
             c_paid = round(sum(paid.get(s.id, 0.0) for s in ships), 2)
             c_out = round(c_billed - c_paid, 2)
-            limit = float(c.credit_limit or 100000.0)
+            limit = float(c.credit_limit if c.credit_limit is not None else 100000.0)
             util_pct = round((c_out / limit) * 100, 1) if limit > 0 else 0.0
 
             status_str = "Limit Exceeded" if c_out > limit else ("Payment Due" if c_out > 0 else "Good Standing")
@@ -199,6 +199,16 @@ def create_b2b_company(
     if existing:
         raise HTTPException(status_code=400, detail=f"Company '{payload.company_name}' already registered.")
 
+    config_row = db.query(SystemSettings).first()
+    config = (config_row.config_json or {}) if config_row else {}
+    values = payload.model_dump()
+    if 'credit_limit' not in payload.model_fields_set:
+        values['credit_limit'] = config.get('defaultB2BCreditLimit', 100000)
+    if 'credit_period_days' not in payload.model_fields_set:
+        values['credit_period_days'] = config.get('defaultB2BCreditDays', 30)
+    if 'payment_terms' not in payload.model_fields_set:
+        values['payment_terms'] = f"Net {values['credit_period_days']} Days"
+    payload = B2BCompanyCreate.model_validate(values)
     comp = B2BCompany(
         company_name=payload.company_name.strip(),
         contact_person=payload.contact_person.strip(),
@@ -206,7 +216,7 @@ def create_b2b_company(
         email=payload.email.strip() if payload.email else None,
         gst_number=payload.gst_number.strip() if payload.gst_number else None,
         billing_address=payload.billing_address.strip() if payload.billing_address else None,
-        credit_limit=payload.credit_limit or 100000.0,
+        credit_limit=payload.credit_limit,
         credit_period_days=payload.credit_period_days or 30,
         payment_terms=payload.payment_terms or f"Net {payload.credit_period_days or 30} Days"
     )

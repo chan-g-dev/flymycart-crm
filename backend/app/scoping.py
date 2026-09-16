@@ -2,7 +2,7 @@
 from fastapi import HTTPException
 from sqlalchemy import event, select, or_
 from sqlalchemy.orm import Session, with_loader_criteria
-from app.models import Customer, Shipment, Invoice, BookingRequest, Refund, Followup, CommunicationLog, PaymentCollection, B2BCompany, AccountCheck
+from app.models import Customer, Shipment, Invoice, BookingRequest, Refund, Followup, CommunicationLog, PaymentCollection, B2BCompany, AccountCheck, AccountingEntry
 
 
 def policies(centers):
@@ -20,6 +20,7 @@ def policies(centers):
         CommunicationLog: CommunicationLog.customer_id.in_(customers),
         PaymentCollection: PaymentCollection.shipment_id.in_(shipments),
         AccountCheck: AccountCheck.center.in_(centers),
+        AccountingEntry: AccountingEntry.center.in_(centers),
     }
 
 

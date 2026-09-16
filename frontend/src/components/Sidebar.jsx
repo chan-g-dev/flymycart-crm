@@ -19,11 +19,9 @@ import {
 } from 'lucide-react';
 import { FlyMyCartLogo } from './FlyMyCartLogo';
 
-const Sidebar = ({ currentPage, activeSubPage, onNavigate, onSubNavigate, stats, settings, isOpen = false, onClose }) => {
-    const [isAccountsOpen, setIsAccountsOpen] = useState(false);
+const Sidebar = ({ currentPage, activeSubPage, onNavigate, onSubNavigate, stats, isOpen = false, onClose }) => {
+    const [isAccountsOpen, setIsAccountsOpen] = useState(currentPage === 'accounts');
     const [isReportsOpen, setIsReportsOpen] = useState(false);
-    const [isPrepaidOpen, setIsPrepaidOpen] = useState(false);
-    const [isPostpaidOpen, setIsPostpaidOpen] = useState(false);
     const [isDarkMode, setIsDarkMode] = useState(false);
 
     useEffect(() => {
@@ -128,27 +126,16 @@ const Sidebar = ({ currentPage, activeSubPage, onNavigate, onSubNavigate, stats,
 
                 {isAccountsOpen && (
                     <div className="sidebar-submenu">
-                        <button type="button" className={`sidebar-sublink ${activeSubPage === 'customer_money' ? 'active' : ''}`} onClick={() => handleSubNavigate('accounts', 'customer_money')}>
+                        <button type="button" className={`sidebar-sublink ${!activeSubPage || activeSubPage === 'overview' ? 'active' : ''}`} onClick={() => handleSubNavigate('accounts', 'overview')}>Overview</button>
+                        <button type="button" className={`sidebar-sublink ${activeSubPage === 'shipment_accounts' ? 'active' : ''}`} onClick={() => handleSubNavigate('accounts', 'shipment_accounts')}>Shipment Accounts</button>
+                        <button type="button" className={`sidebar-sublink ${['customer_money', 'collections'].includes(activeSubPage) ? 'active' : ''}`} onClick={() => handleSubNavigate('accounts', 'customer_money')}>
                             Customer Collections
                         </button>
-                        <button type="button" className="sidebar-sublink sidebar-account-group" aria-expanded={isPrepaidOpen} aria-controls="sidebar-prepaid-wallets" onClick={() => setIsPrepaidOpen(!isPrepaidOpen)}>
-                            <span>Prepaid Wallets</span>{isPrepaidOpen ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
-                        </button>
-                        {isPrepaidOpen && <div id="sidebar-prepaid-wallets" className="sidebar-account-children">
-                        {(settings?.prepaidWallets || [{ name: 'ICL' }, { name: 'BRV' }]).map(wallet => {
-                            const section = `wallet-${encodeURIComponent(wallet.name)}`;
-                            return <button key={section} type="button" className={`sidebar-sublink ${activeSubPage === section ? 'active' : ''}`} onClick={() => handleSubNavigate('accounts', section)}>{wallet.name} Wallet</button>;
-                        })}
-                        </div>}
-                        <button type="button" className="sidebar-sublink sidebar-account-group" aria-expanded={isPostpaidOpen} aria-controls="sidebar-postpaid-accounts" onClick={() => setIsPostpaidOpen(!isPostpaidOpen)}>
-                            <span>Postpaid Accounts</span>{isPostpaidOpen ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
-                        </button>
-                        {isPostpaidOpen && <div id="sidebar-postpaid-accounts" className="sidebar-account-children">
-                        {(settings?.postpaidProviders || [{ name: 'Aramex' }, { name: 'Blue Dart' }]).map(provider => {
-                            const section = `provider-${encodeURIComponent(provider.name)}`;
-                            return <button key={section} type="button" className={`sidebar-sublink ${activeSubPage === section ? 'active' : ''}`} onClick={() => handleSubNavigate('accounts', section)}>{provider.name} Account</button>;
-                        })}
-                        </div>}
+                        <button type="button" className={`sidebar-sublink ${['prepaid', 'wallets'].includes(activeSubPage) || activeSubPage?.startsWith('wallet-') ? 'active' : ''}`} onClick={() => handleSubNavigate('accounts', 'prepaid')}>Prepaid</button>
+                        <button type="button" className={`sidebar-sublink ${activeSubPage === 'postpaid' || activeSubPage?.startsWith('provider-') ? 'active' : ''}`} onClick={() => handleSubNavigate('accounts', 'postpaid')}>Postpaid</button>
+                        {[['expenses', 'Expenses'], ['banks', 'Bank Accounts'], ['transfers', 'Account Transfers'], ['b2b', 'B2B Outstanding'], ['refunds', 'Refunds / Adjustments']].map(([section, label]) => (
+                            <button key={section} type="button" className={`sidebar-sublink ${activeSubPage === section ? 'active' : ''}`} onClick={() => handleSubNavigate('accounts', section)}>{label}</button>
+                        ))}
                         <button type="button" className={`sidebar-sublink ${activeSubPage === 'account_checks' ? 'active' : ''}`} onClick={() => handleSubNavigate('accounts', 'account_checks')}>Receipts &amp; Account Checks</button>
                         <button type="button" className={`sidebar-sublink ${activeSubPage === 'reconciliation' ? 'active' : ''}`} onClick={() => handleSubNavigate('accounts', 'reconciliation')}>
                             Reconciliation

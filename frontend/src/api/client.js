@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { createPaymentSender } from '../utils/paymentRequests';
 
 const getApiBaseUrl = () => {
     if (import.meta.env.VITE_API_URL) {
@@ -46,6 +47,10 @@ api.interceptors.response.use(
         return Promise.reject(error);
     }
 );
+
+let paymentStorage;
+try { paymentStorage = globalThis.sessionStorage; } catch { /* Browser storage is optional. */ }
+const paymentMutation = createPaymentSender({ send: config => api.request(config), storage: paymentStorage, crypto: globalThis.crypto });
 
 export const apiClient = {
     // Staff Auth & Sessions
@@ -102,12 +107,15 @@ export const apiClient = {
     getAdminAuditLog: (id) => api.get(`/admin/audit-log/${id}`).then(res => res.data),
     getAllAuditLogs: (params) => api.get('/admin/audit-logs', { params }).then(res => res.data),
 
+    getInvoiceBranding: () => api.get('/invoices/branding').then(res => res.data),
+    updateInvoiceBranding: (logo) => api.put('/invoices/branding', { logo }).then(res => res.data),
+
     // Global Search
     globalSearch: (q) => api.get('/search/', { params: { q } }).then(res => res.data),
 
     // Dashboard
     getDashboardSummary: () => api.get('/dashboard/summary').then(res => res.data),
-    recordAccountingEntry: (data) => api.post('/accounts/entries', data).then(res => res.data),
+    recordAccountingEntry: (data) => paymentMutation('post', '/accounts/entries', data),
 
     // Customers
     getCustomers: (params) => api.get('/customers', { params }).then(res => res.data),
@@ -124,24 +132,33 @@ export const apiClient = {
 
     // Shipments
     getShipments: (params) => api.get('/shipments', { params }).then(res => res.data),
-    createShipment: (data) => api.post('/shipments', data).then(res => res.data),
+    createShipment: (data) => paymentMutation('post', '/shipments', data),
     updateShipmentStatus: (id, data) => api.patch(`/shipments/${id}/status`, data).then(res => res.data),
     deleteShipment: (id) => api.delete(`/shipments/${id}`).then(res => res.data),
 
     // Invoices
     getInvoices: (params) => api.get('/invoices', { params }).then(res => res.data),
     getInvoice: (id) => api.get(`/invoices/${id}`).then(res => res.data),
-    recordInvoicePayment: (id, data) => api.post(`/invoices/${id}/payments`, data).then(res => res.data),
+    recordInvoicePayment: (id, data) => paymentMutation('post', `/invoices/${id}/payments`, data),
 
     // Accounts & Wallets
     getAccountsSummary: () => api.get('/accounts/summary').then(res => res.data),
+    getAccountsOverview: (params) => api.get('/accounts/overview', { params }).then(res => res.data),
+    getShipmentLedger: (params) => api.get('/accounts/shipment-ledger', { params }).then(res => res.data),
+    getAccountingEntries: (params) => api.get('/accounts/entries', { params }).then(res => res.data),
+    uploadExpenseBill: (id, file) => {
+        const body = new FormData(); body.append('file', file);
+        return api.post(`/accounts/entries/${id}/bill`, body, { headers: { 'Content-Type': 'multipart/form-data' } }).then(res => res.data);
+    },
+    downloadExpenseBill: (id) => api.get(`/accounts/entries/${id}/bill`, { responseType: 'blob' }).then(res => res.data),
+
     getDateRangeReport: (date_from, date_to) => api.get('/reports/range', { params: { date_from, date_to } }).then(res => res.data),
     getAccountReceipts: params => api.get('/accounts/receipts', { params }).then(res => res.data),
     getAccountCheckOptions: () => api.get('/accounts/check-options').then(res => res.data),
     getAccountChecks: params => api.get('/accounts/checks', { params }).then(res => res.data),
     recordAccountCheck: data => api.post('/accounts/checks', data).then(res => res.data),
     getWalletTransactions: (walletName) => api.get(`/accounts/wallets/${walletName}/transactions`).then(res => res.data),
-    rechargeWallet: (data) => api.post('/accounts/wallets/recharge', data).then(res => res.data),
+    rechargeWallet: (data) => paymentMutation('post', '/accounts/wallets/recharge', data),
 
     // B2B Corporate Credit
     getB2BSummary: () => api.get('/b2b/summary').then(res => res.data),
@@ -160,7 +177,7 @@ export const apiClient = {
     // Refunds
     getRefunds: () => api.get('/refunds/').then(res => res.data),
     createRefund: (data) => api.post('/refunds/', data).then(res => res.data),
-    updateRefundStatus: (id, status, extra = {}) => api.patch(`/refunds/${id}/status`, { status, ...extra }).then(res => res.data),
+    updateRefundStatus: (id, status, extra = {}) => paymentMutation('patch', `/refunds/${id}/status`, { status, ...extra }),
 
     // Follow-ups & Comms
     getFollowups: () => api.get('/followups/').then(res => res.data),
@@ -176,6 +193,8 @@ export const apiClient = {
     getLiveDashboard: () => api.get('/reports/live', { params: { center: 'All Centers' } }).then(res => res.data),
 
     // Settings
+    getExpenseCategories: () => api.get('/accounts/expense-categories').then(res => res.data),
+    updateExpenseCategories: (categories) => api.put('/accounts/expense-categories', { categories }).then(res => res.data),
     getSettings: () => api.get('/settings/').then(res => res.data),
     updateSettings: (data) => api.put('/settings/', data).then(res => res.data),
     getSystemAuditLogs: (limit = 50) => api.get('/settings/audit-logs', { params: { limit } }).then(res => res.data)

@@ -1,0 +1,83 @@
+﻿/* Portal keeps the selected invoice separate from the CRM page when printing. */
+@media print {
+    @page invoice-only { size: A4 portrait; margin: 0; }
+    html:has(.invoice-print-overlay), body:has(.invoice-print-overlay) {
+        margin: 0 !important;
+        padding: 0 !important;
+        height: auto !important;
+        min-height: 0 !important;
+        overflow: visible !important;
+        background: white !important;
+    }
+    body:has(> .invoice-print-overlay) > :not(.invoice-print-overlay) {
+        display: none !important;
+    }
+    body > .invoice-print-overlay {
+        page: invoice-only;
+        display: block !important;
+        position: static !important;
+        inset: auto !important;
+        width: 100% !important;
+        height: auto !important;
+        min-height: 0 !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        overflow: visible !important;
+        background: white !important;
+        backdrop-filter: none !important;
+        transform: none !important;
+    }
+    body > .invoice-print-overlay > .modal {
+        display: block !important;
+        position: static !important;
+        width: 100% !important;
+        max-width: none !important;
+        height: auto !important;
+        max-height: none !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        border: 0 !important;
+        border-radius: 0 !important;
+        box-shadow: none !important;
+        overflow: visible !important;
+        transform: none !important;
+    }
+    .invoice-print-overlay > .modal > :not(#printable-invoice),
+    .invoice-print-overlay .invoice-logo-controls {
+        display: none !important;
+    }
+    .invoice-print-overlay #printable-invoice {
+        --text-main: #0f172a;
+        --text-muted: #475569;
+        --bg-app: #f4f6fb;
+        --card-bg: white;
+        --card-border: #dce3eb;
+        display: block !important;
+        visibility: visible !important;
+        position: static !important;
+        width: 100% !important;
+        max-width: none !important;
+        box-sizing: border-box !important;
+        margin: 0 !important;
+        padding: 12mm !important;
+        border: 0 !important;
+        border-radius: 0 !important;
+        background: white !important;
+        color: #0f172a !important;
+        box-shadow: none !important;
+        overflow: visible !important;
+        print-color-adjust: exact;
+        -webkit-print-color-adjust: exact;
+    }
+    .invoice-print-overlay #printable-invoice .invoice-metadata-grid {
+        grid-template-columns: 1fr 1fr !important;
+    }
+    .invoice-print-overlay #printable-invoice .invoice-brand {
+        flex-wrap: nowrap !important;
+    }
+    .invoice-print-overlay #printable-invoice tr,
+    .invoice-print-overlay #printable-invoice .invoice-brand,
+    .invoice-print-overlay #printable-invoice .invoice-metadata-grid {
+        break-inside: avoid;
+    }
+}

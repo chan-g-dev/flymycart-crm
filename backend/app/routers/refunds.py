@@ -1,3 +1,5 @@
+from app.payment_requests import claim_payment_request, finish_payment_request
+from app.payment_details import validate_payment, validate_amount
 # ================================================================
 # FLY MY CART CRM - REFUNDS ROUTER (app/routers/refunds.py)
 # ================================================================
@@ -83,7 +85,7 @@ def create_refund(
 @refunds_router.patch("/{refund_id}/status")
 def update_refund_status(
     refund_id: str,
-    payload: Dict[str, str],
+    payload: Dict[str, Any],
     request: Request,
     ctx: Dict[str, Any] = Depends(require_permission("refunds.approve")),
     db: Session = Depends(get_db)
@@ -93,12 +95,17 @@ def update_refund_status(
     Enforces Separation of Duties: Requester cannot approve their own refund.
     Enforces Step-Up MFA (<10 min).
     """
-    ref = db.query(Refund).filter(Refund.id == refund_id).first()
+    if not ctx.get("is_super_admin"):
+        raise HTTPException(403, "Only Super Admin may review, approve or disburse refunds.")
+    claim = claim_payment_request(db, request, ctx, payload) if payload.get("status") == "Refunded" else None
+    ref = db.query(Refund).filter(Refund.id == refund_id).with_for_update().first()
     if not ref:
         raise HTTPException(status_code=404, detail="Refund not found.")
 
+    if claim and claim.resource_id:
+        return ref
     new_status = payload.get("status")
-    if not new_status:
+    if not isinstance(new_status, str) or not new_status:
         raise HTTPException(status_code=400, detail="Status is required.")
     if not ctx.get("is_super_admin"):
         raise HTTPException(status_code=403, detail="Only Super Admin may review, approve or disburse refunds.")
@@ -110,7 +117,7 @@ def update_refund_status(
     }
     if new_status not in transitions.get(ref.status, set()):
         raise HTTPException(status_code=400, detail=f"Cannot change refund from {ref.status} to {new_status}")
-    if new_status == "Refunded" and not (payload.get("refund_method") or ref.refund_method or "").strip():
+    if new_status == "Refunded" and not isinstance(payload.get("refund_method"), str):
         raise HTTPException(status_code=400, detail="Refund payment method is required")
 
     # Guard: Separation of Duties
@@ -120,6 +127,10 @@ def update_refund_status(
             detail="Security Rule: A refund requester cannot approve or process their own refund request."
         )
 
+    if new_status == "Refunded":
+        validate_amount(ref.amount)
+        details = validate_payment(payload.get("refund_method"), payload.get("account"), payload.get("reference"), payload.get("payment_details"))
+        ref.payment_details = {**details, "account": payload["account"].strip(), "reference": (payload.get("reference") or "").strip()}
     before_status = ref.status
     ref.status = new_status
     if new_status == "Approved":
@@ -130,10 +141,7 @@ def update_refund_status(
         if payload.get("refund_method"):
             ref.refund_method = payload.get("refund_method")
 
-    db.commit()
-
-    cache_engine.invalidate_prefix("dashboard_summary")
-
+    finish_payment_request(claim, ref.id)
     create_audit_log(
         db=db,
         actor_user_id=ctx["user_id"],
@@ -144,7 +152,9 @@ def update_refund_status(
         action=f"refund_{new_status.lower()}",
         before_data={"status": before_status},
         after_data={"status": new_status, "approved_by": ref.approved_by},
-        ip_address=request.client.host if request.client else None
+        ip_address=request.client.host if request.client else None, auto_commit=False
     )
+    db.commit()
+    cache_engine.invalidate_prefix("dashboard_summary")
 
     return ref

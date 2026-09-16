@@ -1,3 +1,5 @@
+import PaymentDetails from '../components/PaymentDetails';
+import AccountsOverview from '../components/AccountsOverview';
 import { businessDate } from '../utils/businessDates';
 import { providerCostLabel } from '../utils/costLabels';
 import AccountChecks from '../components/AccountChecks';
@@ -152,7 +154,25 @@ export const Invoices = ({ invoices, onPreviewInvoice }) => {
     );
 };
 
-export const Accounts = ({ 
+export const Accounts = props => {
+    const { hasPermission, currentUser } = useAuth();
+    if (!hasPermission('accounts.view')) return <div className="dash-box">Accounts access required.</div>;
+    return <AccountsOverview
+        data={props.overviewData || props.accountsData}
+        selectedCenter={props.selectedCenter}
+        activeSection={props.activeSection}
+        canEdit={currentUser?.isSuperAdmin || currentUser?.roleId === 'super_admin'}
+        onSectionChange={props.onSectionChange}
+        onRefresh={props.onRefresh}
+        settings={props.settings}
+        renderSection={tab => ['b2b', 'refunds'].includes(tab)
+            ? props.renderRelatedSection?.(tab)
+            : <LegacyAccounts {...props} activeSection={tab === 'wallets' ? 'prepaid' : tab} />}
+    />;
+};
+
+const LegacyAccounts = ({
+    settings,
     onRefresh,
     accountsData, 
     reconciliations, 
@@ -162,7 +182,7 @@ export const Accounts = ({
 }) => {
     const { hasPermission, currentUser } = useAuth();
     const [tab, setTab] = useState('collections');
-    const [entry, setEntry] = useState({kind: 'expense', category: '', date: new Date().toLocaleDateString('en-CA'), provider: '', amount: '', reference: '', account: ''});
+    const [entry, setEntry] = useState({kind: 'expense', category: '', date: new Date().toLocaleDateString('en-CA'), provider: '', amount: '', reference: '', account: '', vendor: '', payment_mode: 'UPI', payment_details: {}});
     const [saving, setSaving] = useState(false);
     const [entryMessage, setEntryMessage] = useState('');
 
@@ -184,7 +204,7 @@ export const Accounts = ({
     const formatDate = (d) => d ? new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '-';
 
     React.useEffect(() => {
-        if (!activeSection) return;
+        if (!activeSection || activeSection === 'overview' || activeSection === 'shipment_accounts') { setTab('overview'); return; }
         const s = activeSection.toLowerCase();
         if (s.includes('wallet') || s === 'prepaid') {
             setTab('wallets');
@@ -211,6 +231,8 @@ export const Accounts = ({
     const totalPostpaidPayable = (accountsData.postpaid_accounts || []).reduce((sum, p) => sum + (Number(p.net_payable) || 0), 0);
     const totalPostpaidBilled = (accountsData.postpaid_accounts || []).reduce((sum, p) => sum + (Number(p.actual_billed) || 0), 0);
 
+
+
     return (
         <div className="accounts-page" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
             {/* Header */}
@@ -230,6 +252,7 @@ export const Accounts = ({
                 )}
             </div>
 
+            <button className="btn btn-outline" style={{ alignSelf: 'flex-start' }} onClick={() => setTab('overview')}>&larr; Back to Accounts Overview</button>
             {/* Segmented Tab Capsule */}
             <div className="fmc-segmented-capsule report-tabs" style={{ alignSelf: 'flex-start' }}>
                 <button 
@@ -276,22 +299,22 @@ export const Accounts = ({
                             <div className="card-value" style={{ color: 'var(--primary-blue)' }}>
                                 {formatCurrency(accountsData.total_sales_with_gst ?? (accountsData.total_sales > 0 ? accountsData.total_sales * 1.18 : 0))}
                             </div>
-                            <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Base: {formatCurrency(accountsData.total_sales)}</span>
+                            <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Excl. GST: {formatCurrency(accountsData.total_sales)}</span>
                         </div>
                         <div className="dash-mini-card" style={{ borderTop: '3px solid var(--emerald)' }}>
                             <span className="card-label">Total Collected</span>
                             <div className="card-value" style={{ color: 'var(--emerald)' }}>{formatCurrency(accountsData.total_collected)}</div>
-                            <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>100% Realized</span>
+                            <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Payments received</span>
                         </div>
                         <div className="dash-mini-card" style={{ borderTop: '3px solid var(--amber)' }}>
                             <span className="card-label">Pending Retail Collection</span>
                             <div className="card-value" style={{ color: 'var(--amber)' }}>{formatCurrency(accountsData.pending_collection)}</div>
-                            <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Counter & Delivery Balance</span>
+                            <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Pending customer payments</span>
                         </div>
                         <div className="dash-mini-card" style={{ borderTop: '3px solid var(--sky)' }}>
                             <span className="card-label">B2B Credit Receivables</span>
                             <div className="card-value" style={{ color: 'var(--sky)' }}>{formatCurrency(accountsData.b2b_credit_sales)}</div>
-                            <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Corporate Terms</span>
+                            <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Pending B2B payments</span>
                         </div>
                     </div>
 
@@ -515,10 +538,9 @@ export const Accounts = ({
                                 <label>Payment Account (Paid From)</label>
                                 <input required placeholder="e.g. HDFC Bank, Office QR, Cash" value={entry.account} onChange={e => setEntry({...entry, account: e.target.value})} />
                             </div>
-                            <div className="form-group" style={{ gridColumn: '1 / -1' }}>
-                                <label>Reference / Description</label>
-                                <input required placeholder="e.g. UTR #, invoice reference, or reason for expense..." value={entry.reference} onChange={e => setEntry({...entry, reference: e.target.value})} />
-                            </div>
+                            {entry.kind === 'expense' && <label className="form-group">Vendor / person paid *<input required maxLength={150} value={entry.vendor} onChange={e => setEntry({...entry, vendor: e.target.value})} /></label>}
+                            <label className="form-group">Payment mode<select value={entry.payment_mode} onChange={e => setEntry({...entry, payment_mode: e.target.value})}>{['UPI', 'Bank Transfer', 'Cash', 'Cheque', 'Card', 'Other'].map(m => <option key={m}>{m}</option>)}</select></label>
+                            <PaymentDetails onAccountChange={account => setEntry(prev => ({...prev, account}))} method={entry.payment_mode} value={entry.payment_details} onChange={payment_details => setEntry(prev => ({...prev, payment_details}))} reference={entry.reference} onReferenceChange={reference => setEntry({...entry, reference})} profiles={settings?.paymentAccounts || []} />
                         </div>
 
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '16px', paddingTop: '12px', borderTop: '1px solid var(--card-border)' }}>

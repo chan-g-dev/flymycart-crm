@@ -1,3 +1,5 @@
+import { paymentOptions } from '../utils/businessOptions';
+import PaymentDetails from './PaymentDetails';
 import React, { useState, useEffect, useRef } from 'react';
 import { 
     X, 
@@ -18,18 +20,18 @@ import {
 import { useAuth } from '../context/AuthContext';
 import { apiClient } from '../api/client';
 
-const getInitialShipmentForm = (todayStr) => ({
+const getInitialShipmentForm = (todayStr, settings) => ({
     awb: '',
     date: todayStr,
     pickup_date: todayStr,
     delivery_date: '',
-    center: 'Main Hub (Bangalore)',
-    employee: 'Nawaz',
+    center: settings?.centers?.[0] || 'Main Hub (Bangalore)',
+    employee: (typeof settings?.employees?.[0] === 'string' ? settings.employees[0] : settings?.employees?.[0]?.name) || '',
     customer_id: '',
     customer_name: '',
     customer_type: 'C2C',
     is_gst_applicable: true,
-    gst_rate: '18',
+    gst_rate: String(settings?.defaultGstRate ?? 18),
     custom_gst_rate: '',
     sender_phone: '',
     same_sender: true,
@@ -58,19 +60,20 @@ const getInitialShipmentForm = (todayStr) => ({
     height: '',
     volumetric_weight: 0,
     chargeable_weight: 0,
-    courier: 'FedEx',
+    courier: settings?.couriers?.[0] || 'FedEx',
     domestic_international: 'International',
-    service_type: 'International Priority',
+    service_type: settings?.serviceTypes?.[0] || 'International Priority',
     provider_type: '',
     provider_name: '',
     price: '',
     provider_cost: '',
     payment_status: 'Unpaid',
+    payment_details: {},
     payment_reference: '',
     amount_received: '',
-    payment_method: 'PhonePe',
-    paid_to: 'Office QR',
-    collected_by: 'Nawaz',
+    payment_method: paymentOptions(settings)[0],
+    paid_to: settings?.paidToAccounts?.[0] || 'Office QR',
+    collected_by: (typeof settings?.employees?.[0] === 'string' ? settings.employees[0] : settings?.employees?.[0]?.name) || '',
     status: 'Booked',
     delay_reason: ''
 });
@@ -82,7 +85,7 @@ const ShipmentModal = ({ isOpen, onClose, onCreated, settings }) => {
         || currentUser?.roleId === 'operations_staff';
     const localToday = new Date();
     const todayStr = `${localToday.getFullYear()}-${String(localToday.getMonth() + 1).padStart(2, '0')}-${String(localToday.getDate()).padStart(2, '0')}`;
-    const [form, setForm] = useState(getInitialShipmentForm(todayStr));
+    const [form, setForm] = useState(getInitialShipmentForm(todayStr, settings));
     const lookupSequence = useRef(0);
     const workspaceRef = useRef(null);
     const [customerFound, setCustomerFound] = useState(null);
@@ -92,7 +95,7 @@ const ShipmentModal = ({ isOpen, onClose, onCreated, settings }) => {
     // Clean reset whenever modal opens
     useEffect(() => {
         if (isOpen) {
-            setForm(getInitialShipmentForm(todayStr));
+            setForm(getInitialShipmentForm(todayStr, settings));
             setCustomerFound(null);
             setIsSubmitting(false);
         }
@@ -233,13 +236,13 @@ const ShipmentModal = ({ isOpen, onClose, onCreated, settings }) => {
     const couriersList = React.useMemo(() => {
         const base = settings?.couriers || ['FedEx', 'Aramex', 'Delhivery', 'Blue Dart', 'DHL', 'UPS', 'Sree Maruthi', 'Trackon', 'DTDC', 'Speed Post', 'ICL', 'BRV'];
         const fromWallets = (settings?.prepaidWallets || []).map(w => typeof w === 'string' ? w : w?.name);
-        const fromPostpaid = (settings?.providerAccounts || []).map(p => typeof p === 'string' ? p : p?.name);
+        const fromPostpaid = (settings?.postpaidProviders || []).map(p => typeof p === 'string' ? p : p?.name);
         return Array.from(new Set([...base, ...fromWallets, ...fromPostpaid])).filter(Boolean);
     }, [settings]);
     const centersList = settings?.centers || ['Main Hub (Bangalore)', 'Delhi Regional Hub', 'Mumbai Branch', 'Hyderabad Hub', 'Kolkata Center'];
-    const employeesList = (settings?.employees || [{ name: 'Nawaz' }, { name: 'Lata' }, { name: 'Umesh' }, { name: 'Uma' }]).map(e => e.name);
+    const employeesList = (settings?.employees || [{ name: 'Nawaz' }, { name: 'Lata' }, { name: 'Umesh' }, { name: 'Uma' }]).map(e => typeof e === 'string' ? e : e.name);
     const paidToAccounts = settings?.paidToAccounts || ['Office QR', 'Current Account (HDFC)', 'Savings Account (ICICI)', 'Lata UPI', 'Nawaz UPI'];
-    const paymentMethods = settings?.paymentMethods || ['PhonePe', 'Google Pay', 'Office QR', 'Cash', 'Bank Transfer', 'B2B Credit'];
+    const paymentMethods = paymentOptions(settings);
 
     const money = value => Number(value || 0).toLocaleString('en-IN', { style: 'currency', currency: 'INR', minimumFractionDigits: 2 });
     const gst = Math.round((Number(form.price) || 0) * effectiveGstRate) / 100;
@@ -311,6 +314,7 @@ const ShipmentModal = ({ isOpen, onClose, onCreated, settings }) => {
                 provider_cost: parseFloat(form.provider_cost) || 0,
                 payment_status: ['Paid', 'Partial'].includes(form.payment_status) ? (Number(form.amount_received) >= invoiceTotal ? 'Paid' : 'Partial') : form.payment_status,
                 amount_received: ['Paid', 'Partial'].includes(form.payment_status) ? Number(form.amount_received) : null,
+                payment_details: form.payment_details,
                 payment_reference: form.payment_reference,
                 payment_method: form.payment_method,
                 paid_to: form.paid_to,
@@ -628,7 +632,7 @@ const ShipmentModal = ({ isOpen, onClose, onCreated, settings }) => {
                             <div className="booking-fields">
                                 {field('courier', 'Courier Carrier', { items: couriersList, required: true, onChange: handleCourierChange })}
                                 {field('domestic_international', 'Service Scope', { items: ['Domestic', 'International'], required: true })}
-                                {field('service_type', 'Service Type', { required: true, placeholder: 'e.g. Express, Priority, Economy' })}
+                                {field('service_type', 'Service Type', { required: true, items: settings?.serviceTypes || ['International Priority', 'Express', 'Economy', 'Cargo'] })}
                                 {field('awb', 'Courier AWB Number', { required: true, placeholder: 'Enter tracking AWB' })}
                                 {field('date', 'Booking Date', { type: 'date', required: true, onChange: value => setForm(prev => ({ ...prev, date: value, pickup_date: value })) })}
                             </div>
@@ -690,11 +694,7 @@ const ShipmentModal = ({ isOpen, onClose, onCreated, settings }) => {
                                                 onChange={e => update('gst_rate', e.target.value)}
                                                 className="booking-select booking-gst-select"
                                             >
-                                                <option value="18">18% (Standard Rate)</option>
-                                                <option value="14">14% (Special Rate)</option>
-                                                <option value="12">12% (Forwarding Rate)</option>
-                                                <option value="5">5% (Concessional)</option>
-                                                <option value="0">0% (Nil / Exempt)</option>
+                                                {[...new Set([...(settings?.gstRates || [0, 5, 12, 14, 18]), Number(settings?.defaultGstRate ?? 18)])].map(rate => <option key={rate} value={String(rate)}>{rate}%</option>)}
                                                 <option value="custom">Custom Rate...</option>
                                             </select>
                                             {form.gst_rate === 'custom' && (
@@ -743,7 +743,7 @@ const ShipmentModal = ({ isOpen, onClose, onCreated, settings }) => {
                                     {field('payment_method', 'Payment Method', { items: paymentMethods, required: true })}
                                     {field('paid_to', 'Paid To Account', { items: paidToAccounts, required: true, hint: 'Bank, UPI, or cash box' })}
                                     {field('collected_by', 'Collected By', { items: employeesList, required: true })}
-                                    {field('payment_reference', 'Payment Reference / Note', { wide: true, placeholder: 'UPI transaction ID, Cheque number, or note' })}
+                                    <PaymentDetails onAccountChange={paid_to => setForm(prev => ({ ...prev, paid_to }))} method={form.payment_method} value={form.payment_details} onChange={payment_details => setForm(prev => ({ ...prev, payment_details }))} reference={form.payment_reference} onReferenceChange={payment_reference => setForm(prev => ({ ...prev, payment_reference }))} profiles={settings?.paymentAccounts || []} />
                                 </div>
                             )}
 

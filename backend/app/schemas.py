@@ -3,7 +3,7 @@
 # ================================================================
 
 from typing import List, Optional, Dict, Any
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, Field, ConfigDict, field_validator
 import datetime
 
 # --- USER & AUTH SCHEMAS ---
@@ -71,8 +71,8 @@ class B2BCompanyBase(BaseModel):
     email: Optional[str] = None
     gst_number: Optional[str] = None
     billing_address: Optional[str] = None
-    credit_limit: float = 100000.0
-    credit_period_days: int = 30
+    credit_limit: float = Field(default=100000.0, ge=0, le=1000000000000, allow_inf_nan=False)
+    credit_period_days: int = Field(default=30, ge=1, le=365)
     payment_terms: str = "Net 30 Days"
 
 class B2BCompanyCreate(B2BCompanyBase):
@@ -156,6 +156,7 @@ class SenderInfo(BaseModel):
     address: Optional[str] = None
 
 class ShipmentCreate(BaseModel):
+    payment_details: Dict[str, str] = Field(default_factory=dict)
     awb: str
     date: str
     pickup_date: Optional[str] = None
@@ -181,15 +182,15 @@ class ShipmentCreate(BaseModel):
     provider_name: str
     price: float = Field(ge=0, allow_inf_nan=False)
     is_gst_applicable: bool = True
-    gst_rate: float = 18.0
+    gst_rate: float = Field(default=18.0, ge=0, le=100, allow_inf_nan=False)
     provider_cost: float = Field(ge=0, allow_inf_nan=False)
     amount_received: Optional[float] = Field(default=None, ge=0, allow_inf_nan=False)
 
-    payment_reference: Optional[str] = None
+    payment_reference: Optional[str] = Field(default=None, max_length=100)
     payment_status: str = "Paid"
-    payment_method: str = "PhonePe"
-    paid_to: str = "Office QR"
-    collected_by: str = "Nawaz"
+    payment_method: str = Field(default="PhonePe", min_length=1, max_length=100)
+    paid_to: str = Field(default="Office QR", min_length=1, max_length=100)
+    collected_by: str = Field(default="Nawaz", min_length=1, max_length=100)
 
     status: str = "In Transit"
     delay_reason: Optional[str] = None
@@ -283,11 +284,12 @@ class InvoiceCreate(BaseModel):
     due_date: Optional[str] = None
 
 class InvoicePaymentCreate(BaseModel):
+    payment_details: Dict[str, str] = Field(default_factory=dict)
     amount: float = Field(gt=0, allow_inf_nan=False)
-    payment_method: str = "PhonePe"
-    paid_to: str = "Office QR"
-    collected_by: str = "Nawaz"
-    reference: Optional[str] = None
+    payment_method: str = Field(default="PhonePe", min_length=1, max_length=100)
+    paid_to: str = Field(default="Office QR", min_length=1, max_length=100)
+    collected_by: str = Field(default="Nawaz", min_length=1, max_length=100)
+    reference: Optional[str] = Field(default=None, max_length=100)
 
 class InvoiceOut(BaseModel):
     id: str
@@ -296,6 +298,8 @@ class InvoiceOut(BaseModel):
     due_date: Optional[str] = None
     customer_id: Optional[str] = None
     customer_name: str
+    customer_phone: Optional[str] = None
+    customer_email: Optional[str] = None
     b2b_company_id: Optional[str] = None
     shipment_id: Optional[str] = None
     awb: Optional[str] = None
@@ -319,13 +323,21 @@ class InvoiceOut(BaseModel):
 
 # --- WALLET SCHEMAS ---
 class WalletRechargeCreate(BaseModel):
-    wallet: str
+    payment_method: str = Field(default="Bank Transfer", min_length=1, max_length=100)
+    payment_details: Dict[str, str] = Field(default_factory=dict)
+    wallet: str = Field(min_length=1, max_length=50)
     date: str
-    amount: float
-    paid_from: str
-    reference: Optional[str] = None
+    amount: float = Field(gt=0, allow_inf_nan=False)
+    paid_from: str = Field(min_length=1, max_length=100)
+    reference: Optional[str] = Field(default=None, max_length=100)
+
+    @field_validator('date')
+    @classmethod
+    def valid_date(cls, value):
+        return datetime.date.fromisoformat(value).isoformat()
 
 class WalletTransactionOut(BaseModel):
+    payment_details: Optional[Dict[str, str]] = None
     id: str
     date: str
     wallet: str
@@ -390,6 +402,7 @@ class RefundCreate(BaseModel):
     refund_method: Optional[str] = None
 
 class RefundOut(BaseModel):
+    payment_details: Optional[Dict[str, str]] = None
     id: str
     customer: str
     customer_id: Optional[str] = None

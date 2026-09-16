@@ -51,7 +51,10 @@ async def lifespan(app: FastAPI):
 
     def _init_db():
         try:
-            Base.metadata.create_all(bind=engine)
+            with engine.begin() as connection:
+                if connection.dialect.name == 'postgresql':
+                    connection.execute(text('SELECT pg_advisory_xact_lock(741852963)'))
+                Base.metadata.create_all(bind=connection)
             db = SessionLocal()
             try:
                 migrate_database_schema(db)
