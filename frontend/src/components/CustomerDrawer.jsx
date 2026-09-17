@@ -1,3 +1,4 @@
+import { formatRecordTime } from '../utils/businessDates';
 import { apiClient } from '../api/client';
 import React, { useState } from 'react';
 import {
@@ -367,7 +368,7 @@ const CustomerDrawer = ({
                                                         {doc.document_type ? doc.document_type.replace('_', ' ') : 'KYC Document'}
                                                     </div>
                                                     <div style={{ fontSize: '11px', color: 'var(--text-muted)', textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>
-                                                        {doc.file_name || doc.filename} • {doc.uploaded_at ? new Date(doc.uploaded_at).toLocaleString('en-IN') : 'Uploaded'}
+                                                        {doc.file_name || doc.filename} • {doc.uploaded_at ? formatRecordTime(doc.uploaded_at) : 'Uploaded'}
                                                     </div>
                                                 </div>
                                             </div>

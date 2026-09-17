@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { businessDate } from './businessDates.js';
+import { businessDate, formatRecordTime, formatBusinessDate, shiftCalendarDate } from './businessDates.js';
 import { dateAfter, followupBuckets } from './followupDates.js';
 
 test('IST business day and month roll over at 18:30 UTC', () => {
@@ -20,4 +20,16 @@ test('follow-up buckets agree with the business calendar', () => {
     assert.deepEqual(buckets.overdue, [items[0]]);
     assert.deepEqual(buckets.dueToday, [items[1]]);
     assert.deepEqual(buckets.upcoming, [items[2]]);
+});
+
+
+test('record timestamps consistently display IST, including legacy UTC and explicit offsets', () => {
+    const expected = formatRecordTime('2026-09-17T20:00:00Z');
+    assert.equal(formatRecordTime('2026-09-17T20:00:00'), expected);
+    assert.equal(formatRecordTime('2026-09-18T01:30:00+05:30'), expected);
+    assert.match(expected, /18/);
+    assert.match(expected, /1:30:00/);
+    assert.match(expected, /IST$/);
+    assert.equal(formatBusinessDate('2026-09-17', { weekday: 'long' }), 'Thursday');
+    assert.equal(shiftCalendarDate('2027-01-04', -7), '2026-12-28');
 });

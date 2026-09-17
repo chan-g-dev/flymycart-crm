@@ -2,7 +2,7 @@ import '../components/SettingsWorkspace.css';
 import BusinessDefaults from '../components/BusinessDefaults';
 import PaymentDetailsSummary from '../components/PaymentDetailsSummary';
 import PaymentAccounts from '../components/PaymentAccounts';
-import { businessDate } from '../utils/businessDates';
+import { businessDate, formatBusinessDate, formatRecordTime, shiftCalendarDate } from '../utils/businessDates';
 import { providerCostLabel } from '../utils/costLabels';
 import ScheduleFollowup from '../components/ScheduleFollowup';
 import { dateAfter, followupBuckets } from '../utils/followupDates';
@@ -31,7 +31,7 @@ export const Refunds = ({ refunds = [], onOpenRefundModal, onApproveRefund, onPr
     const [statusFilter, setStatusFilter] = useState('');
 
     const formatCurrency = (n) => '₹' + Number(n || 0).toLocaleString('en-IN');
-    const formatDate = (d) => d ? new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '-';
+    const formatDate = formatBusinessDate;
 
     const totalCount = refunds?.length || 0;
     const requestedCount = (refunds || []).filter(r => r.status === 'Requested').length;
@@ -217,7 +217,7 @@ export const Followups = ({ followups = [], customers = [], onRefresh, onComplet
     const [searchVal, setSearchVal] = useState('');
     const [filterVal, setFilterVal] = useState('');
     const todayStr = dateAfter();
-    const formatDate = (d) => d ? new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '-';
+    const formatDate = formatBusinessDate;
 
     const { dueToday, overdue, upcoming } = followupBuckets(followups, todayStr);
 
@@ -426,8 +426,8 @@ export const Reports = ({ activeTab, refreshKey }) => {
     const [eodReport, setEodReport] = useState(null);
     const [weeklyReport, setWeeklyReport] = useState(null);
     const [monthlyReport, setMonthlyReport] = useState(null);
-    const [rangeStart, setRangeStart] = useState(new Date().toLocaleDateString('en-CA').slice(0, 7) + '-01');
-    const [rangeEnd, setRangeEnd] = useState(new Date().toLocaleDateString('en-CA'));
+    const [rangeStart, setRangeStart] = useState(businessDate().slice(0, 7) + '-01');
+    const [rangeEnd, setRangeEnd] = useState(businessDate());
     const [reportError, setReportError] = useState('');
     const [loading, setLoading] = useState(true);
 
@@ -437,7 +437,7 @@ export const Reports = ({ activeTab, refreshKey }) => {
     }, [activeTab, canViewFinancials]);
 
     const formatCurrency = (n) => '₹' + Number(n || 0).toLocaleString('en-IN');
-    const formatDate = (d) => d ? new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '-';
+    const formatDate = formatBusinessDate;
 
     useEffect(() => {
         if (!canViewFinancials && tab === 'monthly') {
@@ -531,6 +531,13 @@ export const Reports = ({ activeTab, refreshKey }) => {
                 </div>
 
                 {/* Target Date / Period Quick Capsule */}
+                {tab === 'weekly' && <div className="report-range-controls">
+                    <button className="btn btn-sm btn-outline" onClick={() => setEodDate(shiftCalendarDate(eodDate, -7))}>Previous week</button>
+                    <button className="btn btn-sm btn-outline" onClick={() => setEodDate(businessDate())}>This week</button>
+                    <button className="btn btn-sm btn-outline" onClick={() => setEodDate(shiftCalendarDate(businessDate(), -7))}>Last week</button>
+                    <button className="btn btn-sm btn-outline" onClick={() => setEodDate(shiftCalendarDate(eodDate, 7))}>Next week</button>
+                </div>}
+
                 {tab === 'custom' ? <div className="report-range-controls">
                     <label>From <input aria-label="Report start date" type="date" value={rangeStart} max={rangeEnd} onChange={e => setRangeStart(e.target.value)} /></label>
                     <label>To <input aria-label="Report end date" type="date" value={rangeEnd} min={rangeStart} onChange={e => setRangeEnd(e.target.value)} /></label>
@@ -539,7 +546,7 @@ export const Reports = ({ activeTab, refreshKey }) => {
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '7px', background: 'var(--card-bg)', padding: '4px 10px', borderRadius: '8px', border: '1px solid var(--card-border)', boxShadow: '0 2px 6px rgba(0,0,0,0.06)' }}>
                             <Calendar size={14} color="var(--primary-blue)" />
-                            <label style={{ fontWeight: 800, fontSize: '10.5px', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.4px' }}>{tab === 'weekly' ? 'Week Ending:' : 'Audit Date:'}</label>
+                            <label style={{ fontWeight: 800, fontSize: '10.5px', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.4px' }}>{tab === 'weekly' ? 'Week containing:' : 'Audit Date:'}</label>
                             <input 
                                 type="date" 
                                 className="filter-input" 
@@ -1490,7 +1497,7 @@ export const Settings = ({ settings, onUpdateSettings }) => {
                                 ) : (
                                     auditLogs.map(l => (
                                         <tr key={l.id}>
-                                            <td style={{ color: 'var(--text-muted)', fontSize: '12px' }}>{new Date(l.timestamp).toLocaleString('en-IN')}</td>
+                                            <td style={{ color: 'var(--text-muted)', fontSize: '12px' }}>{formatRecordTime(l.timestamp)}</td>
                                             <td><strong>{l.user_name}</strong></td>
                                             <td><span className="status-pill in-transit">{l.entity_type}</span></td>
                                             <td><strong>{l.action}</strong></td>

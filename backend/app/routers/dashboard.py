@@ -19,6 +19,22 @@ from app.cache import cache_engine
 
 dashboard_router = APIRouter(prefix="/api/dashboard", tags=["Dashboard"])
 
+
+def booking_trend(db, day):
+    """Two complete IST calendar weeks, aggregated across the full shipment table."""
+    monday = day - datetime.timedelta(days=day.weekday())
+    start = monday - datetime.timedelta(days=7)
+    end = monday + datetime.timedelta(days=6)
+    rows = db.query(Shipment.date, Shipment.center, func.count(Shipment.id)).filter(
+        Shipment.date.between(start.isoformat(), end.isoformat())
+    ).group_by(Shipment.date, Shipment.center).all()
+    by_date = {}
+    for date, center, count in rows:
+        by_date.setdefault(date, {})[center or ""] = int(count)
+    return [{"date": (start + datetime.timedelta(days=offset)).isoformat(),
+             "centers": by_date.get((start + datetime.timedelta(days=offset)).isoformat(), {})}
+            for offset in range(14)]
+
 @dashboard_router.get("/summary")
 def get_dashboard_summary(
     ctx: Dict[str, Any] = Depends(require_permission(PermissionCode.DASHBOARDS_VIEW)),
@@ -135,6 +151,7 @@ def get_dashboard_summary(
     total_gst = float(total_inv[1]) if total_inv[1] else round(float(total_sales) * 0.18, 2)
 
     summary_data = {
+        "booking_trend": booking_trend(db, datetime.date.fromisoformat(today_str)),
         "today_shipments_count": today_count,
         "courier_breakdown": courier_breakdown,
         "courier_counts": courier_counts,

@@ -33,7 +33,7 @@ def get_weekly_operations_report(
     db: Session = Depends(get_db),
     start_date: Optional[str] = None,
 ):
-    """Seven-day operational report available to all staff with Reports access.
+    """Monday–Sunday calendar report; end_date selects a day in that week.
 
     Financial margins remain exclusive to users with the financial-report permission.
     The aggregates are calculated in SQL so the endpoint remains efficient as shipment
@@ -42,9 +42,13 @@ def get_weekly_operations_report(
     try:
         period_end = datetime.date.fromisoformat(end_date) if end_date else business_today()
     except ValueError:
-        period_end = business_today()
+        raise HTTPException(400, "Invalid end date")
     try:
-        period_start = datetime.date.fromisoformat(start_date) if start_date else period_end - datetime.timedelta(days=6)
+        if start_date:
+            period_start = datetime.date.fromisoformat(start_date)
+        else:
+            period_start = period_end - datetime.timedelta(days=period_end.weekday())
+            period_end = period_start + datetime.timedelta(days=6)
     except ValueError:
         raise HTTPException(400, "Invalid start date")
     period_days = (period_end - period_start).days + 1

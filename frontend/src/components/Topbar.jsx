@@ -365,7 +365,7 @@ const Topbar = ({
                     {/* Today's Date Pill */}
                     <div className="fmc-date-pill" title="Today's Operational Date">
                         <Calendar size={13} className="fmc-date-icon" />
-                        <span className="fmc-date-text">{new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}</span>
+                        <span className="fmc-date-text">{new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', timeZone: 'Asia/Kolkata' })}</span>
                     </div>
 
 

@@ -19,9 +19,11 @@ import { CourierLogo } from '../components/CourierLogos';
 import { useAuth } from '../context/AuthContext';
 import { TableSkeleton, CardSkeleton } from '../components/LoadingSpinner';
 import { TrackingLink } from '../components/TrackingLink';
+import BookingsChart from '../components/BookingsChart';
 
 export const Dashboard = ({ 
     data, 
+    selectedCenter,
     shipments = [],
     accountsData, 
     b2bData, 
@@ -220,6 +222,8 @@ export const Dashboard = ({
                 </div>
                 </div>
             )}
+
+            <BookingsChart trend={safeData.booking_trend} selectedCenter={selectedCenter} isLoading={isLoading} />
 
             <div className="dashboard-actions-toolbar">
                 <button type="button" className="quick-act-btn dashboard-quick-actions-trigger"

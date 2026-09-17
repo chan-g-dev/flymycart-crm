@@ -1,3 +1,4 @@
+import { formatBusinessDate } from '../utils/businessDates';
 import React from 'react';
 import { CourierLogo } from './CourierLogos';
 import { providerCostLabel } from '../utils/costLabels';
@@ -151,17 +152,17 @@ export const DailyTrendChart = ({ dailyData = [], showFinancials = false }) => {
     }
 
     const maxBookings = Math.max(...dailyData.map(d => Number(d.shipments_count || 0)), 1);
-    const maxRevenue = Math.max(...dailyData.map(d => Number(d.revenue_with_gst || d.revenue || d.collections || 0)), 1);
+    const maxRevenue = Math.max(...dailyData.map(d => Number(d.revenue_with_gst ?? d.revenue ?? 0)), 1);
 
     return (
         <div style={{ width: '100%', padding: '12px 0 6px 0' }}>
             <div style={{ display: 'flex', alignItems: 'flex-end', gap: '8px', height: '140px', paddingBottom: '24px', position: 'relative', borderBottom: '1px solid var(--card-border)' }}>
                 {dailyData.map((d, i) => {
                     const bookings = Number(d.shipments_count || 0);
-                    const revenue = Number(d.revenue_with_gst || d.revenue || d.collections || 0);
-                    const bookingHeight = Math.max(8, Math.round((bookings / maxBookings) * 100));
-                    const revenueHeight = Math.max(8, Math.round((revenue / maxRevenue) * 100));
-                    const dayLabel = new Date(d.date).toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric' });
+                    const revenue = Number(d.revenue_with_gst ?? d.revenue ?? 0);
+                    const bookingHeight = bookings > 0 ? Math.max(1, Math.round((bookings / maxBookings) * 100)) : 0;
+                    const revenueHeight = revenue > 0 ? Math.max(1, Math.round((revenue / maxRevenue) * 100)) : 0;
+                    const dayLabel = formatBusinessDate(d.date, { weekday: 'short', day: 'numeric' });
 
                     return (
                         <div key={d.date || i} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', height: '100%', justifyContent: 'flex-end', position: 'relative' }}>
