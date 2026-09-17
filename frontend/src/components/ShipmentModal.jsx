@@ -1,3 +1,4 @@
+import { businessDate } from '../utils/businessDates';
 import { paymentOptions } from '../utils/businessOptions';
 import PaymentDetails from './PaymentDetails';
 import React, { useState, useEffect, useRef } from 'react';
@@ -17,7 +18,7 @@ import {
     Calculator,
     Check
 } from 'lucide-react';
-import { useAuth } from '../context/AuthContext';
+import { useAuth } from '../context/authSession';
 import { apiClient } from '../api/client';
 
 const getInitialShipmentForm = (todayStr, settings) => ({
@@ -78,28 +79,37 @@ const getInitialShipmentForm = (todayStr, settings) => ({
     delay_reason: ''
 });
 
-const ShipmentModal = ({ isOpen, onClose, onCreated, settings }) => {
+const courierKey = (name) => {
+    const key = (name || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    return ({ dhlexpress: 'dhl' })[key] || key;
+};
+const defaultPostpaid = [
+    { name: 'Aramex' },
+    { name: 'Blue Dart' },
+    { name: 'FedEx' },
+    { name: 'DHL Express' },
+    { name: 'DHL' },
+    { name: 'Delhivery' },
+    { name: 'UPS' },
+    { name: 'Sree Maruthi' },
+    { name: 'Trackon' },
+    { name: 'DTDC' },
+    { name: 'Speed Post' }
+];
+const defaultPrepaid = [{ name: 'ICL' }, { name: 'BRV' }];
+
+const ShipmentModalForm = ({ isOpen, onClose, onCreated, settings }) => {
     const { currentUser } = useAuth();
     const canEnterShipmentCosts = currentUser?.isSuperAdmin
         || currentUser?.roleId === 'super_admin'
         || currentUser?.roleId === 'operations_staff';
-    const localToday = new Date();
-    const todayStr = `${localToday.getFullYear()}-${String(localToday.getMonth() + 1).padStart(2, '0')}-${String(localToday.getDate()).padStart(2, '0')}`;
+    const todayStr = businessDate();
     const [form, setForm] = useState(getInitialShipmentForm(todayStr, settings));
     const lookupSequence = useRef(0);
     const workspaceRef = useRef(null);
     const [customerFound, setCustomerFound] = useState(null);
     const [isSearchingCustomer, setIsSearchingCustomer] = useState(false);
     const [isSubmitting, setIsSubmitting] = useState(false);
-
-    // Clean reset whenever modal opens
-    useEffect(() => {
-        if (isOpen) {
-            setForm(getInitialShipmentForm(todayStr, settings));
-            setCustomerFound(null);
-            setIsSubmitting(false);
-        }
-    }, [isOpen]);
 
     useEffect(() => {
         if (!isOpen) return;
@@ -138,26 +148,8 @@ const ShipmentModal = ({ isOpen, onClose, onCreated, settings }) => {
         }));
     }, [form.length, form.width, form.height, form.actual_weight, form.service_type, form.courier, form.boxes]);
 
-    const courierKey = (name) => {
-        const key = (name || '').toLowerCase().replace(/[^a-z0-9]/g, '');
-        return ({ dhlexpress: 'dhl' })[key] || key;
-    };
-    const defaultPostpaid = [
-        { name: 'Aramex' },
-        { name: 'Blue Dart' },
-        { name: 'FedEx' },
-        { name: 'DHL Express' },
-        { name: 'DHL' },
-        { name: 'Delhivery' },
-        { name: 'UPS' },
-        { name: 'Sree Maruthi' },
-        { name: 'Trackon' },
-        { name: 'DTDC' },
-        { name: 'Speed Post' }
-    ];
-    const defaultPrepaid = [{ name: 'ICL' }, { name: 'BRV' }];
-    const postpaidProviders = (settings?.postpaidProviders && settings.postpaidProviders.length > 0) ? settings.postpaidProviders : defaultPostpaid;
-    const prepaidWallets = (settings?.prepaidWallets && settings.prepaidWallets.length > 0) ? settings.prepaidWallets : defaultPrepaid;
+    const postpaidProviders = settings?.postpaidProviders?.length ? settings.postpaidProviders : defaultPostpaid;
+    const prepaidWallets = settings?.prepaidWallets?.length ? settings.prepaidWallets : defaultPrepaid;
 
     useEffect(() => {
         if (!isOpen) return;
@@ -166,7 +158,7 @@ const ShipmentModal = ({ isOpen, onClose, onCreated, settings }) => {
             const account = postpaidProviders.find(p => courierKey(p.name) === courierKey(prev.courier)) || postpaidProviders[0];
             return { ...prev, provider_type: 'postpaid', provider_name: account?.name || prev.courier || postpaidProviders[0]?.name || 'FedEx' };
         });
-    }, [isOpen, settings]);
+    }, [isOpen, prepaidWallets, postpaidProviders]);
 
     const handleCourierChange = (courierName) => {
         const account = postpaidProviders.find(p => courierKey(p.name) === courierKey(courierName));
@@ -522,7 +514,7 @@ const ShipmentModal = ({ isOpen, onClose, onCreated, settings }) => {
 
                             <div className="booking-fields">
                                 {field(form.same_sender ? 'customer_name' : 'alternate_sender_name', 'Sender Name', { required: true })}
-                                {field(form.same_sender ? 'sender_phone' : 'alternate_sender_phone', 'Sender Mobile', { required: true, ...(form.same_sender ? { onChange: handleMobileLookup } : {}) })}
+                                {field(form.same_sender ? 'sender_phone' : 'alternate_sender_phone', 'Sender Mobile', { required: true, ...(form.same_sender ? { onChange: value => handleMobileLookup(value) } : {}) })}
                                 {field('sender_email', 'Sender Email', { type: 'email', placeholder: 'sender@example.com' })}
                                 {field('sender_id_proof', 'ID Proof (Aadhaar/Passport)', { placeholder: 'ID proof reference' })}
                                 {field('sender_address', 'Pickup / Origin Address', { required: true, multiline: true, wide: true, placeholder: 'Street address, building, locality...' })}
@@ -852,4 +844,6 @@ const ShipmentModal = ({ isOpen, onClose, onCreated, settings }) => {
     );
 };
 
-export default ShipmentModal;
+export default function ShipmentModal(props) {
+    return props.isOpen ? <ShipmentModalForm {...props} /> : null;
+}

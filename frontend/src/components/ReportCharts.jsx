@@ -1,7 +1,6 @@
 import { formatBusinessDate } from '../utils/businessDates';
 import React from 'react';
 import { CourierLogo } from './CourierLogos';
-import { providerCostLabel } from '../utils/costLabels';
 
 const COURIER_COLORS = {
     'FedEx': '#4D148C',
@@ -23,9 +22,9 @@ const formatCurrency = (n) => '₹' + Number(n || 0).toLocaleString('en-IN');
 /**
  * Donut / Pie Chart for Courier or Category Distribution
  */
-export const CourierDonutChart = ({ data = {}, title = 'Courier Distribution' }) => {
-    const entries = Object.entries(data).filter(([_, count]) => count > 0);
-    const total = entries.reduce((sum, [_, count]) => sum + Number(count), 0);
+export const CourierDonutChart = ({ data = {} }) => {
+    const entries = Object.entries(data).filter(([, count]) => count > 0);
+    const total = entries.reduce((sum, [, count]) => sum + Number(count), 0);
 
     if (total === 0) {
         return (
@@ -122,7 +121,7 @@ export const CourierDonutChart = ({ data = {}, title = 'Courier Distribution' })
 /**
  * Visual Progress Bar with label and percentage
  */
-export const ProgressItem = ({ label, value, total, color = '#3b82f6', subtitle, icon }) => {
+export const ProgressItem = ({ label, value, total, color = '#3b82f6', icon }) => {
     const pct = total > 0 ? Math.min(100, Math.round((value / total) * 100)) : 0;
     return (
         <div style={{ marginBottom: '8px' }}>

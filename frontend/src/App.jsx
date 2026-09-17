@@ -1,7 +1,7 @@
 import RefundPayoutModal from './components/RefundPayoutModal';
 import { businessDate } from './utils/businessDates';
-import React, { useState, useEffect, useMemo } from 'react';
-import { useAuth } from './context/AuthContext';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { useAuth } from './context/authSession';
 import { apiClient } from './api/client';
 
 import Sidebar from './components/Sidebar';
@@ -22,7 +22,11 @@ import {
 import { Dashboard } from './pages/Dashboard';
 import { Customers, Shipments } from './pages/CustomersAndShipments';
 import { Invoices, Accounts, B2B } from './pages/InvoicesAccountsB2B';
-import { Refunds, Followups, Reports, Users, Settings } from './pages/OperationsAndReports';
+import { Refunds } from './pages/Refunds';
+import { Followups } from './pages/Followups';
+import { Reports } from './pages/Reports';
+import { Settings } from './pages/Settings';
+import { Users } from './pages/UsersSection';
 import { AuthPage } from './components/AuthPage';
 import { getCurrentPath, navigate } from './utils/navigation';
 
@@ -40,7 +44,7 @@ const getInitialPage = () => {
         }
         const saved = localStorage.getItem('fmc_active_page');
         if (saved && VALID_PAGES.includes(saved)) return saved;
-    } catch (e) {
+    } catch {
         // Fallback for iframe/sandbox
     }
     return 'dashboard';
@@ -50,7 +54,7 @@ const loadCached = (key, fallback) => {
     try {
         const raw = sessionStorage.getItem(`fmc_cache_${key}`);
         return raw ? JSON.parse(raw) : fallback;
-    } catch (e) {
+    } catch {
         return fallback;
     }
 };
@@ -60,7 +64,7 @@ const setCached = (key, val) => {
         if (val !== null && val !== undefined) {
             sessionStorage.setItem(`fmc_cache_${key}`, JSON.stringify(val));
         }
-    } catch (e) {}
+    } catch {}
 };
 
 export function App() {
@@ -130,7 +134,7 @@ export function App() {
         try {
             navigate(`/${page}`);
             localStorage.setItem('fmc_active_page', page);
-        } catch (e) {}
+        } catch {}
     };
 
     // Listen to browser Back/Forward (popstate) and FMC navigation events
@@ -144,7 +148,7 @@ export function App() {
                     setCurrentPage(clean);
                     try {
                         localStorage.setItem('fmc_active_page', clean);
-                    } catch (e) {}
+                    } catch {}
                 }
             } else if (path === '/' || path === '' || path === '/dashboard' || path === '/admin') {
                 if (currentPage !== 'dashboard') {
@@ -279,7 +283,7 @@ export function App() {
         setCurrentPage('dashboard');
         try {
             localStorage.setItem('fmc_active_page', 'dashboard');
-        } catch (e) {}
+        } catch {}
         const name = localStorage.getItem('fmc_user_name') || 'Admin';
         const role = localStorage.getItem('fmc_user_role') || 'super_admin';
         const center = localStorage.getItem('fmc_user_center') || 'Main Hub (Bangalore)';
@@ -307,7 +311,7 @@ export function App() {
             const data = await apiClient.getCustomer360(customerIdOrName);
             setDrawerData(data);
             setIsDrawerOpen(true);
-        } catch (err) {
+        } catch {
             showToast('Customer profile not found', 'danger');
         } finally {
             setIsDrawerLoading(false);
@@ -368,7 +372,7 @@ export function App() {
         try {
             await apiClient.completeFollowup(id);
             refreshAll();
-        } catch (err) {
+        } catch {
             alert('Error completing follow-up');
         }
     };
@@ -386,23 +390,23 @@ export function App() {
     const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
 
     // Center matching logic
-    const matchesCenter = (itemCenter) => {
+    const matchesCenter = useCallback((itemCenter) => {
         if (!selectedCenter || selectedCenter === 'All Centers') return true;
         if (!itemCenter) return true;
         const normSelected = selectedCenter.toLowerCase().replace(/hub|branch|center|\(|\)/g, '').trim();
         const normItem = itemCenter.toLowerCase().replace(/hub|branch|center|\(|\)/g, '').trim();
         return normItem.includes(normSelected) || normSelected.includes(normItem);
-    };
+    }, [selectedCenter]);
 
     const filteredShipments = useMemo(() => {
         if (!selectedCenter || selectedCenter === 'All Centers') return shipments;
         return shipments.filter(s => matchesCenter(s.center));
-    }, [shipments, selectedCenter]);
+    }, [shipments, selectedCenter, matchesCenter]);
 
     const filteredCustomers = useMemo(() => {
         if (!selectedCenter || selectedCenter === 'All Centers') return customers;
         return customers.filter(c => matchesCenter(c.center));
-    }, [customers, selectedCenter]);
+    }, [customers, selectedCenter, matchesCenter]);
 
     const filteredInvoices = useMemo(() => {
         if (!selectedCenter || selectedCenter === 'All Centers') return invoices;
@@ -413,7 +417,7 @@ export function App() {
             if (cust) return matchesCenter(cust.center);
             return true;
         });
-    }, [invoices, shipments, customers, selectedCenter]);
+    }, [invoices, shipments, customers, selectedCenter, matchesCenter]);
 
     const filteredFollowups = useMemo(() => {
         if (!selectedCenter || selectedCenter === 'All Centers') return followups;
@@ -421,7 +425,7 @@ export function App() {
             const cust = customers.find(c => c.id === f.customer_id || c.name === f.customer_name);
             return cust ? matchesCenter(cust.center) : true;
         });
-    }, [followups, customers, selectedCenter]);
+    }, [followups, customers, selectedCenter, matchesCenter]);
 
     const filteredRefunds = useMemo(() => {
         if (!selectedCenter || selectedCenter === 'All Centers') return refunds;
@@ -429,7 +433,7 @@ export function App() {
             const ship = shipments.find(s => s.id === r.shipment_id || s.awb === r.awb);
             return ship ? matchesCenter(ship.center) : true;
         });
-    }, [refunds, shipments, selectedCenter]);
+    }, [refunds, shipments, selectedCenter, matchesCenter]);
 
     const filteredDashboardData = useMemo(() => {
         if (!dashboardData) return null;

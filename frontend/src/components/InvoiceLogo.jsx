@@ -1,6 +1,6 @@
 ﻿import React, { useEffect, useRef, useState } from 'react';
 import { Palette, Check, X } from 'lucide-react';
-import { useAuth } from '../context/AuthContext';
+import { useAuth } from '../context/authSession';
 import { apiClient } from '../api/client';
 import './InvoiceLogo.css';
 

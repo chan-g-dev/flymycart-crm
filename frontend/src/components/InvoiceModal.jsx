@@ -5,10 +5,11 @@ import { createPortal } from 'react-dom';
 import './InvoicePrint.css';
 import { X, Printer, Mail, CreditCard, CheckCircle2, Loader2 } from 'lucide-react';
 import { apiClient } from '../api/client';
-import { useAuth } from '../context/AuthContext';
+import { useAuth } from '../context/authSession';
 import { WhatsAppIcon, CourierLogo } from './CourierLogos';
 import InvoiceLogo from './InvoiceLogo';
-import { getTrackingUrl, TrackingLink } from './TrackingLink';
+import { TrackingLink } from './TrackingLink';
+import { getTrackingUrl } from '../utils/tracking';
 
 const InvoiceModal = ({ isOpen, onClose, invoice, onPaymentRecorded, settings }) => {
     const { hasPermission } = useAuth();

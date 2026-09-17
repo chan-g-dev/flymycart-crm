@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Lock, Mail, User, Eye, EyeOff, AlertCircle, ArrowRight } from 'lucide-react';
-import { useAuth } from '../context/AuthContext';
+import { useAuth } from '../context/authSession';
 import { FlyMyCartLogo } from './FlyMyCartLogo';
 import { ButtonSpinner } from './LoadingSpinner';
 import { navigate } from '../utils/navigation';

@@ -2,7 +2,7 @@ import { formatRecordTime } from '../utils/businessDates';
 import PaymentDetailsSummary from './PaymentDetailsSummary';
 import React, { useEffect, useState } from 'react';
 import { apiClient } from '../api/client';
-import { useAuth } from '../context/AuthContext';
+import { useAuth } from '../context/authSession';
 
 const today = () => new Date().toLocaleDateString('en-CA');
 const currency = value => Number(value).toLocaleString('en-IN', { style: 'currency', currency: 'INR' });

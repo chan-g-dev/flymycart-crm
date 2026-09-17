@@ -16,7 +16,7 @@ import {
     X
 } from 'lucide-react';
 import { CourierLogo } from '../components/CourierLogos';
-import { useAuth } from '../context/AuthContext';
+import { useAuth } from '../context/authSession';
 import { TableSkeleton, CardSkeleton } from '../components/LoadingSpinner';
 import { TrackingLink } from '../components/TrackingLink';
 import BookingsChart from '../components/BookingsChart';

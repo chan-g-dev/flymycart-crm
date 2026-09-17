@@ -317,16 +317,9 @@ const INITIAL_B2B_FORM = {
     payment_terms: 'Net 30 Days'
 };
 
-export const B2BCompanyModal = ({ isOpen, onClose, onCreated, settings }) => {
-    const [form, setForm] = useState(INITIAL_B2B_FORM);
+const B2BCompanyForm = ({ isOpen, onClose, onCreated, settings }) => {
+    const [form, setForm] = useState(() => ({...INITIAL_B2B_FORM, credit_limit: settings?.defaultB2BCreditLimit ?? 100000, credit_period_days: settings?.defaultB2BCreditDays ?? 30, payment_terms: `Net ${settings?.defaultB2BCreditDays ?? 30} Days`}));
     const [isSubmitting, setIsSubmitting] = useState(false);
-
-    React.useEffect(() => {
-        if (isOpen) {
-            setForm({...INITIAL_B2B_FORM, credit_limit: settings?.defaultB2BCreditLimit ?? 100000, credit_period_days: settings?.defaultB2BCreditDays ?? 30, payment_terms: `Net ${settings?.defaultB2BCreditDays ?? 30} Days`});
-            setIsSubmitting(false);
-        }
-    }, [isOpen]);
 
     const handleSubmit = async (e) => {
         e.preventDefault();
@@ -508,3 +501,5 @@ export const ShipmentStatusModal = ({ isOpen, onClose, shipment, onUpdated }) =>
         </div>
     );
 };
+
+export const B2BCompanyModal = props => props.isOpen ? <B2BCompanyForm {...props} /> : null;

@@ -44,25 +44,30 @@ In production, Vercel serves the frontend, Render runs the API, and Supabase sto
 ```text
 backend/
   app/                  API routes, models, authentication and business logic
-  scripts/              Administrative utilities
+  tests/                Isolated regression and startup checks
   Dockerfile            Backend production image
   requirements.txt      Python dependencies
 frontend/
-  src/                  Application screens, components and styles
+  src/pages/            Screens, including separate Reports, Settings and Followups
+  src/components/       Reusable interface components
+  src/context/          Session context, provider and role definitions
+  src/utils/            Shared helpers and their unit tests
   public/               Static assets
   package.json          Frontend dependencies and commands
   vercel.json           Frontend hosting configuration
 supabase/
   migrations/           Database and storage security migrations
   schema.sql            Database reference schema
-render.yaml             Render service configuration
+.github/workflows/      Automated backend and frontend checks
+.python-version         Python 3.11 release line for native Render services
+render.yaml             Docker Render service configuration
 README.md               Project overview, setup and deployment
 REQUIREMENTS.md         Detailed product requirements
 ```
 
 ## Local development
 
-Use Python 3.11 and a Node.js version compatible with the installed Vite release. Run the following commands from the repository root in PowerShell.
+Use Python 3.11 and Node.js 22. Run the following commands from the repository root in PowerShell.
 
 ### Backend
 
@@ -129,13 +134,28 @@ Production uses process environment variables rather than local dotenv files. Ke
 
 Back up an existing database before applying migrations. Apply files in `supabase/migrations` in filename order. For an empty database, initialize application tables before running migrations and admitting users. Create the configured storage bucket before applying its security migration; ensure the migration targets the correct bucket. The private-bucket migration is intended to run once.
 
+### Existing native Python services on Render
+
+The deployment logs for the existing service show a native Python runtime, rather than the Docker Blueprint. For that service use:
+
+- Root directory: `backend`
+- Build command: `pip install -r requirements.txt`
+- Start command: `python -u -m uvicorn app.main:app --host 0.0.0.0 --port $PORT`
+- Health-check path: `/api/health`
+
+The root `.python-version` selects the Python 3.11 release line. A Render `PYTHON_VERSION` environment variable takes precedence; remove a conflicting override or set it to a supported full 3.11 patch version. See [Render's Python version configuration](https://render.com/docs/python-version).
+
+Direct Python dependencies are pinned in `backend/requirements.txt`; transitive dependencies are not fully locked. Re-run checks when updating dependencies. The SDK for optional Supabase authentication is initialized on first use, not during API imports. Startup logs distinguish schema checks, migrations and system-record initialization. A schema advisory-lock wait is limited to 30 seconds; this does not impose a timeout on every migration.
+
+A successful local build does not prove deployment health. Confirm `Application startup complete` and a successful `/api/health` response in the new Render deployment. Local checks cover SQLite startup, regression tests and frontend build; PostgreSQL concurrency and live deployment health still require staging verification.
+
 ### 2. Configure the frontend on Vercel
 
 Import the repository and select `frontend` as the root directory. Use `npm run build` as the build command and `dist` as the output directory.
 
 Set `VITE_API_URL` to the actual HTTPS Render backend origin, without `/api`. Rebuild whenever this value changes; it is compiled into the frontend. The build rejects HTTP backend URLs. An empty value is appropriate only when the production host provides a same-origin `/api` proxy; Vite's development proxy does not provide one in production.
 
-Set Render's `FRONTEND_URL` to the stable Vercel production origin and redeploy the backend. Preview deployment origins are not automatically authorized.
+Set Render's `FRONTEND_URL` to the stable Vercel production origin and redeploy the backend. The current CORS configuration also permits Vercel, Pages and Render preview origins. Review that policy before using untrusted preview deployments.
 
 ### 3. Verify the deployment
 
@@ -190,7 +210,9 @@ $env:DATABASE_URL='sqlite:///:memory:'
 python -m unittest discover -s tests -v
 
 # frontend
-node --test src/utils/businessDates.test.js
+npm test
+npm run lint
+npm run build
 ```
 
 Redeploy both services to apply these changes. In Vercel, leave `VITE_API_URL` empty to use the same-origin proxy and ensure the destinations in `frontend/vercel.json` point to the actual Render service. If using a direct HTTPS API URL, set Render's `FRONTEND_URL` to the exact frontend origin.
@@ -214,4 +236,4 @@ Deploy frontend and backend together. The database change is `supabase/migration
 
 ### Production payment release
 
-Payment retries now use database-backed request keys, and saved account edits use revision checks. See [the payment release checklist](docs/payment-release.md) for PostgreSQL verification, migration order, coordinated deployment and rollback. Production requires the updated frontend to send payment request keys.
+Payment retries now use database-backed request keys, and saved account edits use revision checks. Apply migrations in filename order and deploy frontend and backend together. Verify payment concurrency against staging PostgreSQL. Preserve payment request records and additive database columns during rollback. Production requires the updated frontend to send payment request keys.

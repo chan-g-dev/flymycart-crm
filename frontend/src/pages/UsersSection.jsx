@@ -24,7 +24,7 @@ import {
     Building2,
     X
 } from 'lucide-react';
-import { useAuth } from '../context/AuthContext';
+import { useAuth } from '../context/authSession';
 import { apiClient } from '../api/client';
 
 const normalizeStaffRole = (value) => {
@@ -211,32 +211,6 @@ export const Users = ({ settings, onDataMutated }) => {
         }
     };
 
-    const handleRejectStaff = async (userId, staffName) => {
-        if (!isSuperAdmin) {
-            showFeedback('Access Denied: Only Super Admin can decline staff applications.', 'error');
-            return;
-        }
-        if (!window.confirm(`Decline access registration for "${staffName}"?`)) return;
-        setActionLoadingId(userId);
-
-        setStaffList(prev => prev.map(u => u.id === userId ? {
-            ...u,
-            status: 'Rejected',
-            is_active: false,
-            approved_by: `Declined by ${currentUser?.name || 'Super Admin'}`
-        } : u));
-
-        try {
-            await apiClient.rejectStaff(userId, { action: 'reject' });
-            showFeedback(`Declined authorization for "${staffName}".`, 'warning');
-            if (onDataMutated) onDataMutated();
-        } catch (err) {
-            showFeedback(`Authorization declined for "${staffName}".`, 'warning');
-        } finally {
-            setActionLoadingId(null);
-        }
-    };
-
     const handleRoleChange = async (userId, newRole) => {
         if (!isSuperAdmin) {
             showFeedback('Access Denied: Only Super Admin can assign staff roles.', 'error');
@@ -256,7 +230,7 @@ export const Users = ({ settings, onDataMutated }) => {
             await apiClient.updateUserRoles(userId, [newRole]);
             showFeedback(`Role updated to ${getRoleConfig(newRole).label}.`, 'success');
             if (onDataMutated) onDataMutated();
-        } catch (err) {
+        } catch {
             showFeedback(`Role updated to ${getRoleConfig(newRole).label} (saved).`, 'success');
         } finally {
             setActionLoadingId(null);
@@ -290,7 +264,7 @@ export const Users = ({ settings, onDataMutated }) => {
             }
             showFeedback(`Staff "${user.name}" is now ${nextActive ? 'Active' : 'Suspended'}.`, 'success');
             if (onDataMutated) onDataMutated();
-        } catch (err) {
+        } catch {
             showFeedback(`Staff "${user.name}" status updated to ${nextActive ? 'Active' : 'Suspended'}.`, 'success');
         } finally {
             setActionLoadingId(null);
@@ -317,7 +291,7 @@ export const Users = ({ settings, onDataMutated }) => {
             await apiClient.deleteUser(userId);
             showFeedback(`Removed staff "${staffName}".`, 'warning');
             if (onDataMutated) onDataMutated();
-        } catch (err) {
+        } catch {
             showFeedback(`Removed staff "${staffName}" from directory.`, 'warning');
         } finally {
             setActionLoadingId(null);

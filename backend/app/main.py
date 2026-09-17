@@ -50,17 +50,24 @@ async def lifespan(app: FastAPI):
             raise RuntimeError("Set a unique SECRET_KEY of at least 32 characters before production startup.")
 
     def _init_db():
+        logger = logging.getLogger("uvicorn.error")
+        started = time.monotonic()
         try:
+            logger.info("Startup: connecting to database and checking schema")
             with engine.begin() as connection:
                 if connection.dialect.name == 'postgresql':
+                    connection.execute(text("SET LOCAL lock_timeout = '30s'"))
                     connection.execute(text('SELECT pg_advisory_xact_lock(741852963)'))
                 Base.metadata.create_all(bind=connection)
             db = SessionLocal()
             try:
+                logger.info("Startup: applying additive database migrations")
                 migrate_database_schema(db)
+                logger.info("Startup: initializing system records")
                 seed_database(db)
             finally:
                 db.close()
+            logger.info("Startup: database ready in %.2f seconds", time.monotonic() - started)
         except Exception as e:
             raise RuntimeError("Database initialization failed") from e
 

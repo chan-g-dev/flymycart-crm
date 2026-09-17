@@ -12,7 +12,7 @@ export const getCurrentPath = () => {
         const clean = rawHash.startsWith('/') ? rawHash : `/${rawHash}`;
         try {
             window.history.replaceState({}, '', clean === '//' || clean === '' ? '/' : clean);
-        } catch (e) {}
+        } catch {}
         return clean === '//' || clean === '' ? '/' : clean;
     }
 

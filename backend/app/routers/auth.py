@@ -31,7 +31,6 @@ from app.auth import (
 )
 from app.rate_limiter import login_limiter, check_rate_limit
 from app.cache import cache_engine
-from supabase import Client
 
 
 def normalize_profile_status(status_str: str) -> str:
@@ -59,7 +58,7 @@ async def login(
     request: Request,
     response: Response,
     db: Session = Depends(get_db),
-    anon_client: Optional[Client] = Depends(get_supabase_anon_client)
+    anon_client: Optional[Any] = Depends(get_supabase_anon_client)
 ):
     """
     Fast & Resilient Authentication Flow:

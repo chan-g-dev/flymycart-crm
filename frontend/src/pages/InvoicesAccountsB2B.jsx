@@ -12,10 +12,9 @@ import {
     FileText, 
     Download, 
     Building2, 
-    RotateCcw,
-    Upload
+    RotateCcw
 } from 'lucide-react';
-import { useAuth } from '../context/AuthContext';
+import { useAuth } from '../context/authSession';
 import { CourierLogo } from '../components/CourierLogos';
 import { ContentShimmer } from '../components/ContentShimmer';
 import { TrackingLink } from '../components/TrackingLink';
@@ -229,7 +228,6 @@ const LegacyAccounts = ({
 
     const totalWalletBalance = (accountsData.prepaid_wallets || []).reduce((sum, w) => sum + (Number(w.current_balance) || 0), 0);
     const totalPostpaidPayable = (accountsData.postpaid_accounts || []).reduce((sum, p) => sum + (Number(p.net_payable) || 0), 0);
-    const totalPostpaidBilled = (accountsData.postpaid_accounts || []).reduce((sum, p) => sum + (Number(p.actual_billed) || 0), 0);
 
 
 

@@ -1,12 +1,14 @@
 import { paymentOptions, supportedPaymentMethods } from '../utils/businessOptions';
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 const defaults = { companyName: 'Fly My Cart Logistics', centerAddress: '', gstin: '', companyPhone: '', companyEmail: '', invoicePrefix: 'FMC-', defaultGstRate: 18, gstRates: [0, 5, 12, 14, 18], serviceTypes: ['International Priority', 'Express', 'Economy', 'Cargo'], defaultB2BCreditLimit: 100000, defaultB2BCreditDays: 30 };
+const makeForm = settings => ({...defaults, ...settings, paymentMethods: paymentOptions(settings), gstRates: (settings?.gstRates || defaults.gstRates).join(', '), serviceTypes: (settings?.serviceTypes || defaults.serviceTypes).join(', ')});
+
 export default function BusinessDefaults({ settings, onSave, canManage }) {
-    const makeForm = () => ({...defaults, ...settings, paymentMethods: paymentOptions(settings), gstRates: (settings?.gstRates || defaults.gstRates).join(', '), serviceTypes: (settings?.serviceTypes || defaults.serviceTypes).join(', ')});
-    const [form, setForm] = useState(makeForm);
+    const [draft, setDraft] = useState(null);
+    const form = draft?.settings === settings ? draft.form : makeForm(settings);
+    const setForm = update => setDraft({ settings, form: typeof update === 'function' ? update(form) : update });
     const [saving, setSaving] = useState(false);
     const [message, setMessage] = useState('');
-    useEffect(() => { setForm(makeForm()); }, [settings]);
     const fields = [
         ['companyName', 'Invoice business name', 'text'], ['centerAddress', 'Invoice business address', 'text'],
         ['gstin', 'GSTIN', 'text'], ['companyPhone', 'Business phone', 'text'], ['companyEmail', 'Business email', 'email'],

@@ -4,10 +4,11 @@
 
 import os
 import datetime
+import logging
+from functools import lru_cache
 from typing import Optional, Dict, Any, List
 from fastapi import Header, HTTPException, Depends, Request, status
 from sqlalchemy.orm import Session, joinedload
-from supabase import create_client, Client
 
 from app.config import settings
 from app.database import get_db
@@ -17,31 +18,33 @@ from app.auth import (
 )
 from app import scoping  # Register request-scoped ORM access guards.
 
-# Initialize Supabase Clients safely
-supabase_anon: Optional[Client] = None
-supabase_service: Optional[Client] = None
-
-try:
-    if settings.SUPABASE_URL and settings.SUPABASE_ANON_KEY and len(settings.SUPABASE_ANON_KEY) > 20:
-        supabase_anon = create_client(settings.SUPABASE_URL, settings.SUPABASE_ANON_KEY)
-except Exception:
-    supabase_anon = None
-
-try:
-    if settings.SUPABASE_URL and settings.SUPABASE_SERVICE_ROLE_KEY and len(settings.SUPABASE_SERVICE_ROLE_KEY) > 20:
-        supabase_service = create_client(settings.SUPABASE_URL, settings.SUPABASE_SERVICE_ROLE_KEY)
-except Exception:
-    supabase_service = None
+@lru_cache(maxsize=2)
+def _create_supabase_client(url: str, key: str):
+    # Import and initialize only when an authentication request needs the SDK.
+    # Failed construction is not cached, so a later request can retry.
+    from supabase import create_client
+    return create_client(url, key)
 
 
-def get_supabase_anon_client() -> Optional[Client]:
-    """Returns the anon Supabase client or None."""
-    return supabase_anon
+def _get_supabase_client(key: str):
+    if not settings.SUPABASE_URL or not key or len(key) <= 20:
+        return None
+    try:
+        return _create_supabase_client(settings.SUPABASE_URL, key)
+    except Exception as error:
+        # Avoid logging credentials or URLs embedded in SDK exceptions.
+        logging.getLogger(__name__).warning("Supabase client initialization failed (%s)", type(error).__name__)
+        return None
 
 
-def get_supabase_service_client() -> Optional[Client]:
-    """Returns the privileged service-role Supabase client or None."""
-    return supabase_service
+def get_supabase_anon_client():
+    """Return the optional authentication client without blocking API imports."""
+    return _get_supabase_client(settings.SUPABASE_ANON_KEY)
+
+
+def get_supabase_service_client():
+    """Return the optional privileged client on demand."""
+    return _get_supabase_client(settings.SUPABASE_SERVICE_ROLE_KEY)
 
 
 # Scope hierarchy definition

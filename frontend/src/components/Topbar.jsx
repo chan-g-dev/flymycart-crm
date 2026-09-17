@@ -21,7 +21,7 @@ import {
     CheckCircle2,
     Boxes
 } from 'lucide-react';
-import { useAuth } from '../context/AuthContext';
+import { useAuth } from '../context/authSession';
 import { apiClient } from '../api/client';
 import { navigate } from '../utils/navigation';
 import { TrackingLink } from './TrackingLink';

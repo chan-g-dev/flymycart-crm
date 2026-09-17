@@ -28,7 +28,7 @@ api.interceptors.request.use((config) => {
         if (token) {
             config.headers['Authorization'] = `Bearer ${token}`;
         }
-    } catch (e) {
+    } catch {
         // Fallback for SSR or localStorage restrictions
     }
     return config;
@@ -42,7 +42,7 @@ api.interceptors.response.use(
                 localStorage.removeItem('fmc_access_token');
                 localStorage.removeItem('fmc_token');
                 localStorage.removeItem('fmc_session_token');
-            } catch (e) {}
+            } catch {}
         }
         return Promise.reject(error);
     }

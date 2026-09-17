@@ -16,17 +16,9 @@ const INITIAL_FORM = {
     source: 'Walk-in'
 };
 
-const CustomerModal = ({ isOpen, onClose, onCreated }) => {
+const CustomerModalForm = ({ isOpen, onClose, onCreated }) => {
     const [form, setForm] = useState(INITIAL_FORM);
     const [isSubmitting, setIsSubmitting] = useState(false);
-
-    // Clean reset whenever modal opens or closes
-    React.useEffect(() => {
-        if (isOpen) {
-            setForm(INITIAL_FORM);
-            setIsSubmitting(false);
-        }
-    }, [isOpen]);
 
     const handleSubmit = async (e) => {
         e.preventDefault();
@@ -137,4 +129,6 @@ const CustomerModal = ({ isOpen, onClose, onCreated }) => {
     );
 };
 
-export default CustomerModal;
+export default function CustomerModal(props) {
+    return props.isOpen ? <CustomerModalForm {...props} /> : null;
+}
