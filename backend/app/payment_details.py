@@ -30,10 +30,19 @@ def validate_amount(amount):
     return float(value)
 
 
-def validate_payment(method, account, reference, details, *, profile=False, db=None):
+def validate_payment(method, account, reference, details, *, profile=False, db=None, shipment=False):
     kind = payment_kind(method)
     if not isinstance(account, str) or not account.strip() or len(account) > 100:
         raise HTTPException(400, 'Payment account is required')
+    # Shipment booking selects an account; its setup belongs in Settings.
+    require_details = True
+    if shipment:
+        from app.models import SystemSettings
+        config = db.query(SystemSettings).first() if db is not None else None
+        profiles = (config.config_json or {}).get('paymentAccounts', []) if config else []
+        saved = next((p for p in profiles if p['name'].strip().casefold() == account.strip().casefold()), None)
+        details = saved['details'] if saved else {}
+        require_details = saved is not None
     if not isinstance(details, dict):
         raise HTTPException(400, 'Payment details are required')
     allowed = {'owner_type', 'account_holder', 'upi_id', 'bank_name', 'account_number', 'ifsc', 'card_last4', 'other_details', 'remarks'}
@@ -43,22 +52,23 @@ def validate_payment(method, account, reference, details, *, profile=False, db=N
         if not isinstance(value, str) or len(value) > 150:
             raise HTTPException(400, f'Invalid payment detail: {key}')
         clean[key] = value.strip()
-    if clean['owner_type'] not in ('Business', 'Proprietor', 'Individual'):
-        raise HTTPException(400, 'Select Business, Proprietor or Individual account ownership')
-    if not clean['account_holder']:
-        raise HTTPException(400, 'Account holder / cash custodian name is required')
-    if kind == 'UPI' and not re.fullmatch(r'[A-Za-z0-9._-]{2,256}@[A-Za-z][A-Za-z0-9.-]{1,63}', clean['upi_id']):
-        raise HTTPException(400, 'Enter a valid UPI ID, such as name@bank')
-    if kind in ('Bank Transfer', 'Cheque'):
-        if not clean['bank_name'] or not re.fullmatch(r'[0-9]{6,34}', clean['account_number']):
-            raise HTTPException(400, 'Bank name and a valid bank account number are required')
-        clean['ifsc'] = clean['ifsc'].upper()
-        if not re.fullmatch(r'[A-Z]{4}0[A-Z0-9]{6}', clean['ifsc']):
-            raise HTTPException(400, 'Enter a valid 11-character IFSC')
-    if kind == 'Card' and not re.fullmatch(r'[0-9]{4}', clean['card_last4']):
-        raise HTTPException(400, 'Enter only the last four digits of the card')
-    if kind == 'Other' and not clean['other_details']:
-        raise HTTPException(400, 'Describe the payment method and destination')
+    if require_details:
+        if clean['owner_type'] not in ('Business', 'Proprietor', 'Individual'):
+            raise HTTPException(400, 'Select Business, Proprietor or Individual account ownership')
+        if not clean['account_holder']:
+            raise HTTPException(400, 'Account holder / cash custodian name is required')
+        if kind == 'UPI' and not re.fullmatch(r'[A-Za-z0-9._-]{2,256}@[A-Za-z][A-Za-z0-9.-]{1,63}', clean['upi_id']):
+            raise HTTPException(400, 'Enter a valid UPI ID, such as name@bank')
+        if kind in ('Bank Transfer', 'Cheque'):
+            if not clean['bank_name'] or not re.fullmatch(r'[0-9]{6,34}', clean['account_number']):
+                raise HTTPException(400, 'Bank name and a valid bank account number are required')
+            clean['ifsc'] = clean['ifsc'].upper()
+            if not re.fullmatch(r'[A-Z]{4}0[A-Z0-9]{6}', clean['ifsc']):
+                raise HTTPException(400, 'Enter a valid 11-character IFSC')
+        if kind == 'Card' and not re.fullmatch(r'[0-9]{4}', clean['card_last4']):
+            raise HTTPException(400, 'Enter only the last four digits of the card')
+        if kind == 'Other' and not clean['other_details']:
+            raise HTTPException(400, 'Describe the payment method and destination')
     if not profile and reference is not None and (not isinstance(reference, str) or len(reference) > 100):
         raise HTTPException(400, 'Payment reference must be text of at most 100 characters')
     if not profile and kind != 'Cash':
@@ -86,4 +96,4 @@ def validate_payment(method, account, reference, details, *, profile=False, db=N
             expected = saved['details']
             if not compatible or any(result.get(k, '').casefold() != expected.get(k, '').strip().casefold() for k in relevant - {'remarks'}):
                 raise HTTPException(409, 'Payment details do not match the saved account. Reload and select its current details.')
-    return result
+    return result if require_details else {}

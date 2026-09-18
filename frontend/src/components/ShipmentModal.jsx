@@ -1,6 +1,5 @@
 import { businessDate } from '../utils/businessDates';
 import { paymentOptions } from '../utils/businessOptions';
-import PaymentDetails from './PaymentDetails';
 import React, { useState, useEffect, useRef } from 'react';
 import { 
     X, 
@@ -69,7 +68,6 @@ const getInitialShipmentForm = (todayStr, settings) => ({
     price: '',
     provider_cost: '',
     payment_status: 'Unpaid',
-    payment_details: {},
     payment_reference: '',
     amount_received: '',
     payment_method: paymentOptions(settings)[0],
@@ -306,7 +304,6 @@ const ShipmentModalForm = ({ isOpen, onClose, onCreated, settings }) => {
                 provider_cost: parseFloat(form.provider_cost) || 0,
                 payment_status: ['Paid', 'Partial'].includes(form.payment_status) ? (Number(form.amount_received) >= invoiceTotal ? 'Paid' : 'Partial') : form.payment_status,
                 amount_received: ['Paid', 'Partial'].includes(form.payment_status) ? Number(form.amount_received) : null,
-                payment_details: form.payment_details,
                 payment_reference: form.payment_reference,
                 payment_method: form.payment_method,
                 paid_to: form.paid_to,
@@ -735,7 +732,7 @@ const ShipmentModalForm = ({ isOpen, onClose, onCreated, settings }) => {
                                     {field('payment_method', 'Payment Method', { items: paymentMethods, required: true })}
                                     {field('paid_to', 'Paid To Account', { items: paidToAccounts, required: true, hint: 'Bank, UPI, or cash box' })}
                                     {field('collected_by', 'Collected By', { items: employeesList, required: true })}
-                                    <PaymentDetails onAccountChange={paid_to => setForm(prev => ({ ...prev, paid_to }))} method={form.payment_method} value={form.payment_details} onChange={payment_details => setForm(prev => ({ ...prev, payment_details }))} reference={form.payment_reference} onReferenceChange={payment_reference => setForm(prev => ({ ...prev, payment_reference }))} profiles={settings?.paymentAccounts || []} />
+                                    {field('payment_reference', form.payment_method === 'Cash' ? 'Receipt reference (optional)' : 'Transaction ID / UTR / cheque number', { required: form.payment_method !== 'Cash' })}
                                 </div>
                             )}
 
