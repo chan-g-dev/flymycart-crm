@@ -538,7 +538,7 @@ const LegacyAccounts = ({
                             </div>
                             {entry.kind === 'expense' && <label className="form-group">Vendor / person paid *<input required maxLength={150} value={entry.vendor} onChange={e => setEntry({...entry, vendor: e.target.value})} /></label>}
                             <label className="form-group">Payment mode<select value={entry.payment_mode} onChange={e => setEntry({...entry, payment_mode: e.target.value})}>{['UPI', 'Bank Transfer', 'Cash', 'Cheque', 'Card', 'Other'].map(m => <option key={m}>{m}</option>)}</select></label>
-                            <PaymentDetails onAccountChange={account => setEntry(prev => ({...prev, account}))} method={entry.payment_mode} value={entry.payment_details} onChange={payment_details => setEntry(prev => ({...prev, payment_details}))} reference={entry.reference} onReferenceChange={reference => setEntry({...entry, reference})} profiles={settings?.paymentAccounts || []} />
+                            <PaymentDetails referenceOnly={entry.kind === 'expense'} onAccountChange={account => setEntry(prev => ({...prev, account}))} method={entry.payment_mode} value={entry.payment_details} onChange={payment_details => setEntry(prev => ({...prev, payment_details}))} reference={entry.reference} onReferenceChange={reference => setEntry({...entry, reference})} profiles={settings?.paymentAccounts || []} />
                         </div>
 
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '16px', paddingTop: '12px', borderTop: '1px solid var(--card-border)' }}>

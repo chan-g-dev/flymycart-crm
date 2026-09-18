@@ -148,7 +148,7 @@ def record_accounting_entry(payload: AccountingEntryCreate, request: Request, ct
     if not payload.account.strip():
         raise HTTPException(status_code=400, detail="Reference and payment account are required")
     payload.amount = validate_amount(payload.amount)
-    payload.payment_details = validate_payment(payload.payment_mode, payload.account, payload.reference, payload.payment_details, db=db)
+    payload.payment_details = validate_payment(payload.payment_mode, payload.account, payload.reference, payload.payment_details, db=db, resolve_account=payload.kind == "expense")
     if payload.kind == "expense" and not (payload.vendor or "").strip():
         raise HTTPException(400, "Vendor / person paid is required")
     payload.account = payload.account.strip()

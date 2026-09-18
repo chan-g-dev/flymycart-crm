@@ -30,18 +30,19 @@ def validate_amount(amount):
     return float(value)
 
 
-def validate_payment(method, account, reference, details, *, profile=False, db=None, shipment=False):
+def validate_payment(method, account, reference, details, *, profile=False, db=None, resolve_account=False):
     kind = payment_kind(method)
     if not isinstance(account, str) or not account.strip() or len(account) > 100:
         raise HTTPException(400, 'Payment account is required')
-    # Shipment booking selects an account; its setup belongs in Settings.
+    # Selected account setup belongs in Settings, not each transaction.
     require_details = True
-    if shipment:
+    if resolve_account:
         from app.models import SystemSettings
         config = db.query(SystemSettings).first() if db is not None else None
         profiles = (config.config_json or {}).get('paymentAccounts', []) if config else []
         saved = next((p for p in profiles if p['name'].strip().casefold() == account.strip().casefold()), None)
-        details = saved['details'] if saved else {}
+        remarks = details.get('remarks', '') if isinstance(details, dict) else ''
+        details = {**(saved['details'] if saved else {}), 'remarks': remarks}
         require_details = saved is not None
     if not isinstance(details, dict):
         raise HTTPException(400, 'Payment details are required')
@@ -96,4 +97,4 @@ def validate_payment(method, account, reference, details, *, profile=False, db=N
             expected = saved['details']
             if not compatible or any(result.get(k, '').casefold() != expected.get(k, '').strip().casefold() for k in relevant - {'remarks'}):
                 raise HTTPException(409, 'Payment details do not match the saved account. Reload and select its current details.')
-    return result if require_details else {}
+    return result if require_details else ({'remarks': clean['remarks']} if clean['remarks'] else {})
