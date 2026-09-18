@@ -1,5 +1,5 @@
 from app.payment_requests import claim_payment_request, finish_payment_request
-from app.payment_details import validate_payment, validate_amount
+from app.payment_details import validate_payment, validate_amount, payment_kind
 # ================================================================
 # FLY MY CART CRM - SHIPMENTS ROUTER (routers/shipments.py)
 # ================================================================
@@ -183,7 +183,7 @@ def create_shipment(
     if paid_amt > 0:
         paid_amt = validate_amount(paid_amt)
         payload.payment_reference = (payload.payment_reference or "").strip()
-        payload.paid_to = payload.paid_to.strip()
+        payload.paid_to = "Cash in Hand" if payment_kind(payload.payment_method) == "Cash" else payload.paid_to.strip()
         payload.payment_details = validate_payment(payload.payment_method, payload.paid_to, payload.payment_reference, payload.payment_details, db=db, shipment=True)
         if not payload.collected_by.strip():
             raise HTTPException(400, "Collector name is required")

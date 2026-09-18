@@ -237,6 +237,7 @@ const ShipmentModalForm = ({ isOpen, onClose, onCreated, settings }) => {
     const money = value => Number(value || 0).toLocaleString('en-IN', { style: 'currency', currency: 'INR', minimumFractionDigits: 2 });
     const gst = Math.round((Number(form.price) || 0) * effectiveGstRate) / 100;
     const invoiceTotal = Math.round(((Number(form.price) || 0) + gst) * 100) / 100;
+    const isCashPayment = form.payment_method.trim().toLowerCase() === 'cash';
     const payingNow = ['Paid', 'Partial'].includes(form.payment_status);
     const update = (key, value) => setForm(prev => ({ ...prev, [key]: value }));
 
@@ -306,7 +307,7 @@ const ShipmentModalForm = ({ isOpen, onClose, onCreated, settings }) => {
                 amount_received: ['Paid', 'Partial'].includes(form.payment_status) ? Number(form.amount_received) : null,
                 payment_reference: form.payment_reference,
                 payment_method: form.payment_method,
-                paid_to: form.paid_to,
+                paid_to: isCashPayment ? 'Cash in Hand' : form.paid_to,
                 collected_by: form.collected_by,
                 status: form.status,
                 delay_reason: form.delay_reason
@@ -730,9 +731,9 @@ const ShipmentModalForm = ({ isOpen, onClose, onCreated, settings }) => {
                                 <div className="booking-fields" style={{ marginTop: '12px' }}>
                                     {field('amount_received', 'Amount Received (₹)', { type: 'number', min: 0.01, max: invoiceTotal, required: true, onChange: value => setForm(prev => ({ ...prev, amount_received: value, payment_status: Number(value) >= invoiceTotal ? 'Paid' : 'Partial' })) })}
                                     {field('payment_method', 'Payment Method', { items: paymentMethods, required: true })}
-                                    {field('paid_to', 'Paid To Account', { items: paidToAccounts, required: true, hint: 'Bank, UPI, or cash box' })}
+                                    {!isCashPayment && field('paid_to', 'Paid To Account', { items: paidToAccounts, required: true, hint: 'Bank or UPI account' })}
                                     {field('collected_by', 'Collected By', { items: employeesList, required: true })}
-                                    {field('payment_reference', form.payment_method === 'Cash' ? 'Receipt reference (optional)' : 'Transaction ID / UTR / cheque number', { required: form.payment_method !== 'Cash' })}
+                                    {field('payment_reference', isCashPayment ? 'Receipt reference (optional)' : 'Transaction ID / UTR / cheque number', { required: !isCashPayment })}
                                 </div>
                             )}
 
