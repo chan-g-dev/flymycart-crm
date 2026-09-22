@@ -295,7 +295,7 @@ const LegacyAccounts = ({
                         <div className="dash-mini-card" style={{ borderTop: '3px solid var(--primary-blue)' }}>
                             <span className="card-label">Total Customer Sales (With GST)</span>
                             <div className="card-value" style={{ color: 'var(--primary-blue)' }}>
-                                {formatCurrency(accountsData.total_sales_with_gst ?? (accountsData.total_sales > 0 ? accountsData.total_sales * 1.18 : 0))}
+                                {formatCurrency(accountsData.total_sales_with_gst ?? ((accountsData.total_sales || 0) + (accountsData.gst_total || 0)))}
                             </div>
                             <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Excl. GST: {formatCurrency(accountsData.total_sales)}</span>
                         </div>

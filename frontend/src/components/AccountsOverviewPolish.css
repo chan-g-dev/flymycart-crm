@@ -1,0 +1,49 @@
+.ao-overview { --ao-ink: #17233b; --ao-line: #e2e8f0; gap: 14px; }
+.ao-overview .ao-heading { padding: 6px 0 2px; gap: 18px; flex-wrap: wrap; }
+.ao-eyebrow { display: block; font-size: 9px; font-weight: 700; letter-spacing: 1.5px; color: #64748b; margin-bottom: 7px; }
+.ao-overview .ao-heading h2 { font-family: inherit; font-size: 26px; letter-spacing: -.8px; color: #14213d; }
+.ao-overview .ao-heading p { color: #64748b; font-size: 11px; margin-top: 6px; }
+.ao-overview .ao-actions { flex-wrap: wrap; gap: 8px; }
+.ao-overview .ao-actions .ao-button, .ao-overview .ao-range > summary { border-radius: 8px; min-height: 36px; font-size: 11px; font-weight: 600; }
+.ao-overview .ao-actions .ao-button.primary { background: #2459e0; border-color: #2459e0; box-shadow: 0 3px 8px #2459e018; }
+.ao-overview .ao-actions .ao-button.green { background: #fff; color: #07845d; border-color: #b9dfd1; }
+.ao-calculation-note { border: 1px solid #dce6f3; border-radius: 8px; background: #ffffffa8; padding: 8px 11px; color: #64748b; font-size: 10px; }
+.ao-calculation-note summary { cursor: pointer; font-weight: 600; color: #475569; }
+.ao-calculation-note summary span { font-weight: 400; margin-left: 10px; color: #64748b; }
+.ao-calculation-note p { margin: 8px 0 2px; line-height: 1.6; max-width: 850px; }
+.ao-overview .ao-stats { gap: 12px; }
+.ao-overview .ao-stats .ao-stat { padding: 15px; min-height: 124px; border-radius: 11px; box-shadow: 0 3px 12px #17233b04; }
+.ao-overview .ao-stat-heading { margin-bottom: 14px; min-height: 30px; }
+.ao-overview .ao-stat-heading h3 { font-size: 10.5px; color: #526079; }
+.ao-overview .ao-stat-icon { width: 30px; height: 30px; border-radius: 9px; }
+.ao-overview .ao-stat-amount { font-size: 23px; letter-spacing: -.6px; }
+.ao-overview .ao-stat-description { margin-top: auto; padding-top: 4px; font-size: 10px; }
+.ao-overview .ao-stats .ao-stat-net { background: linear-gradient(125deg, #172c55, #244b87); border-color: #244b87; box-shadow: 0 5px 14px #17325b18; }
+.ao-overview .ao-stat-net .ao-stat-heading h3 { color: #f1f5ff; }
+.ao-overview .ao-stat-net .ao-stat-icon { background: #ffffff18; color: #b7d3ff; }
+.ao-overview .ao-net-values { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; margin-bottom: 6px; }
+.ao-overview .ao-net-values > div + div { padding-left: 10px; border-left: 1px solid #ffffff25; }
+.ao-overview .ao-net-values small { font-size: 9px; color: #c1d2eb; margin-bottom: 5px; }
+.ao-overview .ao-net-values strong { font-size: clamp(15px, 1.3vw, 21px); color: #fff; white-space: normal; overflow-wrap: anywhere; margin: 0; line-height: 1.3; }
+.ao-overview .ao-stat-net .ao-stat-description, .ao-overview .ao-stat-net .ao-stat-comparison small { color: #c1d2eb; }
+.ao-overview .ao-stat-net .ao-stat-comparison { border-color: #ffffff25; }
+.ao-overview .ao-stat-net .positive { color: #88efc1; }
+.ao-overview .ao-stat-net .negative { color: #ffb3bf; }
+.ao-overview .ao-tabs { border: 1px solid #e2e8f0; border-radius: 9px; padding: 5px; gap: 3px; }
+.ao-overview .ao-tabs button { padding: 9px 10px; font-size: 10.5px; border: 0; border-radius: 6px; color: #64748b; }
+.ao-overview .ao-tabs button.active { background: #eaf1ff; color: #2257ce; }
+.ao-overview .ao-panel { border-radius: 10px; }
+.ao-overview .ao-filters { padding: 12px; background: #f8fafc; gap: 8px; }
+.ao-overview :where(input, select, textarea) { border-radius: 6px; }
+.ao-overview .ao-ledger .ao-table :is(th, td) { text-align: center; vertical-align: middle; padding-inline: 10px; }
+.ao-overview .ao-ledger .ao-table td:nth-child(4) > * { margin-inline: auto; }
+.ao-overview .ao-ledger .ao-row-actions { justify-content: center; }
+@media (max-width: 600px) {
+    .ao-overview .ao-stats { gap: 8px; }
+    .ao-overview .ao-stats .ao-stat { padding: 11px; }
+    .ao-overview .ao-heading h2 { font-size: 23px; }
+    .ao-overview .ao-stat-heading { gap: 7px; }
+    .ao-overview .ao-net-values { gap: 6px; }
+    .ao-overview .ao-net-values > div + div { padding-left: 6px; }
+    .ao-calculation-note summary span { display: none; }
+}

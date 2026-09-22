@@ -1,10 +1,12 @@
+import ChartVisualization, { ChartTypeSelect } from './ChartVisualization';
 import PaymentDetailsSummary from './PaymentDetailsSummary';
 import React, { useState } from 'react';
 import { ChevronLeft, ChevronRight, Download } from 'lucide-react';
 import { apiClient } from '../api/client';
 import { money, dateLabel, colors, useAccountRequest } from './accountsHelpers';
 
-export function Breakdown({ title, data, label, onDetails }) {
+export function Breakdown({ title, data, label, onDetails, initialType = 'donut', horizontalView }) {
+    const [chartType, setChartType] = useState(initialType);
     const entries = Object.entries(data || {}).filter(([, value]) => Number(value) > 0);
     const total = entries.reduce((sum, [, value]) => sum + Number(value), 0);
     let offset = 0;
@@ -13,14 +15,26 @@ export function Breakdown({ title, data, label, onDetails }) {
         offset += Number(value) / total * 100;
         return `${colors[index % colors.length]} ${start}% ${offset}%`;
     }).join(',');
-    return <section className="ao-panel">
-        <header><h3>{title}</h3><button onClick={onDetails}>View details →</button></header>
+    return <section className="ao-panel ao-chart-panel">
+        <header><h3>{title}</h3><div className="ao-chart-controls">
+            <button type="button" onClick={onDetails}>View details &rarr;</button>
+            <ChartTypeSelect title={title} value={chartType} onChange={setChartType} options={[[ 'donut', 'Donut' ], [ 'bar', 'Bar' ], [ 'horizontal', 'Horizontal bar' ], [ 'dot', 'Dot' ]]} />
+        </div></header>
+        {chartType === 'donut' ? (
         <div className="ao-breakdown">
             <div className="ao-donut" style={{ background: total ? `conic-gradient(${gradient})` : 'var(--ao-line)' }}><div><strong>{data == null ? '—' : money(total)}</strong><small>{label}</small></div></div>
             <div className="ao-legend">{entries.map(([name, value], index) => <div key={name}><i style={{ background: colors[index % colors.length] }} /><span>{name}</span><em>{Math.round(value / total * 100)}%</em><strong>{money(value)}</strong></div>)}
                 {!entries.length && <p className="ao-muted">{data == null ? 'Financial access required' : 'No transactions in this period.'}</p>}
             </div>
         </div>
+        ) : <div className="ao-chart-alternative">
+            <p className="ao-chart-total">{label}: <strong>{data == null ? '\u2014' : money(total)}</strong></p>
+            {!entries.length ? <p className="ao-empty">{data == null ? 'Financial access required' : 'No transactions in this period.'}</p>
+                : chartType === 'horizontal' && horizontalView ? horizontalView
+                : <div className={`ao-chart-canvas ${chartType === 'bar' ? 'ao-chart-canvas-bars' : ''}`} style={chartType === 'bar' ? { '--chart-width': `${Math.max(360, entries.length * 130)}px` } : undefined}>
+                    <ChartVisualization title={title} type={chartType} data={entries.map(([name, value], index) => ({ label: name, value: Number(value), color: colors[index % colors.length] }))} formatValue={money} />
+                </div>}
+        </div>}
     </section>;
 }
 export function Pager({ page, count, size = 5, onChange }) {

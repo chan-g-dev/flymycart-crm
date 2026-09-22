@@ -1,3 +1,4 @@
+from app.access_policy import resolve_permissions, role_code, SUPER_ONLY
 # ================================================================
 # FLY MY CART CRM - FASTAPI DEPENDENCIES & GUARDS (app/dependencies.py)
 # ================================================================
@@ -111,27 +112,10 @@ def get_current_session_context(
             "super_admin" in [r.lower() for r in role_names] or
             profile.role == "super_admin"
         )
-        role_code = profile.role if profile.role in {"super_admin", "operations_staff", "counter_staff", "customer"} else {
-            "SUPER_ADMIN": "super_admin",
-            "Operations Staff": "operations_staff",
-            "Front Counter Staff": "counter_staff",
-            "Customer": "customer",
-        }.get(role_names[0] if role_names else "", "customer" if profile.customer_id else "operations_staff")
+        resolved_role = role_code(profile)
+        perms_dict = resolve_permissions(db, profile)
 
-        perms_dict = {}
-        for r in profile.roles:
-            for rp in r.permissions:
-                if rp.permission_rel:
-                    code = rp.permission_rel.code
-                    # Keep widest scope if permission assigned via multiple roles
-                    current_scope = perms_dict.get(code, "own")
-                    if scope_satisfies(rp.scope, current_scope):
-                        perms_dict[code] = rp.scope
-
-        if is_super:
-            perms_dict["*"] = "all"
-
-        centers_list = [c.center_id for c in profile.centers] if profile.centers else ["Main Hub (Bangalore)"]
+        centers_list = [c.center_id for c in profile.centers]
 
         return {
             "user_id": profile.id,
@@ -140,8 +124,8 @@ def get_current_session_context(
             "status": profile.status,
             "is_super_admin": is_super,
             "roles": role_names,
-            "role_id": "super_admin" if is_super else role_code,
-            "role_name": "Super Admin" if is_super else (role_names[0] if role_names else ("Customer" if role_code == "customer" else "Operations Staff")),
+            "role_id": "super_admin" if is_super else resolved_role,
+            "role_name": "Super Admin" if is_super else (role_names[0] if role_names else ("Customer" if resolved_role == "customer" else "Operations Staff")),
             "permissions": perms_dict,
             "centers": centers_list,
             "customer_id": profile.customer_id,
@@ -178,6 +162,8 @@ def require_permission(permission_code: str, minimum_scope: str = "own"):
     Deny-by-default: If permission is not explicitly granted, returns 403 Forbidden.
     """
     def permission_checker(ctx: Dict[str, Any] = Depends(get_current_session_context), db: Session = Depends(get_db)) -> Dict[str, Any]:
+        if permission_code in SUPER_ONLY and not ctx.get("is_super_admin"):
+            raise HTTPException(403, "Only Super Admin can manage access, global settings or permanent deletion.")
         if ctx.get("status") not in {"active", "approved"}:
             raise HTTPException(status_code=403, detail="Your account is awaiting Super Admin approval.")
         if ctx.get("is_super_admin", False):
@@ -230,7 +216,7 @@ def require_roles(*allowed_roles: str):
 
 def require_super_admin(ctx: Dict[str, Any] = Depends(get_current_session_context)) -> Dict[str, Any]:
     """Restricts route exclusively to Super Admins."""
-    if not ctx.get("is_super_admin", False):
+    if not ctx.get("is_super_admin", False) or ctx.get("status") not in ("active", "approved"):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Access Denied: Super Admin privileges required.",

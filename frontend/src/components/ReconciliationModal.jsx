@@ -81,7 +81,7 @@ const ReconciliationModal = ({ isOpen, onClose, onReconciled, settings }) => {
             return;
         }
 
-        if (!confirm(`Are you sure you want to apply carrier costs to ${matchedItemsCount} shipment(s) and recalculate True Gross Profit?`)) {
+        if (!confirm(`Are you sure you want to apply carrier costs to ${matchedItemsCount} shipment(s) and recalculate Value After Courier Cost?`)) {
             return;
         }
 

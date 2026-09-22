@@ -64,6 +64,8 @@ export const apiClient = {
     changePassword: (data) => api.post('/auth/change-password', data).then(res => res.data),
 
     // Users, Roles & Permissions
+    getUserAccess: id => api.get(`/users/${id}/access`).then(res => res.data),
+    updateUserAccess: (id, payload) => api.put(`/users/${id}/access`, payload).then(res => res.data),
     getUsers: (params) => api.get('/users/', { params }).then(res => res.data),
     inviteUser: (data) => api.post('/users/invitations', data).then(res => res.data),
     approveStaff: (id, data = {}) => api.post(`/users/${id}/approve`, data).then(res => res.data),
@@ -132,6 +134,10 @@ export const apiClient = {
 
     // Shipments
     getShipments: (params) => api.get('/shipments', { params }).then(res => res.data),
+    getShipmentsPage: (params, signal) => api.get('/shipments', { params, signal }).then(res => ({
+        items: res.data,
+        total: Number(res.headers['x-total-count'] ?? res.data.length),
+    })),
     createShipment: (data) => paymentMutation('post', '/shipments', data),
     updateShipmentStatus: (id, data) => api.patch(`/shipments/${id}/status`, data).then(res => res.data),
     deleteShipment: (id) => api.delete(`/shipments/${id}`).then(res => res.data),

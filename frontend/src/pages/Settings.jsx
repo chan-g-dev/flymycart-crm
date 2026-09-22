@@ -1,4 +1,5 @@
 import '../components/SettingsWorkspace.css';
+import WeightSettings from '../components/WeightSettings';
 import BusinessDefaults from '../components/BusinessDefaults';
 import PaymentAccounts from '../components/PaymentAccounts';
 import { formatRecordTime } from '../utils/businessDates';
@@ -183,11 +184,12 @@ export const Settings = ({ settings, onUpdateSettings }) => {
             </div>
 
             <nav className="settings-nav" aria-label="Settings sections">
-                {[['business', 'Business & Billing', 'Company details, GST and defaults'], ['operations', 'Team & Services', 'Couriers, centers and collectors'], ['payments', 'Payments & Carriers', 'Saved accounts, wallets and deposits'], ['audit', 'Activity', 'Review configuration changes']].filter(([key]) => key !== 'audit' || hasPermission('viewFinancials')).map(([key, title, subtitle]) => (
+                {[['business', 'Business & Billing', 'Company details, GST and defaults'], ['weights', 'Shipment Weights', 'Divisors, billing and courier rules'], ['operations', 'Team & Services', 'Couriers, centers and collectors'], ['payments', 'Payments & Carriers', 'Saved accounts, wallets and deposits'], ['audit', 'Activity', 'Review configuration changes']].filter(([key]) => key !== 'audit' || hasPermission('viewFinancials')).map(([key, title, subtitle]) => (
                     <button key={key} type="button" aria-pressed={settingsView === key} onClick={() => setSettingsView(key)}><strong>{title}</strong><span>{subtitle}</span></button>
                 ))}
             </nav>
             <div hidden={settingsView !== 'business'}><BusinessDefaults settings={settings} onSave={onUpdateSettings} canManage={canManageSettings} /></div>
+            <div hidden={settingsView !== 'weights'}><WeightSettings settings={settings} onSave={onUpdateSettings} canManage={canManageSettings} /></div>
 
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 320px), 1fr))', gap: '16px', marginBottom: '22px' }}>
                 {/* 1. Couriers */}

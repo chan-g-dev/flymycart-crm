@@ -177,8 +177,17 @@ const InvoiceModal = ({ isOpen, onClose, invoice, onPaymentRecorded, settings })
                         </tbody>
                     </table>
 
-                    {/* Total Box */}
-                    <div style={{ marginLeft: 'auto', maxWidth: '320px', background: 'var(--bg-app)', padding: '14px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--card-border)' }}>
+                    <div className="invoice-summary-grid">
+                        <section className="invoice-terms" aria-labelledby="invoice-terms-heading">
+                            <h4 id="invoice-terms-heading">Terms &amp; Conditions</h4>
+                            <ol>
+                                <li><strong>Payment:</strong> Invoice amounts are payable in accordance with the payment schedule or credit terms agreed at booking.</li>
+                                <li><strong>Remittance:</strong> The invoice number and Air Waybill (AWB) number must accompany payment references and related correspondence.</li>
+                                <li><strong>Conditions of carriage:</strong> Transportation and delivery are governed by the selected carrier's applicable service terms and conditions of carriage.</li>
+                                <li><strong>Billing discrepancies:</strong> Any discrepancy in the invoice or consignment particulars should be reported with supporting documentation for verification and resolution.</li>
+                            </ol>
+                        </section>
+                    <div className="invoice-totals" style={{ background: 'var(--bg-app)', padding: '14px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--card-border)' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12.5px', marginBottom: '6px' }}>
                             <span>Subtotal (Base):</span><strong>{formatCurrency(invoice.amount)}</strong>
                         </div>
@@ -208,6 +217,7 @@ const InvoiceModal = ({ isOpen, onClose, invoice, onPaymentRecorded, settings })
                         <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '15px', fontWeight: 800, borderTop: '2px solid var(--card-border)', paddingTop: '8px', color: invoice.balance > 0 ? 'var(--rose)' : 'var(--emerald)' }}>
                             <span>Balance Due:</span><span>{formatCurrency(invoice.balance)}</span>
                         </div>
+                    </div>
                     </div>
                 </div>
 

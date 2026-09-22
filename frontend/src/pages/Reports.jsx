@@ -1,3 +1,4 @@
+import GstValuePair from '../components/GstValuePair';
 import { businessDate, formatBusinessDate, shiftCalendarDate } from '../utils/businessDates';
 import { providerCostLabel } from '../utils/costLabels';
 import { useState, useEffect } from 'react';
@@ -61,6 +62,7 @@ export const Reports = ({ activeTab, refreshKey }) => {
 
     return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+            <p style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Value After Courier Cost = sales minus recorded courier costs. Net Value also deducts recorded expenses and refunds. Incl. GST includes sales GST, before GST settlement; input GST credits are not tracked.</p>
             {/* Executive Header with Live Single-Entry Badge */}
             <div className="page-header" style={{ marginBottom: '0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
                 <div>
@@ -76,7 +78,7 @@ export const Reports = ({ activeTab, refreshKey }) => {
             {/* Sub-tabs & Controls Capsule */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
                 <div className="fmc-segmented-capsule report-tabs">
-                    <button 
+                    <button
                         className={`fmc-segmented-btn ${tab === 'eod' ? 'active' : ''}`}
                         onClick={() => {
                             if (tab !== 'eod') {
@@ -87,7 +89,7 @@ export const Reports = ({ activeTab, refreshKey }) => {
                     >
                         <FileText size={14} /> EOD Operations Audit
                     </button>
-                    <button 
+                    <button
                         className={`fmc-segmented-btn ${tab === 'weekly' ? 'active' : ''}`}
                         onClick={() => {
                             if (tab !== 'weekly') {
@@ -100,7 +102,7 @@ export const Reports = ({ activeTab, refreshKey }) => {
                     </button>
                     <button className={`fmc-segmented-btn ${tab === 'custom' ? 'active' : ''}`} onClick={() => setTab('custom')}><Calendar size={14} /> Custom Date Range</button>
                     {canViewFinancials ? (
-                        <button 
+                        <button
                             className={`fmc-segmented-btn ${tab === 'monthly' ? 'active' : ''}`}
                             onClick={() => {
                                 if (tab !== 'monthly') {
@@ -112,8 +114,8 @@ export const Reports = ({ activeTab, refreshKey }) => {
                             <TrendingUp size={14} /> Monthly Business P&L
                         </button>
                     ) : (
-                        <span 
-                            className="fmc-segmented-btn" 
+                        <span
+                            className="fmc-segmented-btn"
                             style={{ opacity: 0.6, cursor: 'not-allowed', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
                             title="Monthly P&L requires Super Admin / Financial Audit access"
                         >
@@ -139,12 +141,12 @@ export const Reports = ({ activeTab, refreshKey }) => {
                         <div style={{ display: 'flex', alignItems: 'center', gap: '7px', background: 'var(--card-bg)', padding: '4px 10px', borderRadius: '8px', border: '1px solid var(--card-border)', boxShadow: '0 2px 6px rgba(0,0,0,0.06)' }}>
                             <Calendar size={14} color="var(--primary-blue)" />
                             <label style={{ fontWeight: 800, fontSize: '10.5px', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.4px' }}>{tab === 'weekly' ? 'Week containing:' : 'Audit Date:'}</label>
-                            <input 
-                                type="date" 
-                                className="filter-input" 
-                                style={{ border: 'none', padding: '0', background: 'transparent', fontSize: '12px', fontWeight: 700, color: 'var(--text-main)', outline: 'none', cursor: 'pointer' }} 
-                                value={eodDate} 
-                                onChange={e => setEodDate(e.target.value)} 
+                            <input
+                                type="date"
+                                className="filter-input"
+                                style={{ border: 'none', padding: '0', background: 'transparent', fontSize: '12px', fontWeight: 700, color: 'var(--text-main)', outline: 'none', cursor: 'pointer' }}
+                                value={eodDate}
+                                onChange={e => setEodDate(e.target.value)}
                             />
                         </div>
                     </div>
@@ -153,12 +155,12 @@ export const Reports = ({ activeTab, refreshKey }) => {
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'var(--card-bg)', padding: '6px 14px', borderRadius: '10px', border: '1px solid var(--card-border)', boxShadow: '0 2px 6px rgba(0,0,0,0.06)' }}>
                             <Calendar size={14} color="var(--primary-blue)" />
                             <label style={{ fontWeight: 800, fontSize: '11.5px', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Period:</label>
-                            <input 
-                                type="month" 
-                                className="filter-input" 
-                                style={{ border: 'none', padding: '0', background: 'transparent', fontSize: '13px', fontWeight: 700, color: 'var(--text-main)', outline: 'none', cursor: 'pointer' }} 
-                                value={monthVal} 
-                                onChange={e => setMonthVal(e.target.value)} 
+                            <input
+                                type="month"
+                                className="filter-input"
+                                style={{ border: 'none', padding: '0', background: 'transparent', fontSize: '13px', fontWeight: 700, color: 'var(--text-main)', outline: 'none', cursor: 'pointer' }}
+                                value={monthVal}
+                                onChange={e => setMonthVal(e.target.value)}
                             />
                         </div>
                     </div>
@@ -166,12 +168,12 @@ export const Reports = ({ activeTab, refreshKey }) => {
             </div>
 
             {reportError ? <p role="alert">{reportError}</p> : loading ? (
-                <ContentShimmer 
+                <ContentShimmer
                     message={
-                        tab === 'eod' 
-                            ? `Auditing EOD Cashflow & Operations for ${formatDate(eodDate)}...` 
-                            : (tab === 'weekly' 
-                                ? 'Compiling 7-Day Courier Logistics & Shipment Breakdown...' 
+                        tab === 'eod'
+                            ? `Auditing EOD Cashflow & Operations for ${formatDate(eodDate)}...`
+                            : (tab === 'weekly'
+                                ? 'Compiling 7-Day Courier Logistics & Shipment Breakdown...'
                                 : `Calculating Executive P&L, Carrier Costs & Net Margins for ${monthVal}...`)
                     }
                 />
@@ -220,7 +222,7 @@ export const Reports = ({ activeTab, refreshKey }) => {
                                         <div className="fmc-kpi-badge-icon" style={{ background: 'rgba(99, 102, 241, 0.15)', color: '#6366f1' }}>💵</div>
                                     </div>
                                     <div className="fmc-kpi-val" style={{ color: '#6366f1' }}>
-                                        {formatCurrency(eodReport.invoice_total ?? eodReport.total_sales_with_gst ?? (eodReport.total_sales * 1.18))}
+                                        {formatCurrency(eodReport.invoice_total ?? eodReport.total_sales_with_gst ?? (eodReport.total_sales + (eodReport.gst_total || 0)))}
                                     </div>
                                     <small style={{ display: 'block', fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
                                         {formatCurrency(eodReport.total_sales)} Base + {formatCurrency(eodReport.gst_total)} GST (18%)
@@ -248,14 +250,14 @@ export const Reports = ({ activeTab, refreshKey }) => {
 
                                 <div className="fmc-kpi-card" style={{ borderTop: '3px solid #10b981', background: 'rgba(16, 185, 129, 0.05)' }}>
                                     <div className="fmc-kpi-card-header">
-                                        <span className="fmc-kpi-tag" style={{ color: '#10b981', fontWeight: 800 }}>Net Profit</span>
+                                        <span className="fmc-kpi-tag" style={{ color: '#10b981', fontWeight: 800 }}>Net Value</span>
                                         <div className="fmc-kpi-badge-icon" style={{ background: 'rgba(16, 185, 129, 0.2)', color: '#10b981' }}>📈</div>
                                     </div>
                                     <div className="fmc-kpi-val" style={{ color: '#10b981' }}>
-                                        {canViewFinancials ? formatCurrency(eodReport.net_profit) : '••••••'}
+                                        {canViewFinancials ? <GstValuePair excluding={eodReport.net_profit} including={eodReport.net_profit_with_gst} formatValue={formatCurrency} /> : '••••••'}
                                     </div>
                                     <div className="fmc-kpi-sub" style={{ color: '#10b981', fontWeight: 700 }}>
-                                        {canViewFinancials 
+                                        {canViewFinancials
                                             ? (eodReport.total_sales > 0 ? ((eodReport.net_profit / eodReport.total_sales) * 100).toFixed(1) + '% Margin' : '0% Margin')
                                             : 'Super Admin Access Only'}
                                     </div>
@@ -283,35 +285,36 @@ export const Reports = ({ activeTab, refreshKey }) => {
                                     </div>
                                     <div style={{ padding: '8px 4px' }}>
                                         {(() => {
-                                            const totalBilled = Number(eodReport.invoice_total ?? eodReport.total_sales_with_gst ?? (eodReport.total_sales * 1.18));
+                                            const totalBilled = Number(eodReport.invoice_total ?? eodReport.total_sales_with_gst ?? (eodReport.total_sales + (eodReport.gst_total || 0)));
                                             return (
                                                 <>
-                                                    <ProgressItem 
-                                                        label="Gross Invoiced Sales" 
-                                                        value={totalBilled} 
-                                                        total={totalBilled} 
-                                                        color="#6366f1" 
+                                                    <ProgressItem
+                                                        label="Gross Invoiced Sales"
+                                                        value={totalBilled}
+                                                        total={totalBilled}
+                                                        color="#6366f1"
                                                     />
-                                                    <ProgressItem 
-                                                        label="Realized Collections (Cash/Bank)" 
-                                                        value={eodReport.total_collected} 
-                                                        total={totalBilled} 
-                                                        color="#10b981" 
+                                                    <ProgressItem
+                                                        label="Realized Collections (Cash/Bank)"
+                                                        value={eodReport.total_collected}
+                                                        total={totalBilled}
+                                                        color="#10b981"
                                                     />
-                                                    <ProgressItem 
-                                                        label="B2B Monthly Credit Pending" 
-                                                        value={eodReport.credit_sales} 
-                                                        total={totalBilled} 
-                                                        color="#f59e0b" 
+                                                    <ProgressItem
+                                                        label="B2B Monthly Credit Pending"
+                                                        value={eodReport.credit_sales}
+                                                        total={totalBilled}
+                                                        color="#f59e0b"
                                                     />
-                                                    {canViewFinancials && (
-                                                        <ProgressItem 
-                                                            label="Net Operating Profit" 
-                                                            value={eodReport.net_profit} 
-                                                            total={totalBilled} 
-                                                            color="#10b981" 
+                                                    {canViewFinancials && (<>
+                                                        <ProgressItem
+                                                            label="Net Value (Excl. GST)"
+                                                            value={eodReport.net_profit}
+                                                            total={totalBilled}
+                                                            color="#10b981"
                                                         />
-                                                    )}
+                                                        <ProgressItem label="Net Value (Incl. GST)" value={eodReport.net_profit_with_gst} total={totalBilled} color="#0891b2" />
+                                                    </>                                                    )}
                                                 </>
                                             );
                                         })()}
@@ -332,12 +335,12 @@ export const Reports = ({ activeTab, refreshKey }) => {
                                             <div style={{ fontSize: '12px', color: 'var(--text-muted)', padding: '16px 0', textAlign: 'center' }}>No collections logged.</div>
                                         ) : (
                                             Object.entries(eodReport.collections_by_method || {}).map(([m, amt]) => (
-                                                <ProgressItem 
-                                                    key={m} 
-                                                    label={m} 
-                                                    value={amt} 
-                                                    total={eodReport.total_collected || amt} 
-                                                    color="#10b981" 
+                                                <ProgressItem
+                                                    key={m}
+                                                    label={m}
+                                                    value={amt}
+                                                    total={eodReport.total_collected || amt}
+                                                    color="#10b981"
                                                 />
                                             ))
                                         )}
@@ -405,9 +408,9 @@ export const Reports = ({ activeTab, refreshKey }) => {
                                         <span>📈 Daily Shipment Volume & Revenue Trend</span>
                                         <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Day-by-Day Activity</span>
                                     </div>
-                                    <DailyTrendChart 
-                                        dailyData={weeklyReport.daily} 
-                                        showFinancials={weeklyReport.financials_visible} 
+                                    <DailyTrendChart
+                                        dailyData={weeklyReport.daily}
+                                        showFinancials={weeklyReport.financials_visible}
                                     />
                                 </div>
 
@@ -444,7 +447,7 @@ export const Reports = ({ activeTab, refreshKey }) => {
                                                                 <th style={{ textAlign: 'right', width: '16%' }}>Revenue (Incl. GST)</th>
                                                                 <th style={{ textAlign: 'right', width: '14%' }}>Base Sales</th>
                                                                 <th style={{ textAlign: 'right', width: '14%' }}>Provider cost</th>
-                                                                <th style={{ textAlign: 'right', width: '16%' }}>Gross Profit</th>
+                                                                <th style={{ textAlign: 'right', width: '16%' }}>Value After Courier Cost</th>
                                                             </>
                                                         )}
                                                     </tr>
@@ -457,10 +460,10 @@ export const Reports = ({ activeTab, refreshKey }) => {
                                                             <td style={{ textAlign: 'right', fontWeight: 600, color: 'var(--emerald)' }}>{formatCurrency(day.collections)}</td>
                                                             {weeklyReport.financials_visible && (
                                                                 <>
-                                                                    <td style={{ textAlign: 'right', fontWeight: 700, color: 'var(--primary-blue)' }}>{formatCurrency(day.revenue_with_gst ?? (day.revenue ? day.revenue * 1.18 : 0))}</td>
+                                                                    <td style={{ textAlign: 'right', fontWeight: 700, color: 'var(--primary-blue)' }}>{formatCurrency(day.revenue_with_gst ?? ((day.revenue || 0) + (day.gst_total || 0)))}</td>
                                                                     <td style={{ textAlign: 'right', color: 'var(--text-muted)' }}>{formatCurrency(day.revenue)}</td>
                                                                     <td style={{ textAlign: 'right', color: 'var(--rose)' }}>{formatCurrency(day.provider_cost)}</td>
-                                                                    <td style={{ textAlign: 'right' }} className="weekly-profit">{formatCurrency(day.gross_profit)}</td>
+                                                                    <td style={{ textAlign: 'right' }} className="weekly-profit">{<GstValuePair excluding={day.gross_profit} including={day.gross_profit_with_gst} formatValue={formatCurrency} />}</td>
                                                                 </>
                                                             )}
                                                         </tr>
@@ -499,7 +502,7 @@ export const Reports = ({ activeTab, refreshKey }) => {
                                 <div>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                                         <h3 style={{ color: 'var(--text-main)', fontSize: '18px', fontWeight: 900, margin: 0 }}>
-                                            Monthly Executive Profit & Loss (P&L) Statement
+                                            Monthly Executive Financial Statement
                                         </h3>
                                         <span style={{ fontSize: '10.5px', fontWeight: 800, padding: '2px 8px', borderRadius: '4px', background: 'rgba(16, 185, 129, 0.15)', color: 'var(--emerald)' }}>
                                             EXECUTIVE AUDIT
@@ -522,7 +525,7 @@ export const Reports = ({ activeTab, refreshKey }) => {
                                         <div className="fmc-kpi-badge-icon" style={{ background: 'rgba(99, 102, 241, 0.15)', color: '#6366f1' }}>💵</div>
                                     </div>
                                     <div className="fmc-kpi-val" style={{ color: '#6366f1' }}>
-                                        {formatCurrency(monthlyReport.invoice_total || monthlyReport.revenue_with_gst || ((monthlyReport.revenue || 0) * 1.18))}
+                                        {formatCurrency(monthlyReport.invoice_total || monthlyReport.revenue_with_gst || ((monthlyReport.revenue || 0) + (monthlyReport.gst_total || 0)))}
                                     </div>
                                     <div className="fmc-kpi-sub">Total Invoiced to Customers</div>
                                 </div>
@@ -540,25 +543,25 @@ export const Reports = ({ activeTab, refreshKey }) => {
 
                                 <div className="fmc-kpi-card" style={{ borderTop: '3px solid #10b981' }}>
                                     <div className="fmc-kpi-card-header">
-                                        <span className="fmc-kpi-tag">Gross Profit</span>
+                                        <span className="fmc-kpi-tag">Value After Courier Cost</span>
                                         <div className="fmc-kpi-badge-icon" style={{ background: 'rgba(16, 185, 129, 0.15)', color: '#10b981' }}>📊</div>
                                     </div>
                                     <div className="fmc-kpi-val" style={{ color: '#10b981' }}>
-                                        {formatCurrency(monthlyReport.gross_profit)}
+                                        {<GstValuePair excluding={monthlyReport.gross_profit} including={monthlyReport.gross_profit_with_gst} formatValue={formatCurrency} />}
                                     </div>
                                     <div className="fmc-kpi-sub">Revenue Minus Carrier Costs</div>
                                 </div>
 
                                 <div className="fmc-kpi-card" style={{ borderTop: '3px solid #10b981', background: 'rgba(16, 185, 129, 0.05)' }}>
                                     <div className="fmc-kpi-card-header">
-                                        <span className="fmc-kpi-tag" style={{ color: '#10b981', fontWeight: 800 }}>Net Business Profit</span>
+                                        <span className="fmc-kpi-tag" style={{ color: '#10b981', fontWeight: 800 }}>Net Value</span>
                                         <div className="fmc-kpi-badge-icon" style={{ background: 'rgba(16, 185, 129, 0.2)', color: '#10b981' }}>📈</div>
                                     </div>
                                     <div className="fmc-kpi-val" style={{ color: '#10b981' }}>
-                                        {formatCurrency(monthlyReport.net_profit)}
+                                        {<GstValuePair excluding={monthlyReport.net_profit} including={monthlyReport.net_profit_with_gst} formatValue={formatCurrency} />}
                                     </div>
                                     <div className="fmc-kpi-sub" style={{ color: '#10b981', fontWeight: 700 }}>
-                                        {monthlyReport.net_profit_margin || '0'}% Net Profit Margin
+                                        {monthlyReport.net_profit_margin || '0'}% Net Value / Base Sales
                                     </div>
                                 </div>
                             </div>
@@ -572,10 +575,11 @@ export const Reports = ({ activeTab, refreshKey }) => {
                                         <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Step-by-Step</span>
                                     </div>
                                     <div style={{ padding: '8px 2px' }}>
-                                        <MonthlyWaterfallChart 
-                                            grossSales={Number(monthlyReport.invoice_total || monthlyReport.revenue_with_gst || ((monthlyReport.revenue || 0) * 1.18))}
+                                        <MonthlyWaterfallChart
+                                            grossSales={Number(monthlyReport.revenue || 0)}
                                             providerCost={Number(monthlyReport.total_actual_cost || 0)}
                                             grossProfit={Number(monthlyReport.gross_profit || 0)}
+                                            salesGst={Number(monthlyReport.gst_total || 0)}
                                             refunds={Number(monthlyReport.refunds_total || 0)}
                                             operatingExpenses={Number(monthlyReport.operational_expenses || 0)}
                                             netProfit={Number(monthlyReport.net_profit || 0)}
@@ -594,12 +598,12 @@ export const Reports = ({ activeTab, refreshKey }) => {
                                             <div style={{ fontSize: '12px', color: 'var(--text-muted)', padding: '24px 0', textAlign: 'center' }}>No carrier provider costs recorded.</div>
                                         ) : (
                                             Object.entries(monthlyReport.carrier_costs || monthlyReport.provider_cost_breakdown || {}).map(([carrier, cost]) => (
-                                                <ProgressItem 
-                                                    key={carrier} 
-                                                    label={providerCostLabel(carrier)} 
-                                                    value={cost} 
-                                                    total={monthlyReport.total_actual_cost || cost} 
-                                                    color="#e11d48" 
+                                                <ProgressItem
+                                                    key={carrier}
+                                                    label={providerCostLabel(carrier)}
+                                                    value={cost}
+                                                    total={monthlyReport.total_actual_cost || cost}
+                                                    color="#e11d48"
                                                     icon={<CourierLogo courier={carrier} height={14} />}
                                                 />
                                             ))
@@ -637,7 +641,7 @@ export const Reports = ({ activeTab, refreshKey }) => {
                                 <div style={{ minWidth: '500px' }}>
                                     <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid var(--card-border)', fontSize: '13px', fontWeight: 700 }}>
                                         <span>1. Customer Sales (Gross Invoiced with GST)</span>
-                                        <span style={{ color: 'var(--primary-blue)', fontSize: '14px' }}>{formatCurrency(monthlyReport.invoice_total || monthlyReport.revenue_with_gst || ((monthlyReport.revenue || 0) * 1.18))}</span>
+                                        <span style={{ color: 'var(--primary-blue)', fontSize: '14px' }}>{formatCurrency(monthlyReport.invoice_total || monthlyReport.revenue_with_gst || ((monthlyReport.revenue || 0) + (monthlyReport.gst_total || 0)))}</span>
                                     </div>
                                     <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', fontSize: '12px', color: 'var(--text-muted)' }}>
                                         <span>Base Sales (Excl. GST)</span>
@@ -658,8 +662,8 @@ export const Reports = ({ activeTab, refreshKey }) => {
                                         </div>
                                     )}
                                     <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderTop: '1px solid var(--card-border)', fontSize: '13.5px', fontWeight: 800 }}>
-                                        <span>3. Gross Profit (Revenue &minus; Carrier Costs)</span>
-                                        <span style={{ color: 'var(--emerald)' }}>{formatCurrency(monthlyReport.gross_profit)}</span>
+                                        <span>3. Value After Courier Cost (Revenue &minus; Carrier Costs)</span>
+                                        <span style={{ color: 'var(--emerald)' }}>{<GstValuePair excluding={monthlyReport.gross_profit} including={monthlyReport.gross_profit_with_gst} formatValue={formatCurrency} />}</span>
                                     </div>
                                     <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', fontSize: '12px', color: 'var(--text-muted)' }}>
                                         <span>4. Customer Refunds Deducted</span>
@@ -670,8 +674,8 @@ export const Reports = ({ activeTab, refreshKey }) => {
                                         <span style={{ color: 'var(--rose)' }}>- {formatCurrency(monthlyReport.operational_expenses)}</span>
                                     </div>
                                     <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 0 4px', borderTop: '2px solid var(--primary-blue)', fontSize: '16px', fontWeight: 900, color: 'var(--primary-blue)' }}>
-                                        <span>Net Business Profit</span>
-                                        <span style={{ color: '#10b981' }}>{formatCurrency(monthlyReport.net_profit)} ({monthlyReport.net_profit_margin}%)</span>
+                                        <span>Net Value</span>
+                                        <span style={{ color: '#10b981' }}>{<GstValuePair excluding={monthlyReport.net_profit} including={monthlyReport.net_profit_with_gst} formatValue={formatCurrency} />} ({monthlyReport.net_profit_margin}%)</span>
                                     </div>
                                 </div>
                             </div>

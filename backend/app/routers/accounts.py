@@ -174,6 +174,8 @@ def record_accounting_entry(payload: AccountingEntryCreate, request: Request, ct
             raise HTTPException(status_code=400, detail="Select a configured postpaid provider")
     if payload.kind == "expense":
         category = payload.category or "General"
+        if category.strip().casefold() in {'courier partner bill (monthly)', 'carrier bill', 'courier bill'}:
+            raise HTTPException(400, 'Select Courier Payment and a courier for carrier bills; do not record them as operating expenses.')
         existing = db.query(AccountingEntry.category).filter(
             AccountingEntry.kind == "expense", func.lower(AccountingEntry.category) == category.lower()
         ).first()
@@ -295,12 +297,9 @@ def get_accounts_summary(
             "actual_billed": actual_billed
         })
 
-    tax_invoices = db.query(
-        func.coalesce(func.sum(Invoice.total), 0),
-        func.coalesce(func.sum(Invoice.gst), 0)
-    ).one()
-    total_sales_with_gst = float(tax_invoices[0]) if tax_invoices[0] else round(float(total_sales) * 1.18, 2)
-    gst_total = float(tax_invoices[1]) if tax_invoices[1] else round(float(total_sales) * 0.18, 2)
+    billed = func.coalesce(Shipment.total_amount, Shipment.price + func.coalesce(Shipment.gst_amount, 0))
+    total_sales_with_gst = float(db.query(func.coalesce(func.sum(billed), 0)).scalar())
+    gst_total = round(total_sales_with_gst - float(total_sales), 2)
 
     return {
         "expense_categories": sorted({row[0] or "General" for row in db.query(AccountingEntry.category).filter(AccountingEntry.kind == "expense").distinct().all()}, key=str.casefold),

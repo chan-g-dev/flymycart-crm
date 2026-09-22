@@ -34,6 +34,11 @@ def get_settings(
     # Account revisions must be current across every API worker.
     rec = db.query(SystemSettings).first()
     res = rec.config_json if rec else {}
+    if not ctx.get('is_super_admin'):
+        safe_keys = {'companyName', 'companyPhone', 'companyEmail', 'gstin', 'centerName', 'centerAddress',
+            'centers', 'couriers', 'serviceTypes', 'paymentMethods', 'paidToAccounts', 'employees',
+            'defaultGstRate', 'gstRates', 'weightRules', 'invoicePrefix', 'invoiceLogo', 'shipmentStatuses'}
+        res = {key: value for key, value in res.items() if key in safe_keys}
     return res
 
 
@@ -51,6 +56,13 @@ def update_settings(
     """
     from app.business_options import validate_business_options
     payload = validate_business_options(payload)
+    if 'weightRules' in payload:
+        from app.weight_rules import WeightSettings
+        from pydantic import ValidationError
+        try:
+            payload['weightRules'] = WeightSettings.model_validate(payload['weightRules']).model_dump()
+        except ValidationError as exc:
+            raise HTTPException(400, 'Invalid shipment weight rules: ' + str(exc)) from exc
     if 'paymentAccounts' in payload:
         profiles = payload['paymentAccounts']
         if not isinstance(profiles, list) or len(profiles) > 200:
@@ -83,8 +95,11 @@ def update_settings(
         payload['paidToAccounts'] = list(dict.fromkeys(names + [p['name'] for p in payload['paymentAccounts']]))
     if "paymentAccounts" not in payload and "paymentAccounts" in before_cfg:
         payload["paymentAccounts"] = before_cfg["paymentAccounts"]
+    if 'weightRules' not in payload and 'weightRules' in before_cfg:
+        payload['weightRules'] = before_cfg['weightRules']
     # Invoice branding is edited in the invoice preview. A stale settings form
     # must not overwrite the independently saved logo selection.
+    payload['companyRolePolicyV1'] = before_cfg.get('companyRolePolicyV1', False)
     payload.pop('expenseCategories', None)
     if 'expenseCategories' in before_cfg:
         payload['expenseCategories'] = before_cfg['expenseCategories']

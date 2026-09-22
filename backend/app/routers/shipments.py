@@ -1,3 +1,4 @@
+from app.access_policy import can_view_costs, can_view_values
 from app.payment_requests import claim_payment_request, finish_payment_request
 from app.payment_details import validate_payment, validate_amount, payment_kind
 # ================================================================
@@ -21,7 +22,6 @@ from app.models import (
 )
 from app.schemas import ShipmentCreate, ShipmentOut
 from app.finance_engine import (
-    calculate_volumetric_and_chargeable_weight,
     calculate_gross_profit
 )
 from app.auth import create_audit_log, mask_shipment_financials
@@ -47,6 +47,7 @@ def get_shipments(
     search: Optional[str] = None,
     status: Optional[str] = None,
     courier: Optional[str] = None,
+    booking_date: Optional[datetime.date] = None,
     ctx: Dict[str, Any] = Depends(require_permission(PermissionCode.SHIPMENTS_VIEW)),
     db: Session = Depends(get_db)
 ):
@@ -57,6 +58,8 @@ def get_shipments(
         or ctx.get("permissions", {}).get("reports.view_financial")
     )
     query = db.query(Shipment)
+    if booking_date:
+        query = query.filter(Shipment.date == booking_date.isoformat())
     if center and center != "All Centers":
         query = query.filter(Shipment.center == center)
     if status:
@@ -81,12 +84,13 @@ def get_shipments(
     shipments = query.all()
 
     out = [ShipmentOut.model_validate(s) for s in shipments]
-    if not can_view_margins:
-        for s_out in out:
-            s_out.provider_cost = None
-            s_out.actual_provider_cost = None
+    for row, shipment in zip(out, shipments):
+        row.gross_profit = calculate_gross_profit(shipment.price, shipment.provider_cost, shipment.actual_provider_cost, shipment.cost_reconciled)
+    for s_out in out:
+        if not can_view_costs(ctx):
+            s_out.provider_cost = s_out.actual_provider_cost = None
+        if not can_view_values(ctx):
             s_out.gross_profit = None
-
 
     return out
 
@@ -105,8 +109,12 @@ def create_shipment(
             raise HTTPException(404, "Shipment not found")
         output = ShipmentOut.model_validate(existing)
         if not (ctx.get("is_super_admin") or "*" in ctx.get("permissions", {}) or ctx.get("permissions", {}).get("viewCostMargins") or ctx.get("permissions", {}).get("reports.view_financial")):
-            output.provider_cost = output.actual_provider_cost = output.gross_profit = None
+            output.gross_profit = None
+        if not can_view_costs(ctx):
+            output.provider_cost = output.actual_provider_cost = None
         return output
+    if not can_view_costs(ctx) and payload.provider_cost:
+        raise HTTPException(403, 'Courier purchase costs require additional access')
     # 1. Check duplicate AWB
     awb_clean = payload.awb.strip()
     if not awb_clean:
@@ -221,22 +229,16 @@ def create_shipment(
         db.add(customer)
         db.flush()
 
-    # 3. Authoritative Volumetric & Chargeable weight calculation
-    vol_wt, chargeable_wt = calculate_volumetric_and_chargeable_weight(
-        payload.parcel.length,
-        payload.parcel.width,
-        payload.parcel.height,
-        payload.parcel.actual_weight,
-        divisor=4000.0 if any(term in f"{payload.service_type} {payload.courier}".lower() for term in ("cargo",)) else 5000.0
-    )
-
-    # 4. Authoritative Gross Profit calculation
+    # Resolve and snapshot the policy used at booking time.
+    from app.weight_rules import resolve_weight_rule, calculate_weights
+    weight_rule = resolve_weight_rule(settings, payload.courier, payload.service_type, payload.domestic_international)
+    parcels = payload.parcel.boxes or [payload.parcel]
+    if weight_rule.basis == 'volumetric' and any(p.length <= 0 or p.width <= 0 or p.height <= 0 for p in parcels):
+        raise HTTPException(400, 'Positive length, width and height are required for volumetric-only billing')
+    actual_wt, vol_wt, chargeable_wt = calculate_weights(parcels, weight_rule)
+    payload.parcel.actual_weight = actual_wt
     if payload.parcel.boxes:
-        divisor = 4000.0 if any(term in f"{payload.service_type} {payload.courier}".lower() for term in ("cargo",)) else 5000.0
-        vol_wt = round(sum(box.length * box.width * box.height / divisor for box in payload.parcel.boxes), 2)
-        payload.parcel.actual_weight = round(sum(box.actual_weight for box in payload.parcel.boxes), 2)
         payload.parcel.packages_count = len(payload.parcel.boxes)
-        chargeable_wt = max(vol_wt, payload.parcel.actual_weight)
     cost_reconciled = (payload.provider_type == "prepaid")
     gross_profit = calculate_gross_profit(
         selling_price=payload.price,
@@ -266,6 +268,7 @@ def create_shipment(
         receiver_email=payload.receiver.email,
         receiver_state=payload.receiver.state,
         boxes=[box.model_dump() for box in payload.parcel.boxes],
+        weight_rule=weight_rule.model_dump(),
         sender_phone=payload.sender.phone if payload.sender else customer.mobile,
         sender_address=payload.sender.address if payload.sender else customer.address,
 
@@ -395,9 +398,9 @@ def create_shipment(
         or ctx.get("permissions", {}).get("reports.view_financial")
     )
     s_out = ShipmentOut.model_validate(new_shipment)
-    if not can_view_margins:
-        s_out.provider_cost = None
-        s_out.actual_provider_cost = None
+    if not can_view_costs(ctx):
+        s_out.provider_cost = s_out.actual_provider_cost = None
+    if not can_view_values(ctx):
         s_out.gross_profit = None
     return s_out
 

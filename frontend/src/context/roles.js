@@ -58,3 +58,8 @@ export const ROLES = {
     }
 };
 
+
+ROLES.manager = { id: 'manager', name: 'Manager', badge: 'badge-primary', permissions: {} };
+ROLES.team_leader = { id: 'team_leader', name: 'Team Leader', badge: 'badge-primary', permissions: {} };
+ROLES.operations_executive = { id: 'operations_executive', name: 'Operations Executive', badge: 'badge-primary', permissions: {} };
+ROLES.counter_staff.name = 'Counter Staff';

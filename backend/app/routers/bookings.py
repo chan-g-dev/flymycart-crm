@@ -9,10 +9,10 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.dependencies import get_current_session_context, require_permission
-from app.models import BookingRequest, BookingParcel, Customer, Shipment
+from app.models import BookingRequest, BookingParcel, Customer, Shipment, SystemSettings
 from app.schemas import (BookingRequestCreate, BookingRequestOut, BookingQuoteCreate,
     BookingQuoteResponse, BookingConvertToShipmentRequest, ShipmentCreate, CustomerPortalShipmentOut)
-from app.finance_engine import calculate_volumetric_and_chargeable_weight
+from app.weight_rules import resolve_weight_rule, calculate_weights
 from app.routers.shipments import create_shipment
 
 bookings_router = APIRouter(prefix="/api", tags=["Customer Bookings"])
@@ -37,22 +37,23 @@ def own_booking(db, booking_id, ctx):
 def submit_booking(payload: BookingRequestCreate, ctx=Depends(customer_context), db: Session = Depends(get_db)):
     customer = db.get(Customer, ctx["customer_id"])
     values = payload.model_dump(exclude={"parcels"})
-    divisor = 4000 if any(t in (payload.preferred_service or "").lower() for t in ("cargo",)) else 5000
-    vol, chargeable = calculate_volumetric_and_chargeable_weight(payload.length, payload.width, payload.height, payload.actual_weight, divisor)
+    config = db.query(SystemSettings).first()
+    rule = resolve_weight_rule(config.config_json if config else {}, service=payload.preferred_service or '', destination=payload.shipment_type)
+    parcels = payload.parcels or [payload]
+    if rule.basis == 'volumetric' and any(p.length <= 0 or p.width <= 0 or p.height <= 0 for p in parcels):
+        raise HTTPException(400, 'Positive length, width and height are required for volumetric-only billing')
+    actual, vol, chargeable = calculate_weights(parcels, rule)
+    values['actual_weight'] = actual
+    if payload.parcels:
+        values['packages_count'] = len(payload.parcels)
     booking = BookingRequest(**values, request_no=f"REQ-{uuid.uuid4().hex[:12].upper()}",
         customer_id=customer.id, customer_name=customer.name, customer_phone=customer.mobile,
         customer_email=customer.email, customer_type=customer.customer_type,
         b2b_company_id=customer.b2b_company_id, volumetric_weight=vol, chargeable_weight=chargeable, status="Submitted")
     for parcel in payload.parcels or []:
         data = parcel.model_dump()
-        data["volumetric_weight"], data["chargeable_weight"] = calculate_volumetric_and_chargeable_weight(
-            parcel.length, parcel.width, parcel.height, parcel.actual_weight, divisor)
+        _, data['volumetric_weight'], data['chargeable_weight'] = calculate_weights([parcel], rule)
         booking.parcels.append(BookingParcel(**data))
-    if booking.parcels:
-        booking.packages_count = len(booking.parcels)
-        booking.actual_weight = sum(p.actual_weight for p in booking.parcels)
-        booking.volumetric_weight = sum(p.volumetric_weight for p in booking.parcels)
-        booking.chargeable_weight = max(booking.actual_weight, booking.volumetric_weight)
     db.add(booking)
     db.commit()
     db.refresh(booking)

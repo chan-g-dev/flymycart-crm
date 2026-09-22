@@ -130,10 +130,6 @@ class ParcelBox(BaseModel):
 class ParcelInfo(ParcelBox):
     description: Optional[str] = None
     packages_count: int = 1
-    actual_weight: float = 0.0
-    length: float = 0.0
-    width: float = 0.0
-    height: float = 0.0
     volumetric_weight: float = 0.0
     chargeable_weight: float = 0.0
     boxes: List[ParcelBox] = Field(default_factory=list)
@@ -232,6 +228,7 @@ class ShipmentOut(BaseModel):
     length: float
     width: float
     height: float
+    weight_rule: Optional[Dict[str, Any]] = None
     volumetric_weight: float
     chargeable_weight: float
 
@@ -663,10 +660,10 @@ class UserCentersUpdateRequest(BaseModel):
 class BookingParcelCreate(BaseModel):
     package_number: int = 1
     description: Optional[str] = None
-    length: float = 0.0
-    width: float = 0.0
-    height: float = 0.0
-    actual_weight: float = 0.0
+    length: float = Field(default=0, ge=0, allow_inf_nan=False)
+    width: float = Field(default=0, ge=0, allow_inf_nan=False)
+    height: float = Field(default=0, ge=0, allow_inf_nan=False)
+    actual_weight: float = Field(default=0, ge=0, allow_inf_nan=False)
     volumetric_weight: float = 0.0
     chargeable_weight: float = 0.0
 
@@ -698,10 +695,10 @@ class BookingRequestCreate(BaseModel):
 
     parcel_description: Optional[str] = None
     packages_count: int = 1
-    actual_weight: float = 0.0
-    length: float = 0.0
-    width: float = 0.0
-    height: float = 0.0
+    actual_weight: float = Field(default=0, ge=0, allow_inf_nan=False)
+    length: float = Field(default=0, ge=0, allow_inf_nan=False)
+    width: float = Field(default=0, ge=0, allow_inf_nan=False)
+    height: float = Field(default=0, ge=0, allow_inf_nan=False)
 
     preferred_service: Optional[str] = "International Priority"
     pickup_date: Optional[str] = None

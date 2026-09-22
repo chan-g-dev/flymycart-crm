@@ -1,3 +1,4 @@
+from app.access_policy import resolve_permissions, role_code
 # ================================================================
 # FLY MY CART CRM - AUTHENTICATION ROUTER (app/routers/auth.py)
 # ================================================================
@@ -249,28 +250,7 @@ async def login(
     db.commit()
 
     role_names = [r.name for r in profile.roles] if profile.roles else [profile.role]
-    perms_dict = {}
-    if profile.roles:
-        for r in profile.roles:
-            if hasattr(r, 'permissions') and r.permissions:
-                for rp in r.permissions:
-                    if rp.permission_rel:
-                        perms_dict[rp.permission_rel.code] = rp.scope
-
-    if profile.role == "super_admin" and not perms_dict:
-        perms_dict = {
-            "*": "all",
-            "customers.view": "all", "customers.add": "all", "customers.edit": "all", "customers.delete": "all",
-            "shipments.view": "all", "shipments.add": "all", "shipments.edit": "all", "shipments.cancel": "all",
-            "invoices.view": "all", "invoices.add": "all", "invoices.edit": "all", "invoices.export": "all",
-            "accounts.view": "all", "accounts.edit": "all", "accounts.reconcile": "all",
-            "refunds.view": "all", "refunds.approve": "all", "refunds.process": "all",
-            "reports.view": "all", "reports.view_financial": "all",
-            "users.view": "all", "users.invite": "all", "users.edit": "all", "users.manage_permissions": "all",
-            "settings.view": "all", "settings.manage": "all",
-            "viewCostMargins": True, "viewFinancials": True
-        }
-
+    perms_dict = resolve_permissions(db, profile)
     return {
         "status": "authenticated",
         "message": "Login successful.",
@@ -280,7 +260,7 @@ async def login(
             "id": profile.id,
             "full_name": profile.display_name,
             "email": profile.email,
-            "role": profile.role,
+            "role": role_code(profile),
             "status": "approved" if profile.status == "active" else profile.status,
             "customer_id": profile.customer_id,
             "b2b_company_id": profile.b2b_company_id
@@ -289,7 +269,7 @@ async def login(
             "id": profile.id,
             "email": profile.email,
             "name": profile.display_name,
-            "role": profile.role,
+            "role": role_code(profile),
             "roles": role_names,
             "status": "approved" if profile.status == "active" else profile.status,
             "permissions": perms_dict,

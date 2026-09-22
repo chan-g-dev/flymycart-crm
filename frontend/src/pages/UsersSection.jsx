@@ -1,3 +1,6 @@
+import MemberActivity from '../components/MemberActivity';
+import RoleAccessMatrix from '../components/RoleAccessMatrix';
+import UserAccessEditor from '../components/UserAccessEditor';
 import { businessDate } from '../utils/businessDates';
 import React, { useState, useEffect, useMemo } from 'react';
 import { 
@@ -29,11 +32,13 @@ import { apiClient } from '../api/client';
 
 const normalizeStaffRole = (value) => {
     const raw = String(value || '').trim().toLowerCase().replace(/\s+/g, '_');
-    if (!raw) return 'operations_staff';
+    if (['manager', 'team_leader', 'operations_executive'].includes(raw)) return raw;
+    if (raw === 'center_manager') return 'manager';
+    if (!raw) return 'operations_executive';
     if (raw === 'superadmin' || raw === 'super_admin' || raw === 'admin') return 'super_admin';
-    if (raw === 'operations_staff' || raw === 'ops' || raw === 'operations') return 'operations_staff';
+    if (raw === 'operations_staff' || raw === 'ops' || raw === 'operations') return 'operations_executive';
     if (raw === 'counter_staff' || raw === 'counter' || raw === 'front_desk') return 'counter_staff';
-    return 'operations_staff';
+    return 'operations_executive';
 };
 
 const normalizeStaffStatus = (value) => {
@@ -83,9 +88,12 @@ const getRoleConfig = (roleKey) => {
                 icon: '👑',
                 summary: 'Full access to financials, margins, reconciliations, refunds & staff authorization.'
             };
+        case 'manager':
+        case 'team_leader':
+        case 'operations_executive':
         case 'operations_staff':
             return {
-                label: 'Operations Staff',
+                label: roleKey === 'manager' ? 'Manager' : roleKey === 'team_leader' ? 'Team Leader' : 'Operations Executive',
                 badgeClass: 'badge-ops',
                 gradient: 'linear-gradient(135deg, #1e64f0 0%, #1551c9 100%)',
                 bgLight: 'rgba(30, 100, 240, 0.09)',
@@ -97,7 +105,7 @@ const getRoleConfig = (roleKey) => {
         case 'counter_staff':
         default:
             return {
-                label: 'Front Counter Staff',
+                label: 'Counter Staff',
                 badgeClass: 'badge-counter',
                 gradient: 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)',
                 bgLight: 'rgba(245, 158, 11, 0.09)',
@@ -113,6 +121,9 @@ export const Users = ({ settings, onDataMutated }) => {
     const { currentUser, currentRole } = useAuth();
     
     const [staffList, setStaffList] = useState([]);
+    const [accessUser, setAccessUser] = useState(null);
+    const [activityUser, setActivityUser] = useState(null);
+    const [accessEditing, setAccessEditing] = useState(false);
     const [isRefreshing, setIsRefreshing] = useState(false);
     
     // Filters & view modes
@@ -384,7 +395,7 @@ export const Users = ({ settings, onDataMutated }) => {
                         </span>
                     </div>
                     <p className="users-subtitle">
-                        Manage corporate staff authorizations, assign multi-center hubs, review pending onboarding requests, and audit security permissions.
+                        Manage corporate staff authorizations, assign multi-center hubs, and audit security permissions.
                     </p>
                 </div>
 
@@ -525,8 +536,37 @@ export const Users = ({ settings, onDataMutated }) => {
                 </div>
             </div>
 
+            <nav className="users-section-nav" aria-label="Users and access sections">
+                {[
+                    ['all', 'Staff Directory', 'Employees, roles, centers and account status', UsersIcon],
+                    ...(isSuperAdmin ? [['permissions', 'Individual Permissions', 'Customize access for one employee', Shield]] : []),
+                    ['matrix', 'Role Access Overview', 'Review default access for the five company roles', LayoutGrid],
+                ].map(([key, name, description, Icon]) => <button type="button" key={key}
+                    className={`users-section-card ${(activeTab === key || (key === 'all' && activeTab === 'suspended')) ? 'selected' : ''}`}
+                    aria-pressed={activeTab === key || (key === 'all' && activeTab === 'suspended')}
+                    disabled={accessEditing} onClick={() => setActiveTab(key)}><Icon size={24} /><span><strong>{name}</strong><small>{description}</small></span></button>)}
+            </nav>
             {/* TAB BAR & DIRECTORY CONTROLS */}
-            <div className="users-controls-panel">
+            {isSuperAdmin && activeTab === 'permissions' && (
+                <div className="employee-picker-panel">
+                    <div>
+                        <h3 style={{ margin: '0 0 6px' }}>Individual Employee Access</h3>
+                        <p style={{ margin: 0, color: 'var(--text-secondary)' }}>Choose an employee, tick the access they need, and save.</p>
+                        <small>Your Super Admin access stays unchanged.</small>
+                    </div>
+                    <div className="employee-picker-field">
+                        <label htmlFor="employee-access-picker">Manage access for</label>
+                        <select disabled={accessEditing} id="employee-access-picker" className="form-select" value={accessUser?.id || ''}
+                            onChange={event => { const employee = staffList.find(staff => String(staff.id) === event.target.value); setAccessUser(employee || null); }}>
+                            <option value="">Select an employee...</option>
+                            {staffList.filter(staff => staff.role !== 'super_admin' && staff.email !== 'admin@flymycart.com').map(staff => (
+                                <option key={staff.id} value={staff.id}>{staff.name} — {getRoleConfig(staff.role).label}</option>
+                            ))}
+                        </select>
+                    </div>
+                </div>
+            )}
+            {(activeTab === 'all' || activeTab === 'suspended') && <div className="users-controls-panel">
                 <div className="users-tabs-row">
                     <button 
                         type="button"
@@ -548,14 +588,6 @@ export const Users = ({ settings, onDataMutated }) => {
                         <span className="tab-pill-count">{suspendedStaff.length}</span>
                     </button>
 
-                    <button 
-                        type="button"
-                        className={`users-tab-btn ${activeTab === 'matrix' ? 'tab-active' : ''}`}
-                        onClick={() => setActiveTab('matrix')}
-                    >
-                        <Shield size={13} />
-                        <span>Security & RBAC Matrix</span>
-                    </button>
                 </div>
 
                 {activeTab !== 'matrix' && (
@@ -586,8 +618,8 @@ export const Users = ({ settings, onDataMutated }) => {
                             >
                                 <option value="ALL">All Role Levels</option>
                                 <option value="super_admin">Super Admin (Master)</option>
-                                <option value="operations_staff">Operations Staff</option>
-                                <option value="counter_staff">Front Counter Staff</option>
+                                <option value="manager">Manager</option><option value="team_leader">Team Leader</option><option value="operations_executive">Operations Executive</option>
+                                <option value="counter_staff">Counter Staff</option>
                             </select>
                         </div>
 
@@ -626,205 +658,12 @@ export const Users = ({ settings, onDataMutated }) => {
                         </div>
                     </div>
                 )}
-            </div>
+            </div>}
 
             {/* TAB CONTENT: DIRECTORY OR MATRIX */}
-            {activeTab === 'matrix' ? (
-                /* RBAC PERMISSIONS & FINANCIAL MASKING MATRIX */
-                <div className="users-rbac-matrix-card">
-                    <div className="matrix-card-header">
-                        <div className="matrix-title-box">
-                            <Shield size={18} className="matrix-header-icon" />
-                            <div>
-                                <h3 className="matrix-main-title">Role Permissions & Financial Masking Matrix</h3>
-                                <p className="matrix-subtitle">
-                                    Granular enforcement of financial visibility, cost margin masking, reconciliation authorization, and staff onboarding rights.
-                                </p>
-                            </div>
-                        </div>
-                        <div className="matrix-info-badge">
-                            <Lock size={13} />
-                            <span>Confidentiality Safeguards Active</span>
-                        </div>
-                    </div>
-
-                    <div className="table-wrap">
-                        <table className="users-matrix-table">
-                            <thead>
-                                <tr>
-                                    <th className="th-capability">Operational Capability & Module</th>
-                                    <th className="th-role">
-                                        <div className="role-col-header">
-                                            <span>👑 Super Admin</span>
-                                            <span className="role-subhead">Executive Access</span>
-                                        </div>
-                                    </th>
-                                    <th className="th-role">
-                                        <div className="role-col-header">
-                                            <span>💼 Operations Staff</span>
-                                            <span className="role-subhead">Logistics & Bookings</span>
-                                        </div>
-                                    </th>
-                                    <th className="th-role">
-                                        <div className="role-col-header">
-                                            <span>📝 Front Counter Staff</span>
-                                            <span className="role-subhead">Counter & Intake</span>
-                                        </div>
-                                    </th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <tr className="category-divider-row">
-                                    <td colSpan={4}>FINANCIAL & PROFIT MARGIN VISIBILITY</td>
-                                </tr>
-                                <tr>
-                                    <td>
-                                        <div className="perm-name">View Full Financials, Sales Revenue & P&L Reports</div>
-                                        <div className="perm-desc">Access executive financial trends, EOD accounts, and monthly net profitability.</div>
-                                    </td>
-                                    <td className="text-center">
-                                        <span className="perm-badge perm-granted">
-                                            <Check size={12} /> Full Access
-                                        </span>
-                                    </td>
-                                    <td className="text-center">
-                                        <span className="perm-badge perm-masked">
-                                            <Lock size={12} /> Masked
-                                        </span>
-                                    </td>
-                                    <td className="text-center">
-                                        <span className="perm-badge perm-masked">
-                                            <Lock size={12} /> Masked
-                                        </span>
-                                    </td>
-                                </tr>
-                                <tr>
-                                    <td>
-                                        <div className="perm-name">View Courier Provider Base Rates & Gross Margins</div>
-                                        <div className="perm-desc">Protects wholesale logistics costs (FedEx, Aramex, Blue Dart) from operational floor staff.</div>
-                                    </td>
-                                    <td className="text-center">
-                                        <span className="perm-badge perm-granted">
-                                            <Check size={12} /> Full Access
-                                        </span>
-                                    </td>
-                                    <td className="text-center">
-                                        <span className="perm-badge perm-masked">
-                                            <Lock size={12} /> Masked
-                                        </span>
-                                    </td>
-                                    <td className="text-center">
-                                        <span className="perm-badge perm-masked">
-                                            <Lock size={12} /> Masked
-                                        </span>
-                                    </td>
-                                </tr>
-
-                                <tr className="category-divider-row">
-                                    <td colSpan={4}>SHIPMENT OPERATIONS & INVOICING</td>
-                                </tr>
-                                <tr>
-                                    <td>
-                                        <div className="perm-name">Book Master Shipments & Generate Courier Labels</div>
-                                        <div className="perm-desc">Create bookings, issue tracking AWB, and print shipping declarations.</div>
-                                    </td>
-                                    <td className="text-center">
-                                        <span className="perm-badge perm-granted"><Check size={12} /> Granted</span>
-                                    </td>
-                                    <td className="text-center">
-                                        <span className="perm-badge perm-granted"><Check size={12} /> Granted</span>
-                                    </td>
-                                    <td className="text-center">
-                                        <span className="perm-badge perm-granted"><Check size={12} /> Granted</span>
-                                    </td>
-                                </tr>
-                                <tr>
-                                    <td>
-                                        <div className="perm-name">Customer 360 & Interactive Communications Log</div>
-                                        <div className="perm-desc">View customer profiles, past tracking history, and log WhatsApp/call follow-ups.</div>
-                                    </td>
-                                    <td className="text-center">
-                                        <span className="perm-badge perm-granted"><Check size={12} /> Granted</span>
-                                    </td>
-                                    <td className="text-center">
-                                        <span className="perm-badge perm-granted"><Check size={12} /> Granted</span>
-                                    </td>
-                                    <td className="text-center">
-                                        <span className="perm-badge perm-granted"><Check size={12} /> Granted</span>
-                                    </td>
-                                </tr>
-
-                                <tr className="category-divider-row">
-                                    <td colSpan={4}>ACCOUNTS, WALLETS & RECONCILIATION</td>
-                                </tr>
-                                <tr>
-                                    <td>
-                                        <div className="perm-name">Run Provider Reconciliation & Commit Cost Actuals</div>
-                                        <div className="perm-desc">Parse carrier bills, detect weight discrepancies, and reconcile actual vs predicted charges.</div>
-                                    </td>
-                                    <td className="text-center">
-                                        <span className="perm-badge perm-granted"><Check size={12} /> Full Access</span>
-                                    </td>
-                                    <td className="text-center">
-                                        <span className="perm-badge perm-restricted"><Shield size={12} /> Restricted</span>
-                                    </td>
-                                    <td className="text-center">
-                                        <span className="perm-badge perm-restricted"><Shield size={12} /> Restricted</span>
-                                    </td>
-                                </tr>
-                                <tr>
-                                    <td>
-                                        <div className="perm-name">Manage Corporate Wallets (ICL, BRV) & Top-Ups</div>
-                                        <div className="perm-desc">Authorize prepaid balance top-ups, bank transfers, and billing reconciliations.</div>
-                                    </td>
-                                    <td className="text-center">
-                                        <span className="perm-badge perm-granted"><Check size={12} /> Full Access</span>
-                                    </td>
-                                    <td className="text-center">
-                                        <span className="perm-badge perm-restricted"><Shield size={12} /> Restricted</span>
-                                    </td>
-                                    <td className="text-center">
-                                        <span className="perm-badge perm-restricted"><Shield size={12} /> Restricted</span>
-                                    </td>
-                                </tr>
-
-                                <tr className="category-divider-row">
-                                    <td colSpan={4}>REFUNDS & SYSTEM ADMINISTRATION</td>
-                                </tr>
-                                <tr>
-                                    <td>
-                                        <div className="perm-name">Approve & Disburse Customer Refunds</div>
-                                        <div className="perm-desc">Counter and Ops staff can request customer refunds; only Super Admin can authorize disbursement.</div>
-                                    </td>
-                                    <td className="text-center">
-                                        <span className="perm-badge perm-granted"><Check size={12} /> Approve & Pay</span>
-                                    </td>
-                                    <td className="text-center">
-                                        <span className="perm-badge perm-request"><Clock size={12} /> Request Only</span>
-                                    </td>
-                                    <td className="text-center">
-                                        <span className="perm-badge perm-request"><Clock size={12} /> Request Only</span>
-                                    </td>
-                                </tr>
-                                <tr>
-                                    <td>
-                                        <div className="perm-name">Authorize New Staff & Grant Role Credentials</div>
-                                        <div className="perm-desc">Review staff applications, assign operating centers, and modify RBAC authorization matrices.</div>
-                                    </td>
-                                    <td className="text-center">
-                                        <span className="perm-badge perm-granted"><Check size={12} /> Full Access</span>
-                                    </td>
-                                    <td className="text-center">
-                                        <span className="perm-badge perm-restricted"><Lock size={12} /> Locked</span>
-                                    </td>
-                                    <td className="text-center">
-                                        <span className="perm-badge perm-restricted"><Lock size={12} /> Locked</span>
-                                    </td>
-                                </tr>
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
+            {activeTab === 'matrix' ? (<RoleAccessMatrix />
+            ) : activeTab === 'permissions' ? (
+                isSuperAdmin && (accessUser ? <UserAccessEditor key={accessUser.id} onEditingChange={setAccessEditing} embedded user={accessUser} onClose={() => setAccessUser(null)} onSaved={() => { fetchUsers(); showFeedback('Individual access saved. The user must sign in again.'); }} /> : <div className="users-controls-panel"><h3>Select an employee to manage access</h3><p>Use the employee selector above. Changes apply only to that person.</p></div>)
             ) : (
                 /* DIRECTORY LISTING (TABLE OR CARDS) */
                 <div className="users-directory-container">
@@ -890,7 +729,7 @@ export const Users = ({ settings, onDataMutated }) => {
                                                             </div>
                                                             <div className="member-meta">
                                                                 <div className="member-name-row">
-                                                                    <strong className="member-name">{staff.name}</strong>
+                                                                    <strong className="member-name">{isSuperAdmin ? <button type="button" className="member-activity-link" onClick={() => setActivityUser(staff)} title="View member activity">{staff.name}</button> : staff.name}</strong>
                                                                     {isYou && <span className="member-you-badge">YOU</span>}
                                                                 </div>
                                                                 <div className="member-id-tag">ID: {staff.id.slice(0, 10)}</div>
@@ -928,8 +767,8 @@ export const Users = ({ settings, onDataMutated }) => {
                                                                 disabled={actionLoadingId === staff.id}
                                                                 onChange={(e) => handleRoleChange(staff.id, e.target.value)}
                                                             >
-                                                                <option value="counter_staff">Front Counter Staff</option>
-                                                                <option value="operations_staff">Operations Staff</option>
+                                                                <option value="counter_staff">Counter Staff</option>
+                                                                <option value="manager">Manager</option><option value="team_leader">Team Leader</option><option value="operations_executive">Operations Executive</option>
                                                                 <option value="super_admin">Super Admin</option>
                                                             </select>
                                                         ) : (
@@ -968,6 +807,8 @@ export const Users = ({ settings, onDataMutated }) => {
 
                                                     <td>
                                                         <div className="table-actions-cell">
+                                                            {isSuperAdmin && <button type="button" className="btn btn-sm btn-outline" onClick={() => setActivityUser(staff)}>Activity logs</button>}
+                                                            {isSuperAdmin && !isStaffSuperAdmin && <button type="button" className="btn btn-sm btn-outline" onClick={() => { setAccessUser(staff); setActiveTab('permissions'); }}>Individual access</button>}
                                                             {isPending ? (
                                                                 isSuperAdmin ? (
                                                                     <button 
@@ -1040,6 +881,7 @@ export const Users = ({ settings, onDataMutated }) => {
 
                                 return (
                                     <div key={staff.id} className="staff-grid-card">
+                                        {isSuperAdmin && !isStaffSuperAdmin && <button type="button" className="btn btn-sm btn-outline" onClick={() => { setAccessUser(staff); setActiveTab('permissions'); }}>Individual access</button>}
                                         <div className="grid-card-top">
                                             <div 
                                                 className="grid-card-avatar"
@@ -1057,7 +899,7 @@ export const Users = ({ settings, onDataMutated }) => {
 
                                         <div className="grid-card-body">
                                             <div className="grid-card-name-row">
-                                                <h4 className="grid-card-name">{staff.name}</h4>
+                                                <h4 className="grid-card-name">{isSuperAdmin ? <button type="button" className="member-activity-link" onClick={() => setActivityUser(staff)} title="View member activity">{staff.name}</button> : staff.name}</h4>
                                                 {isYou && <span className="member-you-badge">YOU</span>}
                                             </div>
                                             <div 
@@ -1146,6 +988,8 @@ export const Users = ({ settings, onDataMutated }) => {
                     )}
                 </div>
             )}
+
+            {isSuperAdmin && activityUser && <MemberActivity key={activityUser.id} user={activityUser} onClose={() => setActivityUser(null)} />}
         </div>
     );
 };

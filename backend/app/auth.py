@@ -1,3 +1,4 @@
+from app.access_policy import can_view_costs, can_view_values
 # ================================================================
 # FLY MY CART CRM - AUTH, TOTP, SESSION & SECURITY ENGINE (app/auth.py)
 # ================================================================
@@ -220,7 +221,7 @@ def revoke_app_session(db: Session, session_id: str, reason: str = "User logout"
         db.commit()
 
 
-def revoke_all_user_sessions(db: Session, user_id: str, reason: str = "Logout all devices"):
+def revoke_all_user_sessions(db: Session, user_id: str, reason: str = "Logout all devices", auto_commit: bool = True):
     """Revokes all active sessions for a user."""
     now = datetime.datetime.utcnow()
     db.query(AppSession).filter(
@@ -230,7 +231,8 @@ def revoke_all_user_sessions(db: Session, user_id: str, reason: str = "Logout al
         AppSession.revoked_at: now,
         AppSession.revocation_reason: reason
     }, synchronize_session=False)
-    db.commit()
+    if auto_commit:
+        db.commit()
 
 
 def set_session_cookie(response: Response, token: str, secure: Optional[bool] = None):
@@ -441,14 +443,9 @@ def require_permission(perm_key: str):
 
 
 def mask_shipment_financials(shipment_dict: Dict[str, Any], user_ctx: Dict[str, Any]) -> Dict[str, Any]:
-    can_view = bool(
-        user_ctx.get("is_super_admin", False)
-        or "*" in user_ctx.get("permissions", {})
-        or user_ctx.get("permissions", {}).get("viewCostMargins", False)
-        or user_ctx.get("permissions", {}).get("reports.view_financial")
-    )
-    if not can_view:
-        shipment_dict["provider_cost"] = None
-        shipment_dict["actual_provider_cost"] = None
-        shipment_dict["gross_profit"] = None
+    if not can_view_costs(user_ctx):
+        shipment_dict['provider_cost'] = None
+        shipment_dict['actual_provider_cost'] = None
+    if not can_view_values(user_ctx):
+        shipment_dict['gross_profit'] = None
     return shipment_dict

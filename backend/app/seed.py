@@ -50,6 +50,7 @@ def migrate_database_schema(db: Session):
         "sender_email": "VARCHAR(150)", "sender_id_proof": "VARCHAR(100)",
         "receiver_email": "VARCHAR(150)", "receiver_state": "VARCHAR(100)",
         "boxes": "JSON DEFAULT '[]'",
+        "weight_rule": "JSON",
         "is_gst_applicable": "BOOLEAN DEFAULT TRUE",
         "gst_rate": "FLOAT DEFAULT 18.0",
         "gst_amount": "FLOAT DEFAULT 0.0",
@@ -221,118 +222,51 @@ STANDARD_ROLES = [
 
 
 def seed_permissions_and_roles(db: Session):
-    """Initializes standard roles, permissions catalogue, and role mappings."""
-    # 1. Seed Permissions
-    perm_map = {}
-    for resource, action, code, module, is_fin, desc in STANDARD_PERMISSIONS:
-        perm = db.query(Permission).filter(Permission.code == code).first()
-        if not perm:
-            perm = Permission(
-                resource=resource,
-                action=action,
-                code=code,
-                module=module,
-                is_financial=is_fin,
-                description=desc
-            )
-            db.add(perm)
+    """Seed the company role policy once; preserve later administrator customizations."""
+    from app.access_policy import ROLE_NAMES, ROLE_DEFAULTS
+    from app.permissions import PermissionCode
+    catalog = {row[2]: row for row in STANDARD_PERMISSIONS}
+    for member in PermissionCode:
+        code = member.value
+        resource, action = code.split('.', 1)
+        catalog.setdefault(code, (resource, action, code, resource.title(), False, code))
+    catalog['costs.view'] = ('costs', 'view', 'costs.view', 'Financial visibility', True, 'View courier purchase costs; does not grant Net Value or P&L access')
+    permissions = {}
+    for resource, action, code, module, financial, description in catalog.values():
+        permission = db.query(Permission).filter_by(code=code).first()
+        if not permission:
+            permission = Permission(resource=resource, action=action, code=code, module=module,
+                                    is_financial=financial, description=description)
+            db.add(permission)
             db.flush()
-        perm_map[code] = perm
-
-    # 2. Seed Roles
-    role_map = {}
-    for name, desc, is_sys in STANDARD_ROLES:
-        role = db.query(Role).filter(Role.name == name).first()
-        if not role:
-            role = Role(
-                name=name,
-                description=desc,
-                is_system=is_sys
-            )
+        permissions[code] = permission
+    config = db.query(SystemSettings).filter_by(id=1).first()
+    if not config:
+        config = SystemSettings(id=1, config_json={})
+        db.add(config)
+    initialized = (config.config_json or {}).get('companyRolePolicyV1', False)
+    legacy = {'Manager': 'Center Manager', 'Counter Staff': 'Front Counter Staff', 'Operations Executive': 'Operations Staff'}
+    for code, name in ROLE_NAMES.items():
+        role = db.query(Role).filter_by(name=name).first()
+        if not role and name in legacy:
+            role = db.query(Role).filter_by(name=legacy[name]).first()
+            if role:
+                role.name = name
+        fresh = role is None
+        if fresh:
+            role = Role(name=name, is_system=code == 'super_admin', description='Company role: ' + name)
             db.add(role)
             db.flush()
-        else:
-            role.is_system = is_sys
-        role_map[name] = role
-
-    db.commit()
-
-    # 3. Map Permissions to SUPER_ADMIN (All permissions with scope 'all')
-    super_role = role_map.get("SUPER_ADMIN")
-    if super_role:
-        for code, perm in perm_map.items():
-            rp = db.query(RolePermission).filter(
-                RolePermission.role_id == super_role.id,
-                RolePermission.permission_id == perm.id
-            ).first()
-            if not rp:
-                rp = RolePermission(
-                    role_id=super_role.id,
-                    permission_id=perm.id,
-                    scope="all"
-                )
-                db.add(rp)
-
-    # 4. Map Permissions to Operations Staff
-    ops_role = role_map.get("Operations Staff")
-    if ops_role:
-        ops_perms = [
-            "customers.view", "customers.add", "customers.edit",
-            "shipments.view", "shipments.add", "shipments.edit",
-            "invoices.view",
-            "reports.view", "users.view", "settings.view"
-        ]
-        for code in ops_perms:
-            if code in perm_map:
-                rp = db.query(RolePermission).filter(
-                    RolePermission.role_id == ops_role.id,
-                    RolePermission.permission_id == perm_map[code].id
-                ).first()
-                if not rp:
-                    db.add(RolePermission(
-                        role_id=ops_role.id,
-                        permission_id=perm_map[code].id,
-                        scope="center"
-                    ))
-
-    # 5. Map Permissions to Accounts Staff
-    acc_role = role_map.get("Accounts Staff")
-    if acc_role:
-        acc_perms = [
-            "invoices.view", "invoices.add", "invoices.edit", "invoices.export",
-            "accounts.view", "accounts.edit", "accounts.reconcile", "accounts.export",
-            "refunds.view", "refunds.request", "reports.view", "reports.view_financial"
-        ]
-        for code in acc_perms:
-            if code in perm_map:
-                rp = db.query(RolePermission).filter(
-                    RolePermission.role_id == acc_role.id,
-                    RolePermission.permission_id == perm_map[code].id
-                ).first()
-                if not rp:
-                    db.add(RolePermission(
-                        role_id=acc_role.id,
-                        permission_id=perm_map[code].id,
-                        scope="all"
-                    ))
-
-    # 6. Map Permissions to Refund Approver
-    ref_role = role_map.get("Refund Approver")
-    if ref_role:
-        ref_perms = ["refunds.view", "refunds.approve", "refunds.process", "reports.view_financial"]
-        for code in ref_perms:
-            if code in perm_map:
-                rp = db.query(RolePermission).filter(
-                    RolePermission.role_id == ref_role.id,
-                    RolePermission.permission_id == perm_map[code].id
-                ).first()
-                if not rp:
-                    db.add(RolePermission(
-                        role_id=ref_role.id,
-                        permission_id=perm_map[code].id,
-                        scope="all"
-                    ))
-
+        if fresh or not initialized or code == 'super_admin':
+            if code != 'super_admin':
+                db.query(RolePermission).filter_by(role_id=role.id).delete()
+            codes = permissions.keys() if code == 'super_admin' else ROLE_DEFAULTS[code]
+            for permission_code in codes:
+                permission = permissions[permission_code]
+                if not db.query(RolePermission).filter_by(role_id=role.id, permission_id=permission.id).first():
+                    db.add(RolePermission(role_id=role.id, permission_id=permission.id,
+                                          scope='all' if code == 'super_admin' else 'center'))
+    config.config_json = {**(config.config_json or {}), 'companyRolePolicyV1': True}
     db.commit()
 
 

@@ -1,3 +1,5 @@
+import GstValuePair from './GstValuePair';
+import { resolveWeightRule, calculateWeights, parcelsInCm } from '../utils/weightRules';
 import { businessDate } from '../utils/businessDates';
 import { paymentOptions } from '../utils/businessOptions';
 import React, { useState, useEffect, useRef } from 'react';
@@ -55,6 +57,7 @@ const getInitialShipmentForm = (todayStr, settings) => ({
     description: '',
     packages_count: 1,
     actual_weight: '',
+    dimension_unit: 'cm',
     length: '',
     width: '',
     height: '',
@@ -97,10 +100,8 @@ const defaultPostpaid = [
 const defaultPrepaid = [{ name: 'ICL' }, { name: 'BRV' }];
 
 const ShipmentModalForm = ({ isOpen, onClose, onCreated, settings }) => {
-    const { currentUser } = useAuth();
-    const canEnterShipmentCosts = currentUser?.isSuperAdmin
-        || currentUser?.roleId === 'super_admin'
-        || currentUser?.roleId === 'operations_staff';
+    const { hasPermission } = useAuth();
+    const canEnterShipmentCosts = hasPermission('costs.view') || hasPermission('reports.view_financial');
     const todayStr = businessDate();
     const [form, setForm] = useState(getInitialShipmentForm(todayStr, settings));
     const lookupSequence = useRef(0);
@@ -127,24 +128,17 @@ const ShipmentModalForm = ({ isOpen, onClose, onCreated, settings }) => {
         return () => { document.body.style.overflow = oldOverflow; document.removeEventListener('keydown', keyboard); previouslyFocused?.focus(); };
     }, [isOpen, isSubmitting, onClose]);
 
-    // Auto-calculate Volumetric & Chargeable weight in real-time
+    const appliedWeightRule = resolveWeightRule(settings, form.courier, form.service_type, form.domestic_international);
+    // Use the same saved policy and canonical cm inputs as the server.
     useEffect(() => {
-        const l = parseFloat(form.length) || 0;
-        const w = parseFloat(form.width) || 0;
-        const h = parseFloat(form.height) || 0;
-        const actual = form.boxes.length ? form.boxes.reduce((sum, box) => sum + (Number(box.actual_weight) || 0), 0) : parseFloat(form.actual_weight) || 0;
-
-        const divisor = /cargo/i.test(`${form.service_type} ${form.courier}`) ? 4000 : 5000;
-        const vol = form.boxes.length ? form.boxes.reduce((sum, box) => sum + Number(box.length) * Number(box.width) * Number(box.height) / divisor, 0) : (l * w * h) / divisor;
-        const chg = Math.max(actual, vol);
-
+        const weights = calculateWeights(parcelsInCm({ length: form.length, width: form.width, height: form.height, actual_weight: form.actual_weight, dimension_unit: form.dimension_unit, boxes: form.boxes }), resolveWeightRule(settings, form.courier, form.service_type, form.domestic_international));
         setForm(prev => ({
             ...prev,
-            ...(form.boxes.length ? { actual_weight: actual, packages_count: form.boxes.length } : {}),
-            volumetric_weight: parseFloat(vol.toFixed(2)),
-            chargeable_weight: parseFloat(chg.toFixed(2))
+            ...(form.boxes.length ? { actual_weight: weights.actual_weight, packages_count: form.boxes.length } : {}),
+            volumetric_weight: weights.volumetric_weight,
+            chargeable_weight: weights.chargeable_weight,
         }));
-    }, [form.length, form.width, form.height, form.actual_weight, form.service_type, form.courier, form.boxes]);
+    }, [form.length, form.width, form.height, form.actual_weight, form.service_type, form.courier, form.domestic_international, form.dimension_unit, form.boxes, settings]);
 
     const postpaidProviders = settings?.postpaidProviders?.length ? settings.postpaidProviders : defaultPostpaid;
     const prepaidWallets = settings?.prepaidWallets?.length ? settings.prepaidWallets : defaultPrepaid;
@@ -286,13 +280,11 @@ const ShipmentModalForm = ({ isOpen, onClose, onCreated, settings }) => {
                     address: form.receiver_address.trim()
                 },
                 parcel: {
-                    boxes: form.boxes.map(box => Object.fromEntries(Object.entries(box).map(([key, value]) => [key, Number(value) || 0]))),
+                    boxes: form.boxes.length ? parcelsInCm(form) : [],
                     description: form.description,
                     packages_count: parseInt(form.packages_count) || 1,
                     actual_weight: parseFloat(form.actual_weight) || 0,
-                    length: parseFloat(form.length) || 0,
-                    width: parseFloat(form.width) || 0,
-                    height: parseFloat(form.height) || 0,
+                    ...parcelsInCm({ ...form, boxes: [] })[0],
                     volumetric_weight: form.volumetric_weight,
                     chargeable_weight: form.chargeable_weight
                 },
@@ -383,7 +375,7 @@ const ShipmentModalForm = ({ isOpen, onClose, onCreated, settings }) => {
                         placeholder={options.placeholder} 
                         min={options.min} 
                         max={options.max} 
-                        step={options.type === 'number' ? '0.01' : undefined} 
+                        step={options.type === 'number' ? (['length', 'width', 'height'].includes(key) ? 'any' : '0.01') : undefined}
                         readOnly={options.readOnly}
                         className="booking-input"
                     />
@@ -550,17 +542,22 @@ const ShipmentModalForm = ({ isOpen, onClose, onCreated, settings }) => {
                                     <Package size={16} />
                                     <span>5. Package & Dimensions</span>
                                 </div>
-                                <span className="booking-card-subtitle">Weight (kg) and dimensions (cm)</span>
+                                <span className="booking-card-subtitle">Weight (kg) and dimensions ({form.dimension_unit})</span>
                             </div>
                             <div className="booking-fields">
+                                {field('dimension_unit', 'Dimension unit', { items: ['cm', 'in'], onChange: unit => setForm(prev => {
+                                    const factor = unit === 'in' ? 1 / 2.54 : 2.54;
+                                    const convert = parcel => ({ ...parcel, ...Object.fromEntries(['length', 'width', 'height'].map(key => [key, parcel[key] === '' ? '' : Number((Number(parcel[key]) * factor).toFixed(8))])) });
+                                    return { ...convert(prev), dimension_unit: unit, boxes: prev.boxes.map(convert) };
+                                }) })}
                                 {field('description', 'Package Contents / Items', { wide: true, placeholder: 'e.g. Documents, garments, dry snacks, electronics...' })}
                                 {field('packages_count', 'No. of Packages', { type: 'number', min: 1, readOnly: form.boxes.length > 0 })}
                                 {field('actual_weight', 'Total Actual Weight (kg)', { type: 'number', min: 0.01, required: true, readOnly: form.boxes.length > 0 })}
                                 {!form.boxes.length && (
                                     <>
-                                        {field('length', 'Length (cm)', { type: 'number', min: 0 })}
-                                        {field('width', 'Width (cm)', { type: 'number', min: 0 })}
-                                        {field('height', 'Height (cm)', { type: 'number', min: 0 })}
+                                        {field('length', `Length (${form.dimension_unit})`, { type: 'number', min: appliedWeightRule.basis === 'volumetric' ? 0.01 : 0, required: appliedWeightRule.basis === 'volumetric' })}
+                                        {field('width', `Width (${form.dimension_unit})`, { type: 'number', min: appliedWeightRule.basis === 'volumetric' ? 0.01 : 0, required: appliedWeightRule.basis === 'volumetric' })}
+                                        {field('height', `Height (${form.dimension_unit})`, { type: 'number', min: appliedWeightRule.basis === 'volumetric' ? 0.01 : 0, required: appliedWeightRule.basis === 'volumetric' })}
                                     </>
                                 )}
                             </div>
@@ -581,12 +578,12 @@ const ShipmentModalForm = ({ isOpen, onClose, onCreated, settings }) => {
                                         {['length', 'width', 'height', 'actual_weight'].map(key => (
                                             <div className="booking-field" key={key}>
                                                 <label className="booking-field-label">
-                                                    {key === 'actual_weight' ? 'Weight (kg)' : `${key.toUpperCase()} (cm)`}
+                                                    {key === 'actual_weight' ? 'Weight (kg)' : `${key.toUpperCase()} (${form.dimension_unit})`}
                                                 </label>
                                                 <input 
                                                     type="number" 
                                                     min="0.01" 
-                                                    step="0.01" 
+                                                    step={key === 'actual_weight' ? '0.01' : 'any'}
                                                     required 
                                                     value={box[key]} 
                                                     onChange={e => setForm(prev => ({
@@ -769,14 +766,15 @@ const ShipmentModalForm = ({ isOpen, onClose, onCreated, settings }) => {
                                 <Calculator size={16} />
                                 <h3>Live Calculation</h3>
                             </div>
+                            <p style={{ padding: '0 16px', fontSize: 12 }}>(L &times; W &times; H in cm) &divide; {appliedWeightRule.divisor}. Billing: {appliedWeightRule.basis === 'higher' ? 'higher of actual / volumetric' : appliedWeightRule.basis}; {appliedWeightRule.aggregation === 'box' ? 'per box' : 'shipment totals'}. Minimum {appliedWeightRule.minimum} kg; {appliedWeightRule.rounding ? `round up to ${appliedWeightRule.rounding} kg` : 'no step rounding'}.</p>
                             <div className="booking-calc-list">
                                 <div className="booking-calc-row">
                                     <span>Volumetric Weight</span>
-                                    <strong>{Number(form.volumetric_weight).toFixed(3)} kg</strong>
+                                    <strong>{Number(form.volumetric_weight).toFixed(2)} kg</strong>
                                 </div>
                                 <div className="booking-calc-row booking-calc-highlight">
                                     <span>Chargeable Weight</span>
-                                    <strong className="text-primary-blue">{Number(form.chargeable_weight).toFixed(3)} kg</strong>
+                                    <strong className="text-primary-blue">{Number(form.chargeable_weight).toFixed(2)} kg</strong>
                                 </div>
                                 <div className="booking-calc-row">
                                     <span>Customer Base Rate</span>
@@ -797,12 +795,12 @@ const ShipmentModalForm = ({ isOpen, onClose, onCreated, settings }) => {
                                             <span>Provider Cost</span>
                                             <span>{money(form.provider_cost)}</span>
                                         </div>
-                                        <div className="booking-calc-row booking-calc-profit">
-                                            <span>Estimated Margin</span>
+                                        {hasPermission('reports.view_financial') && <div className="booking-calc-row booking-calc-profit">
+                                            <span>Estimated Value After Courier Cost</span>
                                             <span className={estimatedMargin < 0 ? 'margin-loss' : 'margin-profit'}>
-                                                {money(estimatedMargin)}
+                                                <GstValuePair excluding={estimatedMargin} including={estimatedMargin + gst} formatValue={money} />
                                             </span>
-                                        </div>
+                                        </div>}
                                     </>
                                 )}
                             </div>

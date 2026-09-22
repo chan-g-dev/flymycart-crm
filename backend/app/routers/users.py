@@ -1,3 +1,4 @@
+from app.access_policy import ROLE_NAMES, ROLE_ALIASES, role_code
 # ================================================================
 # FLY MY CART CRM - USERS, ROLES & PERMISSIONS ROUTER (app/routers/users.py)
 # ================================================================
@@ -34,9 +35,11 @@ users_router = APIRouter(prefix="/users", tags=["Users, Roles & Access Control"]
 
 
 ROLE_NAME_ALIASES = {
+    **ROLE_NAMES,
+    "operations_staff": "Operations Executive",
     "super_admin": "SUPER_ADMIN",
-    "operations_staff": "Operations Staff",
-    "counter_staff": "Front Counter Staff",
+    "operations_staff": "Operations Executive",
+    "counter_staff": "Counter Staff",
 }
 
 ROLE_CODES_BY_NAME = {
@@ -87,6 +90,8 @@ def get_all_users(
     Returns list of all staff accounts with their assigned roles, centers, and MFA enrollment status.
     """
     query = db.query(UserProfile)
+    if not ctx.get("is_super_admin"):
+        query = query.filter(UserProfile.centers.any(UserCenterAccess.center_id.in_(ctx.get("centers", []))))
     if status:
         query = query.filter(UserProfile.status == status)
     if search:
@@ -169,7 +174,7 @@ def approve_staff_user(
     assigned_role = (payload.get("role") or profile.requested_role or profile.role or "operations_staff").strip().lower()
     center = payload.get("center") or "Main Hub (Bangalore)"
 
-    if assigned_role not in {"super_admin", "operations_staff", "counter_staff"}:
+    if assigned_role not in set(ROLE_NAMES) | {"operations_staff"}:
         assigned_role = "operations_staff"
 
     profile.status = "active"
@@ -333,7 +338,7 @@ def invite_user(
     db.query(UserInvitation).filter(UserInvitation.email == email).delete()
 
     requested_role = str((payload.role_ids or ["operations_staff"])[0]).strip().lower().replace(" ", "_")
-    if requested_role not in {"super_admin", "operations_staff", "counter_staff"}:
+    if requested_role not in set(ROLE_NAMES) | {"operations_staff"}:
         requested_role = "operations_staff"
     selected_roles = [resolve_role(db, role_id) for role_id in payload.role_ids]
     selected_roles = [role for role in selected_roles if role]
@@ -503,6 +508,8 @@ def update_user_roles(
     if profile.id == ctx["user_id"] and not ctx.get("is_super_admin", False):
         raise HTTPException(status_code=400, detail="Staff cannot edit their own roles or permissions.")
 
+    if role_code(profile) == 'super_admin':
+        raise HTTPException(400, 'Super Admin role assignments are protected.')
     old_roles = [r.name for r in profile.roles]
     selected_roles = [resolve_role(db, role_id) for role_id in payload.role_ids]
     selected_roles = [role for role in selected_roles if role]
@@ -516,11 +523,7 @@ def update_user_roles(
     for role in selected_roles:
         db.add(UserRole(user_id=profile.id, role_id=role.id, assigned_by=ctx["user_id"]))
 
-    profile.role = {
-        "SUPER_ADMIN": "super_admin",
-        "Operations Staff": "operations_staff",
-        "Front Counter Staff": "counter_staff",
-    }.get(selected_roles[0].name, "operations_staff")
+    profile.role = next((key for key, name in ROLE_NAMES.items() if name == selected_roles[0].name), "operations_executive")
     profile.requested_role = profile.role
 
     profile.authorization_version += 1
@@ -686,35 +689,29 @@ def update_role_permissions(
             detail="Protected System Role: SUPER_ADMIN must always retain all permissions."
         )
 
-    # Delete existing role permissions
-    db.query(RolePermission).filter(RolePermission.role_id == role.id).delete()
-
+    from app.access_policy import SUPER_ONLY
+    catalog = {p.id: p for p in db.query(Permission)}
+    seen = set()
     for item in payload.permissions:
-        p_id = item.get("permission_id")
-        scope = item.get("scope", "center")
-        if p_id:
-            db.add(RolePermission(role_id=role.id, permission_id=p_id, scope=scope))
-
+        permission_id = item.get('permission_id')
+        if permission_id not in catalog or catalog[permission_id].code in SUPER_ONLY:
+            raise HTTPException(422, 'Unknown or Super Admin-only permission')
+        if item.get('scope', 'center') not in ('own', 'center', 'all') or permission_id in seen:
+            raise HTTPException(422, 'Invalid scope or duplicate permission')
+        seen.add(permission_id)
+    before = [{'permission_id': p.permission_id, 'scope': p.scope} for p in role.permissions]
+    db.query(RolePermission).filter(RolePermission.role_id == role.id).delete()
+    for item in payload.permissions:
+        db.add(RolePermission(role_id=role.id, permission_id=item['permission_id'], scope=item.get('scope', 'center')))
+    users_with_role = db.query(UserProfile).join(UserRole, UserRole.user_id == UserProfile.id).filter(UserRole.role_id == role.id).all()
+    for user in users_with_role:
+        user.authorization_version += 1
+        revoke_all_user_sessions(db, user.id, f"Role '{role.name}' permissions updated", auto_commit=False)
+    create_audit_log(db, ctx['user_id'], ctx['display_name'], 'rbac.update_role_permissions', 'role',
+        'updated_role_permissions', resource_id=role.id, before_data=before,
+        after_data={'role': role.name, 'permissions': payload.permissions}, auto_commit=False,
+        ip_address=request.client.host if request.client else None)
     db.commit()
-
-    # Invalidate sessions of all users holding this role
-    users_with_role = db.query(UserProfile).join(UserRole).filter(UserRole.role_id == role.id).all()
-    for u in users_with_role:
-        u.authorization_version += 1
-        revoke_all_user_sessions(db, u.id, f"Role '{role.name}' permissions updated")
-    db.commit()
-
-    create_audit_log(
-        db=db,
-        actor_user_id=ctx["user_id"],
-        actor_name=ctx["display_name"],
-        event_type="rbac.update_role_permissions",
-        resource_type="role",
-        resource_id=role.id,
-        action="updated_role_permissions",
-        after_data={"role": role.name, "permissions": payload.permissions},
-        ip_address=request.client.host if request.client else None
-    )
 
     return {"status": "success", "message": f"Permissions updated for role '{role.name}'."}
 
@@ -730,17 +727,22 @@ def list_permissions(
 
 @users_router.get("/audit-logs")
 def list_audit_logs(
-    limit: int = Query(50, le=200),
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    actor_id: Optional[str] = None,
     event_type: Optional[str] = None,
     ctx: Dict[str, Any] = Depends(require_permission("users.manage_permissions")),
     db: Session = Depends(get_db)
 ):
     """Returns append-only audit trail with sensitive credential redaction."""
+    from app.auth import sanitize_audit_data
     query = db.query(AuditLog)
+    if actor_id:
+        query = query.filter(AuditLog.user_id == actor_id)
     if event_type:
         query = query.filter(AuditLog.event_type.ilike(f"%{event_type}%"))
 
-    logs = query.order_by(desc(AuditLog.timestamp)).limit(limit).all()
+    logs = query.order_by(desc(AuditLog.timestamp), desc(AuditLog.id)).offset(offset).limit(limit).all()
 
     return [
         {
@@ -751,8 +753,9 @@ def list_audit_logs(
             "resource_type": l.entity_type,
             "resource_id": l.entity_id,
             "action": l.action,
-            "before_data": l.before_value,
-            "after_data": l.after_value,
+            "result": l.result,
+            "before_data": sanitize_audit_data(l.before_value),
+            "after_data": sanitize_audit_data(l.after_value),
             "timestamp": l.timestamp
         } for l in logs
     ]
@@ -808,3 +811,59 @@ def sync_profile(
         "status": user.status,
         "is_active": user.is_active
     }
+
+
+# Per-person overrides are separate from role permissions and center assignments.
+from pydantic import BaseModel, Field
+from typing import Literal
+from app.models import UserPermissionOverride
+from app.access_policy import resolve_permissions, SUPER_ONLY
+
+class IndividualAccessUpdate(BaseModel):
+    version: int = Field(ge=1)
+    overrides: Dict[str, Literal['allow', 'deny']] = Field(default_factory=dict)
+
+@users_router.get('/{user_id}/access')
+def get_individual_access(user_id: str, ctx=Depends(require_super_admin), db: Session = Depends(get_db)):
+    profile = db.get(UserProfile, user_id)
+    if not profile:
+        raise HTTPException(404, 'User not found')
+    return {
+        'version': profile.authorization_version,
+        'role_defaults': resolve_permissions(db, profile, include_overrides=False),
+        'effective_permissions': resolve_permissions(db, profile),
+        'overrides': {row.permission_code: 'allow' if row.allowed else 'deny'
+                      for row in db.query(UserPermissionOverride).filter_by(user_id=user_id)},
+        'permissions': [{'code': p.code, 'module': p.module, 'description': p.description, 'protected': p.code in SUPER_ONLY}
+                        for p in db.query(Permission).order_by(Permission.module, Permission.code)],
+        'centers': [c.center_id for c in profile.centers],
+        'protected': role_code(profile) == 'super_admin',
+    }
+
+@users_router.put('/{user_id}/access')
+def update_individual_access(user_id: str, payload: IndividualAccessUpdate, request: Request,
+                             ctx=Depends(require_super_admin), db: Session = Depends(get_db)):
+    profile = db.query(UserProfile).filter_by(id=user_id).with_for_update().first()
+    if not profile:
+        raise HTTPException(404, 'User not found')
+    if role_code(profile) == 'super_admin':
+        raise HTTPException(400, 'Super Admin access is protected')
+    if profile.authorization_version != payload.version:
+        raise HTTPException(409, 'Access changed since this form opened. Reload before saving.')
+    valid = {p.code for p in db.query(Permission)} - SUPER_ONLY
+    if set(payload.overrides) - valid:
+        raise HTTPException(422, 'Unknown or Super Admin-only permission')
+    before = {p.permission_code: 'allow' if p.allowed else 'deny'
+              for p in db.query(UserPermissionOverride).filter_by(user_id=user_id)}
+    db.query(UserPermissionOverride).filter_by(user_id=user_id).delete()
+    for code, effect in payload.overrides.items():
+        db.add(UserPermissionOverride(user_id=user_id, permission_code=code, allowed=effect == 'allow', updated_by=ctx['user_id']))
+    profile.authorization_version += 1
+    # Remove active sessions so cached access cannot survive a downgrade.
+    revoke_all_user_sessions(db, user_id, reason='Individual permissions changed', auto_commit=False)
+    create_audit_log(db, ctx['user_id'], ctx['display_name'], 'rbac.user_overrides', 'user',
+                     'updated_individual_access', resource_id=user_id, before_data=before,
+                     after_data=payload.overrides, auto_commit=False,
+                     ip_address=request.client.host if request.client else None)
+    db.commit()
+    return {'status': 'saved', 'version': profile.authorization_version}

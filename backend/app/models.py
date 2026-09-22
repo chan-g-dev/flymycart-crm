@@ -265,6 +265,7 @@ class Shipment(Base):
     receiver_email = Column(String(150), nullable=True)
     receiver_state = Column(String(100), nullable=True)
     boxes = Column(JSON, default=list)
+    weight_rule = Column(JSON, nullable=True)
 
     # Parcel & weights
     description = Column(Text, nullable=True)
@@ -687,6 +688,15 @@ class RolePermission(Base):
 
     role_rel = relationship("Role", back_populates="permissions")
     permission_rel = relationship("Permission")
+
+
+class UserPermissionOverride(Base):
+    __tablename__ = "user_permission_overrides"
+    user_id = Column(String(50), ForeignKey("user_profiles.id", ondelete="CASCADE"), primary_key=True)
+    permission_code = Column(String(200), ForeignKey("permissions.code", ondelete="CASCADE"), primary_key=True)
+    allowed = Column(Boolean, nullable=False)
+    updated_by = Column(String(50), ForeignKey("user_profiles.id"), nullable=True)
+    updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
 
 
 class UserCenterAccess(Base):

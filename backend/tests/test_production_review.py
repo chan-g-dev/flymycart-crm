@@ -15,7 +15,10 @@ from app.database import Base, get_db
 from app.models import Shipment, Customer, Refund, AccountingEntry, SystemSettings, Invoice, PaymentCollection
 from app.routers.accounts import accounts_router, record_accounting_entry
 from app.routers.shipments import shipments_router, create_shipment
-from app.routers.account_workspace import get_workspace_overview, period_totals
+from app.routers.account_workspace import get_workspace_overview, period_totals, get_shipment_ledger
+from app.routers.reports import get_eod_report, get_monthly_pl_report, get_weekly_operations_report
+from app.routers.dashboard import get_dashboard_summary
+from app.finance_engine import calculate_gross_profit
 from app.seed import migrate_database_schema
 from app.config import settings
 
@@ -66,6 +69,21 @@ class ProductionReviewTests(unittest.TestCase):
         with self.sessions() as db:
             self.assertEqual(db.query(AccountingEntry).count(), 1)
 
+    def test_carrier_bill_cannot_be_misclassified_as_operating_expense(self):
+        payload = {'kind': 'expense', 'category': 'Courier Partner Bill (Monthly)', 'vendor': 'Aramex',
+                   'date': '2026-09-22', 'amount': 34600, 'account': 'Cash', 'payment_mode': 'Cash',
+                   'payment_details': {'owner_type': 'Business', 'account_holder': 'Test Office'}}
+        response = self.client.post('/api/accounts/entries', json=payload)
+        self.assertEqual(response.status_code, 400, response.text)
+        with self.sessions() as db:
+            self.assertEqual(db.query(AccountingEntry).count(), 0)
+        response = self.client.post('/api/accounts/entries', json={**payload, 'kind': 'provider_payment', 'provider': 'Aramex'})
+        self.assertEqual(response.status_code, 201, response.text)
+        with self.sessions() as db:
+            entry = db.query(AccountingEntry).one()
+            self.assertEqual(entry.kind, 'provider_payment')
+            self.assertIsNone(entry.category)
+
     def test_booking_retry_and_invoice(self):
         payload = {'awb': 'TEST-PRODUCTION', 'date': '2026-09-16', 'customer_name': 'Test Customer',
                    'customer_mobile': '9000000001', 'receiver': {'name': 'Receiver', 'city': 'Delhi', 'country': 'India'},
@@ -101,6 +119,59 @@ class ProductionReviewTests(unittest.TestCase):
             self.assertNotIn('Refund Cash', {r['name'] for r in report['bank_accounts']})
             later = get_workspace_overview(date_to=dt.date(2026,9,17), ctx=CTX, db=db)
             self.assertEqual(next(r['recorded_balance'] for r in later['bank_accounts'] if r['name']=='Refund Cash'), -100)
+
+    def test_profit_excludes_sales_gst_and_retains_gst_in_billed_totals(self):
+        with self.sessions() as db:
+            for index, (gst, total) in enumerate([(180, 1180), (140, None), (0, 1000)]):
+                db.add(Shipment(id=f'gst-{index}', customer_name='Test', awb=f'GST-{index}',
+                    date='2026-09-16', center='Main', receiver_name='Receiver',
+                    receiver_city='Delhi', receiver_country='India', courier='Aramex',
+                    provider_name='Aramex', price=1000, gst_amount=gst, total_amount=total,
+                    is_gst_applicable=gst > 0, provider_cost=600, actual_provider_cost=900,
+                    cost_reconciled=False))
+            db.add(AccountingEntry(id='gst-expense', date='2026-09-16', kind='expense',
+                amount=50, account='Cash', reference='Packing', created_by='Test Admin', center='Main', shipment_id='gst-0'))
+            db.add(Refund(id='gst-refund', awb='GST-0', customer='Test', reason='Adjustment', amount=25, status='Approved',
+                request_date='2026-09-16', approval_date='2026-09-16'))
+            db.commit()
+            result = period_totals(db, dt.date(2026, 9, 16), dt.date(2026, 9, 16), 'Main', True)
+            self.assertEqual(result['sales'], 3000)
+            self.assertEqual(result['gross_sales'], 3320)
+            self.assertEqual(result['net'], 1125)
+            self.assertEqual(result['net_with_gst'], 1445)
+            ledger = get_shipment_ledger(center='Main', limit=10, offset=0, ctx=CTX, db=db)
+            rows = {row['id']: row for row in ledger['items']}
+            self.assertEqual([rows[f'gst-{i}']['value'] for i in range(3)], [350, 400, 400])
+            self.assertEqual([rows[f'gst-{i}']['value_with_gst'] for i in range(3)], [530, 540, 400])
+            self.assertEqual(rows['gst-1']['gross_sale'], 1140)
+            self.assertEqual(rows['gst-2']['gross_sale'], 1000)
+            hidden = get_shipment_ledger(center='Main', limit=10, offset=0, ctx={'permissions': {}}, db=db)
+            self.assertTrue(all(row['value'] is None for row in hidden['items']))
+            self.assertTrue(all(row['value_with_gst'] is None for row in hidden['items']))
+            self.assertIsNone(period_totals(db, None, None, 'Main', False)['net'])
+            self.assertIsNone(period_totals(db, None, None, 'Main', False)['net_with_gst'])
+            for report in [get_eod_report('2026-09-16', CTX, db), get_monthly_pl_report('2026-09', CTX, db)]:
+                self.assertEqual(report['invoice_total'], 3320)
+                self.assertEqual(report['gst_total'], 320)
+                self.assertEqual(report['gross_profit'], 1200)
+                self.assertEqual(report['net_profit'], 1125)
+                self.assertEqual(report['net_profit_with_gst'], 1445)
+                self.assertEqual(report['gross_profit_with_gst'], 1520)
+            weekly = get_weekly_operations_report('2026-09-16', CTX, db)
+            day = next(row for row in weekly['daily'] if row['date'] == '2026-09-16')
+            self.assertEqual(day['revenue_with_gst'], 3320)
+            self.assertEqual(day['gross_profit'], 1200)
+            self.assertEqual(day['gross_profit_with_gst'], 1520)
+            dashboard = get_dashboard_summary(CTX, db)
+            self.assertEqual(dashboard['total_sales_with_gst'], 3320)
+            self.assertEqual(dashboard['total_gross_profit'], 1200)
+            self.assertEqual(dashboard['center_summaries']['Main']['total_sales_with_gst'], 3320)
+
+    def test_profit_respects_reconciliation_and_zero_actual_cost(self):
+        self.assertEqual(calculate_gross_profit(1000, 600, 900, False), 400)
+        self.assertEqual(calculate_gross_profit(1000, 600, 900, True), 100)
+        self.assertEqual(calculate_gross_profit(1000, 600, 0, True), 1000)
+        self.assertEqual(calculate_gross_profit(1000, 600, None, True), 400)
 
     def test_mixed_postgres_numeric_aggregates(self):
         db = Mock()
@@ -190,3 +261,26 @@ class ProductionReviewTests(unittest.TestCase):
             self.assertEqual(shipment.gst_rate, 12)
             self.assertEqual(shipment.service_type, 'Custom Express')
             self.assertEqual(db.query(Invoice).filter_by(shipment_id=shipment.id).one().total, 1120)
+
+    def test_custom_weight_policy_is_applied_and_preserved(self):
+        with self.sessions() as db:
+            cfg = db.get(SystemSettings, 1)
+            cfg.config_json = {**cfg.config_json, 'weightRules': {'express': {'divisor': 6000, 'aggregation': 'box', 'rounding': .5}}}
+            db.commit()
+        payload = {'awb': 'WEIGHT-POLICY', 'date': '2026-09-16', 'customer_name': 'Test Customer',
+                   'customer_mobile': '9000000001', 'receiver': {'name': 'Receiver', 'city': 'Delhi', 'country': 'India'},
+                   'parcel': {'boxes': [{'length': 40, 'width': 30, 'height': 20, 'actual_weight': 3},
+                                        {'length': 10, 'width': 10, 'height': 10, 'actual_weight': 5.1}]},
+                   'courier': 'Aramex', 'provider_type': 'postpaid', 'provider_name': 'Aramex',
+                   'price': 1000, 'provider_cost': 600, 'payment_status': 'Unpaid'}
+        result = self.client.post('/api/shipments', json=payload, headers={'Idempotency-Key': 'weight-policy-test-001'})
+        self.assertEqual(result.status_code, 200, result.text)
+        self.assertEqual(result.json()['chargeable_weight'], 9.5)
+        self.assertEqual(result.json()['weight_rule']['divisor'], 6000)
+        with self.sessions() as db:
+            cfg = db.get(SystemSettings, 1)
+            cfg.config_json = {**cfg.config_json, 'weightRules': {'express': {'divisor': 3000}}}
+            db.commit()
+            shipment = db.query(Shipment).filter_by(awb='WEIGHT-POLICY').one()
+            self.assertEqual(shipment.weight_rule['divisor'], 6000)
+            self.assertEqual(shipment.chargeable_weight, 9.5)

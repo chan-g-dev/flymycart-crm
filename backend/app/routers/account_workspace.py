@@ -1,4 +1,5 @@
-﻿"""Accounts workspace reporting and private expense-bill attachments."""
+from app.access_policy import can_view_costs
+"""Accounts workspace reporting and private expense-bill attachments."""
 import datetime as dt
 import uuid
 from collections import defaultdict
@@ -104,6 +105,7 @@ def period_totals(db, start, end, center, financial):
     sales, gross, cost, expenses, refunds = map(money, (sales, gross, cost, expenses, refunds))
     return {'sales': money(sales), 'gross_sales': money(gross), 'cost': money(cost) if financial else None,
             'expenses': money(expenses) if financial else None, 'refunds': refunds if financial else None, 'net': money(sales - cost - expenses - refunds) if financial else None,
+            'net_with_gst': money(gross - cost - expenses - refunds) if financial else None,
             'collected': money(received)}
 
 @workspace_router.get('/overview')
@@ -194,13 +196,15 @@ def get_shipment_ledger(date_from: dt.date | None = None, date_to: dt.date | Non
     for s in rows:
         cost = s.actual_provider_cost if s.cost_reconciled and s.actual_provider_cost is not None else s.provider_cost
         expense = money(expenses.get(s.id, 0))
+        gross_sale = money(s.total_amount if s.total_amount is not None else money(s.price) + money(s.gst_amount))
         result.append({'id': s.id, 'date': s.date, 'awb': s.awb, 'courier': s.courier, 'customer_name': s.customer_name,
             'customer_id': s.customer_id, 'destination': s.receiver_country or s.receiver_city,
-            'sale': money(s.price), 'cost': money(cost) if financial else None, 'expense': expense if financial else None,
-            'value': money(s.price - (cost or 0) - expense) if financial else None,
+            'sale': money(s.price), 'gross_sale': gross_sale, 'cost': money(cost) if can_view_costs(ctx) else None, 'expense': expense if financial else None,
+            'value': money(money(s.price) - money(cost) - expense) if financial else None,
+            'value_with_gst': money(gross_sale - money(cost) - expense) if financial else None,
             'payment_mode': s.payment_method, 'collection_status': s.payment_status,
             # Payouts are provider-level; do not pretend they are allocated to individual AWBs.
-            'courier_status': ('Wallet debited' if s.provider_type == 'prepaid' else 'Billed' if s.cost_reconciled else 'Unbilled') if financial else None})
+            'courier_status': ('Paid' if s.provider_type == 'prepaid' else 'Pending')})
     return {'items': result, 'total_count': count}
 
 @workspace_router.get('/entries')

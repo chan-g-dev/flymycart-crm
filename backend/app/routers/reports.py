@@ -4,6 +4,7 @@
 
 import datetime
 from app.business_dates import business_today
+from app.finance_engine import shipment_billed_total, calculate_gross_profit
 from typing import Optional, Dict, Any
 from fastapi import APIRouter, Depends, Request, HTTPException
 from sqlalchemy.orm import Session
@@ -60,6 +61,7 @@ def get_weekly_operations_report(
         Shipment.date,
         func.count(Shipment.id),
         func.sum(Shipment.price),
+        func.sum(func.coalesce(Shipment.total_amount, Shipment.price + func.coalesce(Shipment.gst_amount, 0))),
         func.sum(case((Shipment.cost_reconciled.is_(True), func.coalesce(Shipment.actual_provider_cost, Shipment.provider_cost)), else_=Shipment.provider_cost)),
     ).filter(Shipment.date.between(start_text, end_text)).group_by(Shipment.date).all()
     status_rows = db.query(Shipment.status, func.count(Shipment.id)).filter(
@@ -68,13 +70,6 @@ def get_weekly_operations_report(
     courier_rows = db.query(Shipment.courier, func.count(Shipment.id)).filter(
         Shipment.date.between(start_text, end_text)
     ).group_by(Shipment.courier).all()
-
-    inv_rows = db.query(
-        Invoice.date,
-        func.sum(Invoice.total),
-        func.sum(Invoice.gst)
-    ).filter(Invoice.date.between(start_text, end_text)).group_by(Invoice.date).all()
-    inv_by_date = {row[0]: row for row in inv_rows}
 
     by_date = {row[0]: row for row in daily_rows}
     can_view_fin = bool(
@@ -89,10 +84,9 @@ def get_weekly_operations_report(
         day = (period_start + datetime.timedelta(days=offset)).isoformat()
         row = by_date.get(day)
         revenue = float(row[2] or 0) if row else 0.0
-        cost = float(row[3] or 0) if row else 0.0
-        inv_row = inv_by_date.get(day)
-        rev_with_gst = float(inv_row[1] or 0) if inv_row else round(revenue * 1.18, 2)
-        gst_val = float(inv_row[2] or 0) if inv_row else round(revenue * 0.18, 2)
+        cost = float(row[4] or 0) if row else 0.0
+        rev_with_gst = float(row[3] or 0) if row else 0.0
+        gst_val = round(rev_with_gst - revenue, 2)
         days.append({
             "date": day,
             "shipments_count": int(row[1]) if row else 0,
@@ -102,6 +96,7 @@ def get_weekly_operations_report(
             "collections": round(float(daily_collections.get(day, 0) or 0), 2),
             "provider_cost": cost if can_view_fin else None,
             "gross_profit": round(revenue - cost, 2) if can_view_fin else None,
+            "gross_profit_with_gst": round(rev_with_gst - cost, 2) if can_view_fin else None,
         })
 
     expenses, expense_breakdown = expense_summary(db, start_text, end_text)
@@ -173,8 +168,8 @@ def get_eod_report(
 
     invoices = db.query(Invoice).filter(Invoice.date == target_date).all()
     pending = round(float(sum(float(inv.balance or 0) for inv in invoices)), 2)
-    gst_total = round(float(sum(float(inv.gst or 0) for inv in invoices)), 2) if invoices else round(sales_total * 0.18, 2)
-    billed_total = round(float(sum(float(inv.total or 0) for inv in invoices)), 2) if invoices else round(sales_total * 1.18, 2)
+    gst_total = round(sum(shipment_billed_total(s) - float(s.price or 0) for s in shipments), 2)
+    billed_total = round(sum(shipment_billed_total(s) for s in shipments), 2)
     credit_ids = {ship.id for ship in shipments if ship.payment_status == "B2B Credit"}
     credit_total = round(float(sum(float(inv.balance or 0) for inv in invoices if inv.shipment_id in credit_ids)), 2)
 
@@ -196,7 +191,9 @@ def get_eod_report(
     formatted_shipments = []
     for s in shipments:
         try:
-            formatted_shipments.append(mask_shipment_financials(ShipmentOut.model_validate(s).model_dump(), ctx))
+            row = ShipmentOut.model_validate(s).model_dump()
+            row['gross_profit'] = calculate_gross_profit(s.price, s.provider_cost, s.actual_provider_cost, s.cost_reconciled)
+            formatted_shipments.append(mask_shipment_financials(row, ctx))
         except Exception:
             pass
 
@@ -215,8 +212,10 @@ def get_eod_report(
         "credit_sales": credit_total,
         "pending_collection": max(0.0, pending),
         "gross_profit": gross_profit if can_view_fin else None,
+        "gross_profit_with_gst": round(gross_profit + gst_total, 2) if can_view_fin else None,
         "refunds_amount": refunds_amt if can_view_fin else None,
         "net_profit": net_profit if can_view_fin else None,
+        "net_profit_with_gst": round(net_profit + gst_total, 2) if can_view_fin else None,
         "collections_by_method": by_method,
         "collections_by_employee": by_employee,
         "shipments": formatted_shipments
@@ -286,8 +285,8 @@ def get_monthly_pl_report(
     net_profit = round(gross_profit - refunds_total - expenses, 2)
     can_view_fin = bool(ctx.get("is_super_admin") or ctx.get("permissions", {}).get("*") or ctx.get("permissions", {}).get(PermissionCode.REPORTS_VIEW_FINANCIAL))
 
-    gst_total = round(float(sum(float(inv.gst or 0) for inv in tax_invoices)), 2) if tax_invoices else round(revenue * 0.18, 2)
-    invoice_total = round(float(sum(float(inv.total or 0) for inv in tax_invoices)), 2) if tax_invoices else round(revenue * 1.18, 2)
+    gst_total = round(sum(shipment_billed_total(s) - float(s.price or 0) for s in shipments), 2)
+    invoice_total = round(sum(shipment_billed_total(s) for s in shipments), 2)
 
     return {
         "month": target_month,
@@ -305,9 +304,11 @@ def get_monthly_pl_report(
         "total_actual_cost": actual_cost if can_view_fin else None,
         "cost_variance": round(actual_cost - predicted_cost, 2) if can_view_fin else None,
         "gross_profit": gross_profit if can_view_fin else None,
+        "gross_profit_with_gst": round(gross_profit + gst_total, 2) if can_view_fin else None,
         "refunds_total": refunds_total if can_view_fin else None,
         "operational_expenses": expenses if can_view_fin else None,
         "expense_breakdown": expense_breakdown if can_view_fin else {},
         "net_profit": net_profit if can_view_fin else None,
+        "net_profit_with_gst": round(net_profit + gst_total, 2) if can_view_fin else None,
         "net_profit_margin": (round((net_profit / revenue) * 100, 1) if revenue > 0 else 0.0) if can_view_fin else None
     }

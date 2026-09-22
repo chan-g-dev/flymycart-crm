@@ -187,7 +187,7 @@ export const RefundModal = ({ isOpen, onClose, onCreated }) => {
                     </div>
 
                     <div style={{ background: '#fff1f2', border: '1px solid #fecdd3', borderRadius: 'var(--radius-sm)', padding: '10px 12px', marginTop: '14px', fontSize: '11.5px', color: '#be123c' }}>
-                        ℹ️ <strong>Accounting Rule 9:</strong> Approved refunds automatically deduct from business Net Profit in EOD and Monthly P&L statements.
+                        ℹ️ <strong>Accounting Rule 9:</strong> Approved refunds automatically deduct from business Net Value in EOD and Monthly P&L statements.
                     </div>
 
                     <div className="form-actions">

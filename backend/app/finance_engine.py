@@ -56,14 +56,14 @@ def calculate_gross_profit(
 ) -> float:
     """
     Gross Profit = Customer Selling Price - Provider Cost.
-    Uses actual_provider_cost if cost_reconciled or actual is provided,
+    Selling price excludes customer GST. Uses actual_provider_cost only when reconciled,
     otherwise falls back to predicted provider_cost.
     """
     price = float(selling_price or 0.0)
     if cost_reconciled and actual_provider_cost is not None:
         effective_cost = float(actual_provider_cost)
     else:
-        effective_cost = float(actual_provider_cost if actual_provider_cost is not None else (provider_cost or 0.0))
+        effective_cost = float(provider_cost or 0.0)
     return round(price - effective_cost, 2)
 
 
@@ -256,3 +256,9 @@ def match_provider_bill_entries(
         "missing_in_bill": missing_in_bill_items,
         "all_items": matched_items + wrong_amount_items + missing_in_crm_items + duplicate_awb_items
     }
+
+
+def shipment_billed_total(shipment):
+    """Recorded customer total; never infer a tax rate for legacy bookings."""
+    return round(float(shipment.total_amount if shipment.total_amount is not None
+                       else float(shipment.price or 0) + float(shipment.gst_amount or 0)), 2)

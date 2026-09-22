@@ -1,3 +1,4 @@
+from app.finance_engine import calculate_gross_profit
 # ================================================================
 # FLY MY CART CRM - DASHBOARD & ANALYTICS ROUTER (routers/dashboard.py)
 # ================================================================
@@ -47,6 +48,7 @@ def get_dashboard_summary(
     today_str = business_today().isoformat()
     paid = shipment_payments_query(db).subquery()
     balance = case((func.coalesce(paid.c.total, Shipment.price) > func.coalesce(paid.c.paid, 0), func.coalesce(paid.c.total, Shipment.price) - func.coalesce(paid.c.paid, 0)), else_=0)
+    billed = func.coalesce(Shipment.total_amount, Shipment.price + func.coalesce(Shipment.gst_amount, 0))
     today = Shipment.date == today_str
     active = Shipment.status.in_(["In Transit", "Picked Up", "Booked"])
     rows = db.query(
@@ -55,13 +57,15 @@ def get_dashboard_summary(
         func.sum(case((today, Shipment.price), else_=0)).label("today_sales"),
         func.sum(case((today, balance), else_=0)).label("pending_collection"),
         func.sum(Shipment.price).label("total_sales"),
+        func.sum(billed).label("total_sales_with_gst"),
+        func.sum(case((today, billed), else_=0)).label("today_sales_with_gst"),
         func.sum(func.coalesce(paid.c.paid, 0)).label("total_collected"),
         func.sum(case((Shipment.customer_type == "B2B", balance), else_=0)).label("b2b_outstanding"),
         func.sum(case((active, 1), else_=0)).label("in_transit_count"),
         func.sum(case((Shipment.status == "Delivered", 1), else_=0)).label("delivered_count"),
         func.sum(case((active | (Shipment.status == "Delayed"), 1), else_=0)).label("active_volume"),
         func.sum(case((Shipment.cost_reconciled.is_(True), func.coalesce(Shipment.actual_provider_cost, Shipment.provider_cost)), else_=Shipment.provider_cost)).label("total_provider_cost"),
-        func.sum(Shipment.gross_profit).label("total_gross_profit"),
+        func.sum(Shipment.price - case((Shipment.cost_reconciled.is_(True), func.coalesce(Shipment.actual_provider_cost, Shipment.provider_cost)), else_=Shipment.provider_cost)).label("total_gross_profit"),
     ).outerjoin(paid, paid.c.shipment_id == Shipment.id).group_by(Shipment.center).all()
     centers = {row.center: dict(row._mapping) for row in rows}
     totals = {key: sum(float(row.get(key) or 0) for row in centers.values()) for key in (
@@ -121,7 +125,7 @@ def get_dashboard_summary(
             "provider_cost": s.provider_cost,
             "actual_provider_cost": s.actual_provider_cost,
             "cost_reconciled": s.cost_reconciled,
-            "gross_profit": s.gross_profit,
+            "gross_profit": calculate_gross_profit(s.price, s.provider_cost, s.actual_provider_cost, s.cost_reconciled),
             "payment_status": s.payment_status,
             "payment_method": s.payment_method,
             "paid_to": s.paid_to,
@@ -136,19 +140,13 @@ def get_dashboard_summary(
             values["total_provider_cost"] = None
             values["total_gross_profit"] = None
 
-    today_inv = db.query(
-        func.coalesce(func.sum(Invoice.total), 0),
-        func.coalesce(func.sum(Invoice.gst), 0)
-    ).filter(Invoice.date == today_str).one()
-    today_sales_with_gst = float(today_inv[0]) if today_inv[0] else round(float(today_sales) * 1.18, 2)
-    today_gst = float(today_inv[1]) if today_inv[1] else round(float(today_sales) * 0.18, 2)
-
-    total_inv = db.query(
-        func.coalesce(func.sum(Invoice.total), 0),
-        func.coalesce(func.sum(Invoice.gst), 0)
-    ).one()
-    total_sales_with_gst = float(total_inv[0]) if total_inv[0] else round(float(total_sales) * 1.18, 2)
-    total_gst = float(total_inv[1]) if total_inv[1] else round(float(total_sales) * 0.18, 2)
+    billed = func.coalesce(Shipment.total_amount, Shipment.price + func.coalesce(Shipment.gst_amount, 0))
+    today_sales_with_gst, total_sales_with_gst = db.query(
+        func.coalesce(func.sum(case((today, billed), else_=0)), 0),
+        func.coalesce(func.sum(billed), 0)).one()
+    today_sales_with_gst, total_sales_with_gst = float(today_sales_with_gst), float(total_sales_with_gst)
+    today_gst = round(today_sales_with_gst - today_sales, 2)
+    total_gst = round(total_sales_with_gst - total_sales, 2)
 
     summary_data = {
         "booking_trend": booking_trend(db, datetime.date.fromisoformat(today_str)),

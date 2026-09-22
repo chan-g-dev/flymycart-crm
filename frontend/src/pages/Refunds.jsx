@@ -58,7 +58,7 @@ export const Refunds = ({ refunds = [], onOpenRefundModal, onApproveRefund, onPr
                 <div>
                     <h2 className="page-title" style={{ fontSize: '20px', fontWeight: 800 }}>🔄 Customer Refunds & Adjustments</h2>
                     <p className="page-subtitle" style={{ fontSize: '12.5px', color: 'var(--text-muted)' }}>
-                        5-state permission-gated lifecycle (Requested &rarr; Approved &rarr; Refunded / Rejected). Deducts automatically from Net Profit.
+                        5-state permission-gated lifecycle (Requested &rarr; Approved &rarr; Refunded / Rejected). Deducts automatically from Net Value.
                     </p>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>

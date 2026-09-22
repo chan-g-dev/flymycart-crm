@@ -38,9 +38,9 @@ export const AuthProvider = ({ children }) => {
             roleId: roleId,
             center: localStorage.getItem('fmc_user_center') || 'Main Hub (Bangalore)',
             status: localStorage.getItem('fmc_user_status') || 'approved',
-            permissions: ROLES[roleId]?.permissions || ROLES.super_admin.permissions,
+            permissions: {},
             avatar: getAvatarForRole(roleId),
-            isSuperAdmin: roleId === 'super_admin'
+            isSuperAdmin: false
         };
     });
 
@@ -155,6 +155,8 @@ export const AuthProvider = ({ children }) => {
 
     // Logout / Clear session
     const logout = () => {
+        for (const key of Object.keys(sessionStorage)) if (key.startsWith('fmc_cache_')) sessionStorage.removeItem(key);
+        localStorage.removeItem('fmc_user_permissions');
         localStorage.removeItem('fmc_access_token');
         localStorage.removeItem('fmc_token');
         localStorage.removeItem('fmc_session_token');
@@ -179,7 +181,7 @@ export const AuthProvider = ({ children }) => {
 
     // Check granular permission & scope safely
     const hasPermission = (permKey, minScope = 'own') => {
-        if (!isApproved) return false;
+        if (authLoading || !isApproved) return false;
         if (currentUser?.isSuperAdmin) return true;
 
         // Check array permissions
@@ -257,7 +259,7 @@ export const AuthProvider = ({ children }) => {
                     roles: u.roles || [roleId],
                     status: status,
                     center: centerName,
-                    permissions: ROLES[roleId]?.permissions || {},
+                    permissions: u.permissions || {},
                     isSuperAdmin: roleId === 'super_admin',
                     avatar: getAvatarForRole(roleId)
                 });

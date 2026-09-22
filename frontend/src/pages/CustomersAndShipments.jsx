@@ -1,3 +1,5 @@
+import ShipmentPaymentCells from '../components/ShipmentPaymentCells';
+import GstValuePair from '../components/GstValuePair';
 import { businessDate } from '../utils/businessDates';
 import React, { useState } from 'react';
 import { 
@@ -182,7 +184,7 @@ export const Customers = ({
                                                         <strong>View customer</strong>
                                                     </span>
                                                 </button>
-                                                {hasPermission('deleteShipment') && (
+                                                {hasPermission('customers.delete') && (
                                                     <button 
                                                         className="btn-action-delete" 
                                                         title="Delete customer profile" 
@@ -361,8 +363,8 @@ export const Shipments = ({
 
     const exportToCSV = () => {
         if (!shipments || shipments.length === 0) return;
-        const headers = ['AWB', 'Date', 'Customer', 'Type', 'Courier', 'Carrier Billing', 'Billing Account', 'Destination City', 'Destination Country', 'Actual Wt (kg)', 'Chargeable Wt (kg)', 'Price (INR)', 'Provider Cost (INR)', 'Gross Profit (INR)', 'Payment Status', 'Status'];
-        const rows = visibleShipments.map(s => [
+        let headers = ['AWB', 'Date', 'Customer', 'Type', 'Courier', 'Carrier Billing', 'Billing Account', 'Destination City', 'Destination Country', 'Actual Wt (kg)', 'Chargeable Wt (kg)', 'Price (INR)', 'Provider Cost (INR)', 'Value After Courier Cost Excl. GST (INR)', 'Value After Courier Cost Incl. GST (INR)', 'Payment Status', 'Status'];
+        let rows = visibleShipments.map(s => [
             `"${s.awb}"`,
             `"${s.date}"`,
             `"${s.customer_name}"`,
@@ -377,10 +379,18 @@ export const Shipments = ({
             s.price || 0,
             s.provider_cost !== null ? s.provider_cost : 'MASKED',
             s.gross_profit !== null ? s.gross_profit : 'MASKED',
+            s.gross_profit != null ? Number(s.gross_profit) + Number(s.total_amount ?? (Number(s.price || 0) + Number(s.gst_amount || 0))) - Number(s.price || 0) : 'MASKED',
             `"${s.payment_status}"`,
             `"${s.status}"`
         ]);
 
+        const keepColumns = headers.map((_, index) => index).filter(index => {
+            if (index === 12) return hasPermission('costs.view') || hasPermission('reports.view_financial');
+            if (index === 13 || index === 14) return hasPermission('reports.view_financial');
+            return true;
+        });
+        headers = keepColumns.map(index => headers[index]);
+        rows = rows.map(row => keepColumns.map(index => row[index]));
         const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map(e => e.join(','))].join('\n');
         const encodedUri = encodeURI(csvContent);
         const link = document.createElement('a');
@@ -493,15 +503,15 @@ export const Shipments = ({
                     <table className="data-table shipment-directory-table">
                         <thead>
                             <tr>
-                                <th>AWB & Payment</th>
+                                <th>AWB No.</th>
                                 <th>Date</th>
                                 <th>Customer</th>
                                 <th>Courier</th>
                                 <th>Carrier Billing</th><th>Destination</th>
                                 <th>Weight</th>
-                                <th>Price (INR)</th>
-                                <th>Profit</th>
-                                <th>Status</th>
+                                <th>Customer Sale (INR)</th>
+                                {hasPermission('reports.view_financial') && <th>Value After Courier Cost</th>}
+                                <th>Payment Mode</th><th>Collection Status</th><th>Payment to Courier</th><th>Status</th>
                                 <th>Actions</th>
                             </tr>
                         </thead>
@@ -509,12 +519,12 @@ export const Shipments = ({
                             {isLoading && (!shipments || shipments.length === 0) ? (
                                 <TableSkeleton rows={6} cols={11} />
                             ) : visibleShipments.length === 0 ? (
-                                <tr><td colSpan="11" style={{ textAlign: 'center', padding: '32px', color: 'var(--text-muted)' }}>No shipments found matching filters.</td></tr>
+                                <tr><td colSpan={hasPermission('reports.view_financial') ? 14 : 13} style={{ textAlign: 'center', padding: '32px', color: 'var(--text-muted)' }}>No shipments found matching filters.</td></tr>
                             ) : (
                                 visibleShipments.map(s => {
                                     const profit = s.gross_profit !== undefined && s.gross_profit !== null
                                         ? s.gross_profit 
-                                        : (s.price || 0) - (s.actual_provider_cost || s.provider_cost || 0);
+                                        : (s.price || 0) - (s.cost_reconciled ? (s.actual_provider_cost ?? s.provider_cost ?? 0) : (s.provider_cost || 0));
                                     const isProfitVisible = s.gross_profit !== null && hasPermission('viewCostMargins');
 
                                     return (
@@ -555,15 +565,16 @@ export const Shipments = ({
                                             <td style={{ fontWeight: 800, color: 'var(--text-main)', textAlign: 'right', whiteSpace: 'nowrap' }}>
                                                 {formatCurrency(s.price)}
                                             </td>
-                                            <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+{hasPermission('reports.view_financial') &&                                             <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
                                                 {isProfitVisible ? (
                                                     <strong style={{ color: profit >= 0 ? 'var(--emerald)' : 'var(--rose)', fontSize: '11px' }}>
-                                                        {formatCurrency(profit)}
+                                                        <GstValuePair excluding={profit} including={profit + Number(s.total_amount ?? (Number(s.price || 0) + Number(s.gst_amount || 0))) - Number(s.price || 0)} formatValue={formatCurrency} />
                                                     </strong>
                                                 ) : (
                                                     <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontStyle: 'italic' }}>Protected</span>
                                                 )}
-                                            </td>
+                                            </td>}
+                                            <ShipmentPaymentCells shipment={s} />
                                             <td style={{ textAlign: 'center' }}>
                                                 <span 
                                                     className={`status-pill ${s.status === 'Delivered' ? 'delivered' : s.status === 'Delayed' ? 'delayed' : 'in-transit'}`}

@@ -50,22 +50,8 @@ const getInitialPage = () => {
     return 'dashboard';
 };
 
-const loadCached = (key, fallback) => {
-    try {
-        const raw = sessionStorage.getItem(`fmc_cache_${key}`);
-        return raw ? JSON.parse(raw) : fallback;
-    } catch {
-        return fallback;
-    }
-};
-
-const setCached = (key, val) => {
-    try {
-        if (val !== null && val !== undefined) {
-            sessionStorage.setItem(`fmc_cache_${key}`, JSON.stringify(val));
-        }
-    } catch {}
-};
+const loadCached = (_key, fallback) => fallback;
+const setCached = () => {};
 
 export function App() {
     const { isAuthenticated, isPendingApproval, isRejected, isSuspended, logout, authLoading, currentUser } = useAuth();
@@ -453,8 +439,9 @@ export function App() {
 
         return {
             ...dashboardData,
-            today_shipments_count: todayCenterShips.length,
-            today_sales: todaySales,
+            ...(dashboardData.center_summaries?.[selectedCenter] || {}),
+            today_shipments_count: dashboardData.center_summaries?.[selectedCenter]?.today_shipments_count ?? todayCenterShips.length,
+            today_sales: dashboardData.center_summaries?.[selectedCenter]?.today_sales ?? todaySales,
             today_collected: dashboardData.collections_by_center?.[selectedCenter] || 0,
             pending_collection: Math.max(0, todaySales - todayCollected),
             b2b_outstanding: centerB2BOutstanding,
@@ -475,12 +462,13 @@ export function App() {
 
         return {
             ...accountsData,
-            total_sales: totalSales,
+            total_sales: dashboardData?.center_summaries?.[selectedCenter]?.total_sales ?? totalSales,
+            total_sales_with_gst: dashboardData?.center_summaries?.[selectedCenter]?.total_sales_with_gst ?? filteredShipments.reduce((sum, s) => sum + Number(s.total_amount ?? (Number(s.price || 0) + Number(s.gst_amount || 0))), 0),
             total_collected: totalCollected,
             pending_collection: Math.max(0, totalSales - totalCollected),
             recent_invoices: filteredInvoices.slice(0, 10)
         };
-    }, [accountsData, filteredShipments, filteredInvoices, selectedCenter]);
+    }, [accountsData, dashboardData, filteredShipments, filteredInvoices, selectedCenter]);
 
     const filteredB2BData = useMemo(() => {
         if (!b2bData) return null;
@@ -581,6 +569,7 @@ export function App() {
                             b2bData={filteredB2BData}
                             followups={filteredFollowups}
                             selectedCenter={selectedCenter}
+                            onOpenStatusModal={setSelectedStatusShipment}
                             onNavigate={navigateToPage}
                             onOpenShipmentModal={() => setIsShipmentModalOpen(true)}
                             onOpenCustomerModal={() => setIsCustomerModalOpen(true)}

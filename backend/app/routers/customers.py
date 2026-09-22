@@ -1,3 +1,4 @@
+from app.finance_engine import calculate_gross_profit
 # ================================================================
 # FLY MY CART CRM - CUSTOMERS ROUTER (routers/customers.py)
 # ================================================================
@@ -179,7 +180,7 @@ def get_customer_360(
             "provider_cost": s.provider_cost,
             "actual_provider_cost": s.actual_provider_cost,
             "cost_reconciled": s.cost_reconciled,
-            "gross_profit": s.gross_profit,
+            "gross_profit": calculate_gross_profit(s.price, s.provider_cost, s.actual_provider_cost, s.cost_reconciled),
             "payment_status": s.payment_status,
             "payment_method": s.payment_method,
             "status": s.status
