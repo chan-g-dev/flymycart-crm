@@ -1,5 +1,7 @@
+import { trackRequests } from '../utils/requestActivity';
 import axios from 'axios';
 import { createPaymentSender } from '../utils/paymentRequests';
+import { fetchAllPages } from '../utils/pagination';
 
 const getApiBaseUrl = () => {
     if (import.meta.env.VITE_API_URL) {
@@ -47,6 +49,8 @@ api.interceptors.response.use(
         return Promise.reject(error);
     }
 );
+
+trackRequests(api);
 
 let paymentStorage;
 try { paymentStorage = globalThis.sessionStorage; } catch { /* Browser storage is optional. */ }
@@ -120,7 +124,7 @@ export const apiClient = {
     recordAccountingEntry: (data) => paymentMutation('post', '/accounts/entries', data),
 
     // Customers
-    getCustomers: (params) => api.get('/customers', { params }).then(res => res.data),
+    getCustomers: (params) => params?.limit != null || params?.offset != null ? api.get('/customers', { params }).then(res => res.data) : fetchAllPages(page => api.get('/customers', { params: { ...params, ...page } })),
     lookupCustomerByMobile: (mobile) => api.get('/customers/lookup', { params: { mobile } }).then(res => res.data),
     getCustomer360: (id) => api.get(`/customers/${id}/360`).then(res => res.data),
     createCustomer: (data) => api.post('/customers', data).then(res => res.data),
@@ -133,7 +137,7 @@ export const apiClient = {
     getCustomerDocuments: (id) => api.get(`/customers/${id}/documents`).then(res => res.data),
 
     // Shipments
-    getShipments: (params) => api.get('/shipments', { params }).then(res => res.data),
+    getShipments: (params) => params?.limit != null || params?.offset != null ? api.get('/shipments', { params }).then(res => res.data) : fetchAllPages(page => api.get('/shipments', { params: { ...params, ...page } })),
     getShipmentsPage: (params, signal) => api.get('/shipments', { params, signal }).then(res => ({
         items: res.data,
         total: Number(res.headers['x-total-count'] ?? res.data.length),
@@ -143,7 +147,7 @@ export const apiClient = {
     deleteShipment: (id) => api.delete(`/shipments/${id}`).then(res => res.data),
 
     // Invoices
-    getInvoices: (params) => api.get('/invoices', { params }).then(res => res.data),
+    getInvoices: (params) => params?.limit != null || params?.offset != null ? api.get('/invoices', { params }).then(res => res.data) : fetchAllPages(page => api.get('/invoices', { params: { ...params, ...page } })),
     getInvoice: (id) => api.get(`/invoices/${id}`).then(res => res.data),
     recordInvoicePayment: (id, data) => paymentMutation('post', `/invoices/${id}/payments`, data),
 
@@ -203,5 +207,30 @@ export const apiClient = {
     updateExpenseCategories: (categories) => api.put('/accounts/expense-categories', { categories }).then(res => res.data),
     getSettings: () => api.get('/settings/').then(res => res.data),
     updateSettings: (data) => api.put('/settings/', data).then(res => res.data),
-    getSystemAuditLogs: (limit = 50) => api.get('/settings/audit-logs', { params: { limit } }).then(res => res.data)
+    saveSettings: (data) => api.put('/settings/', data).then(res => res.data),
+    getSystemAuditLogs: (limit = 50) => api.get('/settings/audit-logs', { params: { limit } }).then(res => res.data),
+
+    // Attendance
+    getAttendanceSummary: (params) => api.get('/attendance/summary', { params }).then(res => res.data),
+    getAttendanceEvents: (params) => api.get('/attendance/events', { params }).then(res => res.data),
+    getAttendanceDailyBreakdown: (params) => api.get('/attendance/daily-breakdown', { params }).then(res => res.data),
+    recordAttendancePunch: (data) => api.post('/attendance/punch', data).then(res => res.data),
+    getAttendanceStaffList: () => api.get('/attendance/staff-list').then(res => res.data),
+
+    // Generic Request helper
+    request: (urlOrConfig, options = {}) => {
+        if (typeof urlOrConfig === 'string') {
+            const url = urlOrConfig.startsWith('/api') ? urlOrConfig.slice(4) : urlOrConfig;
+            const method = (options.method || 'GET').toLowerCase();
+            const config = {
+                method,
+                url,
+                headers: options.headers,
+                data: options.body ? (typeof options.body === 'string' ? JSON.parse(options.body) : options.body) : undefined,
+                params: options.params
+            };
+            return api(config).then(res => res.data);
+        }
+        return api(urlOrConfig).then(res => res.data);
+    }
 };

@@ -1,3 +1,5 @@
+import { LoadingSpinner } from './LoadingSpinner';
+import { ButtonSpinner } from './LoadingSpinner';
 import { useAuth } from '../context/authSession';
 import React, { useRef, useState } from 'react';
 import { ShoppingCart, Truck, Package, ChartNoAxesCombined, HandCoins, FileText, Clock3, Download, Plus, ChevronDown, CalendarDays, X } from 'lucide-react';
@@ -13,9 +15,15 @@ import './AccountsOverviewPolish.css';
 const tabs = [['overview', 'Shipment Accounts'], ['collections', 'Customer Collections'], ['postpaid', 'Courier Payments'], ['expenses', 'Expenses'], ['wallets', 'Wallets'], ['banks', 'Bank Accounts'], ['transfers', 'Account Transfers'], ['b2b', 'B2B Outstanding'], ['refunds', 'Refunds / Adjustments'], ['reconciliation', 'Reconciliation']];
 export default function AccountsOverview({ data, selectedCenter, activeSection, canEdit, onSectionChange, onRefresh, renderSection, settings }) {
     const { hasPermission } = useAuth();
-    const financial = hasPermission('reports.view_financial');
-    const costAccess = financial || hasPermission('costs.view');
-    const visibleTabs = financial ? tabs : tabs.filter(([key]) => ['overview', 'collections', 'b2b', 'refunds'].includes(key));
+    const canViewPrice = hasPermission('costs.customer_price');
+    const canViewCost = hasPermission('costs.carrier_cost') || hasPermission('costs.view');
+    const financial = (hasPermission('costs.net_value') || hasPermission('reports.view_financial')) && canViewPrice && canViewCost;
+    const costAccess = canViewCost;
+    const visibleTabs = tabs.filter(([key]) => {
+        if (['postpaid', 'expenses', 'wallets'].includes(key)) return canViewCost;
+        if (['transfers', 'banks'].includes(key)) return canViewPrice || canViewCost;
+        return true;
+    });
     const requestedTab = resolveTab(activeSection);
     const tab = visibleTabs.some(([key]) => key === requestedTab) ? requestedTab : 'overview';
     const [range, setRange] = useState(() => monthRange());
@@ -36,9 +44,9 @@ export default function AccountsOverview({ data, selectedCenter, activeSection, 
     const pageKey = JSON.stringify({ range, center, applied });
     const page = pageState.key === pageKey ? pageState.page : 1;
     const setPage = value => setPageState({ key: pageKey, page: value });
-    const overview = useAccountRequest('getAccountsOverview', params, revision);
+    const overview = useAccountRequest('getAccountsOverview', params, revision, data);
     const ledgerParams = { ...params, date_from: applied.from || params.date_from, date_to: applied.to || params.date_to, search: applied.search || undefined, courier: applied.courier || undefined, account: applied.account || undefined, status: applied.status || undefined };
-    const ledger = useAccountRequest('getShipmentLedger', { ...ledgerParams, limit: 5, offset: (page - 1) * 5 }, revision);
+    const ledger = useAccountRequest('getShipmentLedger', { ...ledgerParams, limit: 5, offset: (page - 1) * 5 }, revision, data);
     const go = key => onSectionChange?.(key);
     const refresh = () => { setRevision(value => value + 1); onRefresh?.(); };
     const addExpense = () => { setShowEntry(true); requestAnimationFrame(() => document.getElementById('ao-category')?.focus()); };
@@ -87,7 +95,7 @@ export default function AccountsOverview({ data, selectedCenter, activeSection, 
                         <form onSubmit={e => { e.preventDefault(); selectRange(draftRange); }}><label>From<input required type="date" max={draftRange.to || undefined} value={draftRange.from} onChange={e => setDraftRange({ ...draftRange, from: e.target.value })} /></label><label>To<input required type="date" min={draftRange.from || undefined} value={draftRange.to} onChange={e => setDraftRange({ ...draftRange, to: e.target.value })} /></label><button className="ao-button primary">Apply dates</button></form>
                     </div>
                 </details>
-                <button className="ao-button" disabled={exporting || !hasPermission('accounts.export')} onClick={exportLedger}><Download size={14} />{exporting ? 'Exporting…' : 'Export'}</button>
+                <button className="ao-button" disabled={exporting || !hasPermission('accounts.export')} onClick={exportLedger}><Download size={14} />{exporting ? <ButtonSpinner text="Exporting…" /> : 'Export'}</button>
                 {canEdit && <><button className="ao-button green" onClick={addExpense}><Plus size={15} /> Add Expense</button><TransactionDialog settings={settings} profiles={settings?.paymentAccounts || []} accounts={accounts} providers={data?.postpaid_accounts || []} center={center} onSaved={refresh} /></>}
             </div>
         </div>
@@ -100,7 +108,7 @@ export default function AccountsOverview({ data, selectedCenter, activeSection, 
             return <div className={`ao-stat ${key === 'net' ? 'ao-stat-net' : ''}`} key={key} style={{ '--stat-accent': color }}>
                 <div className="ao-stat-heading"><span className="ao-stat-icon"><Icon size={19} strokeWidth={1.8} aria-hidden="true" /></span><h3>{title}</h3></div>
                 {key === 'net' ? <div className="ao-net-values"><div><small>Excluding GST</small><strong>{money(value)}</strong></div><div><small>Including GST</small><strong>{money(overview.loading ? null : totals.net_with_gst)}</strong></div></div> : <strong className="ao-stat-amount" title={money(value)}>{money(value)}</strong>}
-                <small className="ao-stat-description">{overview.loading ? 'Loading...' : note}</small>
+                <small className="ao-stat-description">{overview.loading ? <LoadingSpinner inline text="Loading..." /> : note}</small>
                 {change != null && <div className="ao-stat-comparison"><em className={(key === 'cost' || key === 'expenses') === (change > 0) ? 'negative' : 'positive'}>{change >= 0 ? '+' : '-'}{Math.abs(change).toFixed(0)}%</em><small>vs previous period</small></div>}
             </div>;
 
@@ -111,7 +119,7 @@ export default function AccountsOverview({ data, selectedCenter, activeSection, 
                 <ShipmentLedger report={report} accounts={accounts} filters={filters} setFilters={setFilters} ledger={ledger} page={page} setPage={setPage} refresh={refresh} onViewShipment={showShipment} onAddShipmentExpense={canEdit ? shipment => { setExpenseShipment(shipment); addExpense(); } : undefined} onSearch={e => { e.preventDefault(); setApplied(filters); setPage(1); }} />
                 <AccountsCharts report={report} data={data} range={range} go={go} refresh={refresh} />
             </>}
-            {['expenses', 'transfers'].includes(tab) && (report?.financial_access ? <EntryLedger key={tab + JSON.stringify(params)} params={params} revision={revision} kind={tab === 'transfers' ? 'transfer' : 'expense'} onRefresh={refresh} /> : <p className="ao-panel ao-empty">{overview.loading ? 'Loading…' : 'Financial access is required to view transactions.'}</p>)}
+            {['expenses', 'transfers'].includes(tab) && (report?.financial_access ? <EntryLedger key={tab + JSON.stringify(params)} params={params} revision={revision} kind={tab === 'transfers' ? 'transfer' : 'expense'} onRefresh={refresh} /> : <p className="ao-panel ao-empty">{overview.loading ? <LoadingSpinner inline text="Loading…" /> : 'Financial access is required to view transactions.'}</p>)}
             {tab === 'banks' && <section className="ao-panel ao-bank-page"><header><h3>Bank Accounts</h3></header><p className="ao-note">Recorded net movement includes receipts and incoming transfers, less expenses, courier payments, deposits, wallet recharges, recorded refund payouts and outgoing transfers. Opening bank balances and refunds without a payment-account record are excluded. These figures are not reconciled bank statement balances.{center ? ' Wallet recharges are organization-wide and excluded from center totals.' : ''}</p><div className="ao-table-scroll"><table className="ao-table"><thead><tr><th>Account</th><th>Recorded Net Movement</th></tr></thead><tbody>{(report?.bank_accounts || []).map(account => <tr key={account.name}><td>{account.name}</td><td>{money(account.recorded_balance)}</td></tr>)}{!report?.bank_accounts?.length && <tr><td colSpan={2} className="ao-empty">No account movements available.</td></tr>}</tbody></table></div></section>}
             {!['overview', 'expenses', 'transfers', 'banks'].includes(tab) && <div className="ao-legacy">{renderSection?.(tab)}</div>}
         </div>

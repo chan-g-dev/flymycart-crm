@@ -12,8 +12,22 @@ import { CourierDonutChart, ProgressItem, DailyTrendChart, MonthlyWaterfallChart
 export const Reports = ({ activeTab, refreshKey }) => {
     const { hasPermission } = useAuth();
     const canViewFinancials = hasPermission('viewFinancials');
+    const canViewNetValue = hasPermission('costs.net_value') || canViewFinancials;
+    const canViewMargins = hasPermission('costs.margins') || canViewFinancials;
+    const canViewEod = hasPermission('reports.eod');
+    const canViewWeekly = hasPermission('reports.weekly');
+    const canViewCustom = hasPermission('reports.custom_range');
+    const canViewMonthly = hasPermission('reports.monthly_pnl') && canViewFinancials;
+    const canPrintReport = hasPermission('reports.print') || hasPermission('reports.export');
 
-    const [tab, setTab] = useState('eod');
+    const availableTabs = [
+        canViewEod && 'eod',
+        canViewWeekly && 'weekly',
+        canViewCustom && 'custom',
+        canViewMonthly && 'monthly'
+    ].filter(Boolean);
+
+    const [tab, setTab] = useState(() => (canViewEod ? 'eod' : availableTabs[0] || ''));
     const [eodDate, setEodDate] = useState(businessDate());
     const [monthVal, setMonthVal] = useState(businessDate().slice(0, 7));
     const [eodReport, setEodReport] = useState(null);
@@ -25,16 +39,19 @@ export const Reports = ({ activeTab, refreshKey }) => {
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
-        if (!activeTab || !['eod', 'weekly', 'monthly', 'custom'].includes(activeTab)) return;
-        setTab(activeTab === 'monthly' && !canViewFinancials ? 'eod' : activeTab);
-    }, [activeTab, canViewFinancials]);
+        if (activeTab && availableTabs.includes(activeTab)) {
+            setTab(activeTab);
+        } else if (tab && !availableTabs.includes(tab) && availableTabs.length > 0) {
+            setTab(availableTabs[0]);
+        }
+    }, [activeTab, availableTabs.join(','), tab]);
 
     const formatCurrency = (n) => '₹' + Number(n || 0).toLocaleString('en-IN');
     const formatDate = formatBusinessDate;
 
     useEffect(() => {
-        if (!canViewFinancials && tab === 'monthly') {
-            setTab('eod');
+        if (!tab || !availableTabs.includes(tab)) {
+            setLoading(false);
             return;
         }
         let current = true;
@@ -77,52 +94,54 @@ export const Reports = ({ activeTab, refreshKey }) => {
 
             {/* Sub-tabs & Controls Capsule */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
-                <div className="fmc-segmented-capsule report-tabs">
-                    <button
-                        className={`fmc-segmented-btn ${tab === 'eod' ? 'active' : ''}`}
-                        onClick={() => {
-                            if (tab !== 'eod') {
-                                setLoading(true);
-                                setTab('eod');
-                            }
-                        }}
-                    >
-                        <FileText size={14} /> EOD Operations Audit
-                    </button>
-                    <button
-                        className={`fmc-segmented-btn ${tab === 'weekly' ? 'active' : ''}`}
-                        onClick={() => {
-                            if (tab !== 'weekly') {
-                                setLoading(true);
-                                setTab('weekly');
-                            }
-                        }}
-                    >
-                        <Calendar size={14} /> Weekly Trends
-                    </button>
-                    <button className={`fmc-segmented-btn ${tab === 'custom' ? 'active' : ''}`} onClick={() => setTab('custom')}><Calendar size={14} /> Custom Date Range</button>
-                    {canViewFinancials ? (
-                        <button
-                            className={`fmc-segmented-btn ${tab === 'monthly' ? 'active' : ''}`}
-                            onClick={() => {
-                                if (tab !== 'monthly') {
-                                    setLoading(true);
-                                    setTab('monthly');
-                                }
-                            }}
-                        >
-                            <TrendingUp size={14} /> Monthly Business P&L
-                        </button>
-                    ) : (
-                        <span
-                            className="fmc-segmented-btn"
-                            style={{ opacity: 0.6, cursor: 'not-allowed', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
-                            title="Monthly P&L requires Super Admin / Financial Audit access"
-                        >
-                            <Shield size={13} /> Monthly P&L (Restricted)
-                        </span>
-                    )}
-                </div>
+                {availableTabs.length > 0 && (
+                    <div className="fmc-segmented-capsule report-tabs">
+                        {canViewEod && (
+                            <button
+                                className={`fmc-segmented-btn ${tab === 'eod' ? 'active' : ''}`}
+                                onClick={() => {
+                                    if (tab !== 'eod') {
+                                        setLoading(true);
+                                        setTab('eod');
+                                    }
+                                }}
+                            >
+                                <FileText size={14} /> EOD Operations Audit
+                            </button>
+                        )}
+                        {canViewWeekly && (
+                            <button
+                                className={`fmc-segmented-btn ${tab === 'weekly' ? 'active' : ''}`}
+                                onClick={() => {
+                                    if (tab !== 'weekly') {
+                                        setLoading(true);
+                                        setTab('weekly');
+                                    }
+                                }}
+                            >
+                                <Calendar size={14} /> Weekly Trends
+                            </button>
+                        )}
+                        {canViewCustom && (
+                            <button className={`fmc-segmented-btn ${tab === 'custom' ? 'active' : ''}`} onClick={() => setTab('custom')}>
+                                <Calendar size={14} /> Custom Date Range
+                            </button>
+                        )}
+                        {canViewMonthly && (
+                            <button
+                                className={`fmc-segmented-btn ${tab === 'monthly' ? 'active' : ''}`}
+                                onClick={() => {
+                                    if (tab !== 'monthly') {
+                                        setLoading(true);
+                                        setTab('monthly');
+                                    }
+                                }}
+                            >
+                                <TrendingUp size={14} /> Monthly Business P&L
+                            </button>
+                        )}
+                    </div>
+                )}
 
                 {/* Target Date / Period Quick Capsule */}
                 {tab === 'weekly' && <div className="report-range-controls">
@@ -190,7 +209,7 @@ export const Reports = ({ activeTab, refreshKey }) => {
                                 <div>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                                         <h3 style={{ color: 'var(--text-main)', fontSize: '18px', fontWeight: 900, margin: 0 }}>
-                                            End of Day (EOD) Operations & Cashflow Audit Sheet
+                                             End of Day (EOD) Operations & Cashflow Audit Sheet
                                         </h3>
                                         <span style={{ fontSize: '10.5px', fontWeight: 800, padding: '2px 8px', borderRadius: '4px', background: 'rgba(59, 130, 246, 0.15)', color: 'var(--primary-blue)' }}>
                                             AUDITED
@@ -200,9 +219,11 @@ export const Reports = ({ activeTab, refreshKey }) => {
                                         Statement Date: <strong>{formatDate(eodReport.date)}</strong> • Center: <strong>Bangalore Main Center (HQ)</strong>
                                     </div>
                                 </div>
-                                <button className="btn btn-primary-blue" onClick={handlePrintEOD} style={{ display: 'inline-flex', alignItems: 'center', gap: '7px', padding: '8px 18px', borderRadius: '8px', fontWeight: 700, boxShadow: '0 4px 14px rgba(37, 99, 235, 0.35)' }}>
-                                    <Printer size={15} /> Print EOD Sheet
-                                </button>
+                                {canPrintReport && (
+                                    <button className="btn btn-primary-blue" onClick={handlePrintEOD} style={{ display: 'inline-flex', alignItems: 'center', gap: '7px', padding: '8px 18px', borderRadius: '8px', fontWeight: 700, boxShadow: '0 4px 14px rgba(37, 99, 235, 0.35)' }}>
+                                        <Printer size={15} /> Print EOD Sheet
+                                    </button>
+                                )}
                             </div>
 
                             {/* 5-Column KPI Stat Cards */}
@@ -225,7 +246,7 @@ export const Reports = ({ activeTab, refreshKey }) => {
                                         {formatCurrency(eodReport.invoice_total ?? eodReport.total_sales_with_gst ?? (eodReport.total_sales + (eodReport.gst_total || 0)))}
                                     </div>
                                     <small style={{ display: 'block', fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
-                                        {formatCurrency(eodReport.total_sales)} Base + {formatCurrency(eodReport.gst_total)} GST (18%)
+                                        {formatCurrency(eodReport.total_sales)} Base + {formatCurrency(eodReport.gst_total)} GST
                                     </small>
                                     <div className="fmc-kpi-sub">Total Billed with GST</div>
                                 </div>
@@ -248,20 +269,22 @@ export const Reports = ({ activeTab, refreshKey }) => {
                                     <div className="fmc-kpi-sub">30–60 Day Terms</div>
                                 </div>
 
-                                <div className="fmc-kpi-card" style={{ borderTop: '3px solid #10b981', background: 'rgba(16, 185, 129, 0.05)' }}>
-                                    <div className="fmc-kpi-card-header">
-                                        <span className="fmc-kpi-tag" style={{ color: '#10b981', fontWeight: 800 }}>Net Value</span>
-                                        <div className="fmc-kpi-badge-icon" style={{ background: 'rgba(16, 185, 129, 0.2)', color: '#10b981' }}>📈</div>
+                                {canViewNetValue && (
+                                    <div className="fmc-kpi-card" style={{ borderTop: '3px solid #10b981', background: 'rgba(16, 185, 129, 0.05)' }}>
+                                        <div className="fmc-kpi-card-header">
+                                            <span className="fmc-kpi-tag" style={{ color: '#10b981', fontWeight: 800 }}>Net Value</span>
+                                            <div className="fmc-kpi-badge-icon" style={{ background: 'rgba(16, 185, 129, 0.2)', color: '#10b981' }}>📈</div>
+                                        </div>
+                                        <div className="fmc-kpi-val" style={{ color: '#10b981' }}>
+                                            <GstValuePair excluding={eodReport.net_profit} including={eodReport.net_profit_with_gst} formatValue={formatCurrency} />
+                                        </div>
+                                        {canViewMargins && (
+                                            <div className="fmc-kpi-sub" style={{ color: '#10b981', fontWeight: 700 }}>
+                                                {eodReport.total_sales > 0 ? ((eodReport.net_profit / eodReport.total_sales) * 100).toFixed(1) + '% Margin' : '0% Margin'}
+                                            </div>
+                                        )}
                                     </div>
-                                    <div className="fmc-kpi-val" style={{ color: '#10b981' }}>
-                                        {canViewFinancials ? <GstValuePair excluding={eodReport.net_profit} including={eodReport.net_profit_with_gst} formatValue={formatCurrency} /> : '••••••'}
-                                    </div>
-                                    <div className="fmc-kpi-sub" style={{ color: '#10b981', fontWeight: 700 }}>
-                                        {canViewFinancials
-                                            ? (eodReport.total_sales > 0 ? ((eodReport.net_profit / eodReport.total_sales) * 100).toFixed(1) + '% Margin' : '0% Margin')
-                                            : 'Super Admin Access Only'}
-                                    </div>
-                                </div>
+                                )}
                             </div>
 
                             {/* Visual Charts & Graphs Section (2-Columns) */}
@@ -314,7 +337,7 @@ export const Reports = ({ activeTab, refreshKey }) => {
                                                             color="#10b981"
                                                         />
                                                         <ProgressItem label="Net Value (Incl. GST)" value={eodReport.net_profit_with_gst} total={totalBilled} color="#0891b2" />
-                                                    </>                                                    )}
+                                                    </>)}
                                                 </>
                                             );
                                         })()}
@@ -388,9 +411,11 @@ export const Reports = ({ activeTab, refreshKey }) => {
                                         {formatDate(weeklyReport.period_start)} – {formatDate(weeklyReport.period_end)}
                                     </p>
                                 </div>
-                                <button className="btn btn-primary-blue" onClick={() => window.print()} style={{ display: 'inline-flex', alignItems: 'center', gap: '7px', padding: '8px 18px', borderRadius: '8px', fontWeight: 700, boxShadow: '0 4px 14px rgba(37, 99, 235, 0.35)' }}>
-                                    <Printer size={15} /> Print Report
-                                </button>
+                                {canPrintReport && (
+                                    <button className="btn btn-primary-blue" onClick={() => window.print()} style={{ display: 'inline-flex', alignItems: 'center', gap: '7px', padding: '8px 18px', borderRadius: '8px', fontWeight: 700, boxShadow: '0 4px 14px rgba(37, 99, 235, 0.35)' }}>
+                                        <Printer size={15} /> Print Report
+                                    </button>
+                                )}
                             </div>
 
                             {/* 4-Column KPI Grid */}
@@ -512,9 +537,11 @@ export const Reports = ({ activeTab, refreshKey }) => {
                                         Financial Period: <strong>{monthlyReport.month}</strong> • Center: <strong>Bangalore Main Center (HQ)</strong>
                                     </div>
                                 </div>
-                                <button className="btn btn-primary-blue" onClick={() => window.print()} style={{ display: 'inline-flex', alignItems: 'center', gap: '7px', padding: '8px 18px', borderRadius: '8px', fontWeight: 700, boxShadow: '0 4px 14px rgba(37, 99, 235, 0.35)' }}>
-                                    <Printer size={15} /> Print Statement
-                                </button>
+                                {canPrintReport && (
+                                    <button className="btn btn-primary-blue" onClick={() => window.print()} style={{ display: 'inline-flex', alignItems: 'center', gap: '7px', padding: '8px 18px', borderRadius: '8px', fontWeight: 700, boxShadow: '0 4px 14px rgba(37, 99, 235, 0.35)' }}>
+                                        <Printer size={15} /> Print Statement
+                                    </button>
+                                )}
                             </div>
 
                             {/* Top Monthly Summary KPI Cards */}
@@ -648,7 +675,7 @@ export const Reports = ({ activeTab, refreshKey }) => {
                                         <strong>{formatCurrency(monthlyReport.total_revenue || monthlyReport.revenue)}</strong>
                                     </div>
                                     <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', fontSize: '12px', color: 'var(--text-muted)' }}>
-                                        <span>GST Output Tax (18%)</span>
+                                        <span>GST Output Tax</span>
                                         <strong>{formatCurrency(monthlyReport.gst_total)}</strong>
                                     </div>
                                     <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderTop: '1px dashed var(--card-border)', fontSize: '13px', fontWeight: 700 }}>

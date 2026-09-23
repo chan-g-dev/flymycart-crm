@@ -17,6 +17,7 @@ class PermissionCode(str, Enum):
     CUSTOMERS_EDIT = "customers.edit"
     CUSTOMERS_DELETE = "customers.delete"
     CUSTOMERS_EXPORT = "customers.export"
+    CUSTOMERS_STATEMENT = "customers.statement"
 
     # Shipments
     SHIPMENTS_VIEW = "shipments.view"
@@ -31,6 +32,7 @@ class PermissionCode(str, Enum):
     INVOICES_ADD = "invoices.add"
     INVOICES_EDIT = "invoices.edit"
     INVOICES_EXPORT = "invoices.export"
+    INVOICES_PRINT = "invoices.print"
 
     # Accounts
     ACCOUNTS_VIEW = "accounts.view"
@@ -46,6 +48,11 @@ class PermissionCode(str, Enum):
 
     # Reports
     REPORTS_VIEW = "reports.view"
+    REPORTS_EOD = "reports.eod"
+    REPORTS_WEEKLY = "reports.weekly"
+    REPORTS_CUSTOM_RANGE = "reports.custom_range"
+    REPORTS_MONTHLY_PNL = "reports.monthly_pnl"
+    REPORTS_PRINT = "reports.print"
     REPORTS_VIEW_FINANCIAL = "reports.view_financial"
     REPORTS_EXPORT = "reports.export"
 
@@ -54,6 +61,7 @@ class PermissionCode(str, Enum):
     B2B_ADD = "b2b.add"
     B2B_EDIT = "b2b.edit"
     B2B_MANAGE_CREDIT = "b2b.manage_credit"
+    B2B_EXPORT = "b2b.export"
 
     # Users & Access Control
     USERS_VIEW = "users.view"
@@ -78,8 +86,19 @@ class PermissionCode(str, Enum):
     # Search
     SEARCH_GLOBAL = "search.global"
 
-    # Dashboard
     DASHBOARDS_VIEW = "dashboards.view"
+
+    # Attendance
+    ATTENDANCE_VIEW = "attendance.view"
+    ATTENDANCE_MANAGE = "attendance.manage"
+    ATTENDANCE_PUNCH = "attendance.punch"
+
+    # Costs & Financials
+    COSTS_CUSTOMER_PRICE = "costs.customer_price"
+    COSTS_CARRIER_COST = "costs.carrier_cost"
+    COSTS_NET_VALUE = "costs.net_value"
+    COSTS_MARGINS = "costs.margins"
+    COSTS_VIEW = "costs.view"
 
 
 # Data Scopes (geographic/organizational boundaries)
@@ -97,6 +116,12 @@ FINANCIAL_PERMISSIONS = {
     PermissionCode.ACCOUNTS_EDIT,
     PermissionCode.ACCOUNTS_RECONCILE,
     PermissionCode.REPORTS_VIEW_FINANCIAL,
+    PermissionCode.REPORTS_MONTHLY_PNL,
+    PermissionCode.COSTS_CUSTOMER_PRICE,
+    PermissionCode.COSTS_CARRIER_COST,
+    PermissionCode.COSTS_NET_VALUE,
+    PermissionCode.COSTS_MARGINS,
+    PermissionCode.COSTS_VIEW,
     PermissionCode.REPORTS_EXPORT,
     PermissionCode.B2B_MANAGE_CREDIT,
     PermissionCode.SETTINGS_MANAGE,
@@ -160,6 +185,10 @@ DEFAULT_ROLE_PERMISSIONS: Dict[str, List[str]] = {
         # Reconciliation
         PermissionCode.RECONCILIATION_VIEW,
         PermissionCode.RECONCILIATION_RUN,
+        # Attendance
+        PermissionCode.ATTENDANCE_VIEW,
+        PermissionCode.ATTENDANCE_PUNCH,
+        PermissionCode.ATTENDANCE_MANAGE,
         # Followups
         PermissionCode.FOLLOWUPS_VIEW,
         PermissionCode.FOLLOWUPS_ADD,
@@ -168,6 +197,9 @@ DEFAULT_ROLE_PERMISSIONS: Dict[str, List[str]] = {
         PermissionCode.SEARCH_GLOBAL,
     ],
     "operations_staff": [
+        # Attendance (punch & personal view)
+        PermissionCode.ATTENDANCE_VIEW,
+        PermissionCode.ATTENDANCE_PUNCH,
         # Users & Directory (read-only view)
         PermissionCode.USERS_VIEW,
         # Customers (no delete)
@@ -199,32 +231,28 @@ DEFAULT_ROLE_PERMISSIONS: Dict[str, List[str]] = {
         PermissionCode.SETTINGS_VIEW,
     ],
     "accounts_staff": [
+        # Attendance (punch & personal view)
+        PermissionCode.ATTENDANCE_VIEW,
+        PermissionCode.ATTENDANCE_PUNCH,
         # Customers (view only)
         PermissionCode.CUSTOMERS_VIEW,
         # Shipments (view only)
         PermissionCode.SHIPMENTS_VIEW,
         # Invoices
         PermissionCode.INVOICES_VIEW,
-        PermissionCode.INVOICES_ADD,
-        PermissionCode.INVOICES_EDIT,
-        PermissionCode.INVOICES_EXPORT,
         # Accounts (full access)
         PermissionCode.ACCOUNTS_VIEW,
-        PermissionCode.ACCOUNTS_EDIT,
-        PermissionCode.ACCOUNTS_RECONCILE,
-        PermissionCode.ACCOUNTS_EXPORT,
         # Refunds (view only, can't approve)
         PermissionCode.REFUNDS_VIEW,
         # Reports
         PermissionCode.REPORTS_VIEW,
-        PermissionCode.REPORTS_VIEW_FINANCIAL,
-        PermissionCode.REPORTS_EXPORT,
-        # B2B (view only)
-        PermissionCode.B2B_VIEW,
         # Search
         PermissionCode.SEARCH_GLOBAL,
     ],
     "counter_staff": [
+        # Attendance (punch & personal view)
+        PermissionCode.ATTENDANCE_VIEW,
+        PermissionCode.ATTENDANCE_PUNCH,
         # Customers (minimal)
         PermissionCode.CUSTOMERS_VIEW,
         # Shipments (can view/add)
@@ -241,6 +269,9 @@ DEFAULT_ROLE_PERMISSIONS: Dict[str, List[str]] = {
         PermissionCode.SEARCH_GLOBAL,
     ],
     "viewer": [
+        # Attendance
+        PermissionCode.ATTENDANCE_VIEW,
+        PermissionCode.ATTENDANCE_PUNCH,
         # Read-only access
         PermissionCode.CUSTOMERS_VIEW,
         PermissionCode.SHIPMENTS_VIEW,

@@ -101,7 +101,9 @@ const defaultPrepaid = [{ name: 'ICL' }, { name: 'BRV' }];
 
 const ShipmentModalForm = ({ isOpen, onClose, onCreated, settings }) => {
     const { hasPermission } = useAuth();
-    const canEnterShipmentCosts = hasPermission('costs.view') || hasPermission('reports.view_financial');
+    const canEnterShipmentCosts = hasPermission('costs.carrier_cost') || hasPermission('costs.view');
+    const canViewCustomerPrice = hasPermission('costs.customer_price');
+    const canViewNetValue = (hasPermission('costs.net_value') || hasPermission('reports.view_financial')) && canViewCustomerPrice && canEnterShipmentCosts;
     const todayStr = businessDate();
     const [form, setForm] = useState(getInitialShipmentForm(todayStr, settings));
     const lookupSequence = useRef(0);
@@ -795,7 +797,7 @@ const ShipmentModalForm = ({ isOpen, onClose, onCreated, settings }) => {
                                             <span>Provider Cost</span>
                                             <span>{money(form.provider_cost)}</span>
                                         </div>
-                                        {hasPermission('reports.view_financial') && <div className="booking-calc-row booking-calc-profit">
+                                        {canViewNetValue && <div className="booking-calc-row booking-calc-profit">
                                             <span>Estimated Value After Courier Cost</span>
                                             <span className={estimatedMargin < 0 ? 'margin-loss' : 'margin-profit'}>
                                                 <GstValuePair excluding={estimatedMargin} including={estimatedMargin + gst} formatValue={money} />

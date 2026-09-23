@@ -17,8 +17,9 @@ from app.auth import hash_password
 
 def migrate_database_schema(db: Session):
     """Ensures newly added columns exist in live Postgres or SQLite tables if running against pre-existing tables."""
-    from app.models import PaymentRequest
+    from app.models import PaymentRequest, AttendanceRecord
     PaymentRequest.__table__.create(bind=db.bind, checkfirst=True)
+    AttendanceRecord.__table__.create(bind=db.bind, checkfirst=True)
     if db.bind.dialect.name == 'postgresql':
         db.execute(text('ALTER TABLE payment_requests ENABLE ROW LEVEL SECURITY'))
         db.execute(text("""DO $$ BEGIN
@@ -55,6 +56,7 @@ def migrate_database_schema(db: Session):
         "gst_rate": "FLOAT DEFAULT 18.0",
         "gst_amount": "FLOAT DEFAULT 0.0",
         "total_amount": "FLOAT",
+        "carrier_payment_status": "VARCHAR(20) DEFAULT 'Pending'",
     }.items():
         if name not in shipment_columns:
             db.execute(text(f"ALTER TABLE shipments ADD COLUMN {optional}{name} {definition}"))
@@ -175,6 +177,7 @@ STANDARD_PERMISSIONS = [
     ("customers", "edit", "customers.edit", "Customers", False, "Edit customer profiles and credit limits"),
     ("customers", "delete", "customers.delete", "Customers", False, "Archive or remove customer records"),
     ("customers", "export", "customers.export", "Customers", False, "Bulk export customer data"),
+    ("customers", "statement", "customers.statement", "Customers", False, "View and export customer account statement"),
     # Shipments
     ("shipments", "view", "shipments.view", "Shipments", False, "View shipments and AWB statuses"),
     ("shipments", "add", "shipments.add", "Shipments", False, "Book new international & domestic shipments"),
@@ -186,6 +189,7 @@ STANDARD_PERMISSIONS = [
     ("invoices", "add", "invoices.add", "Invoices", True, "Generate GST invoices and payment links"),
     ("invoices", "edit", "invoices.edit", "Invoices", True, "Modify invoice line items and applied taxes"),
     ("invoices", "export", "invoices.export", "Invoices", True, "Export tax invoice registers"),
+    ("invoices", "print", "invoices.print", "Invoices", False, "View, print and download PDF invoices"),
     ("accounts", "view", "accounts.view", "Accounts", True, "View collection bank balances and carrier wallets"),
     ("accounts", "edit", "accounts.edit", "Accounts", True, "Record payments and wallet recharges"),
     ("accounts", "reconcile", "accounts.reconcile", "Accounts", True, "Perform carrier bill reconciliations"),
@@ -197,14 +201,34 @@ STANDARD_PERMISSIONS = [
     ("refunds", "process", "refunds.process", "Refunds", True, "Disburse approved refund via UPI/Bank"),
     # Reports
     ("reports", "view", "reports.view", "Reports", False, "View operational dashboards & shipment volumes"),
+    ("reports", "eod", "reports.eod", "Reports", False, "View End of Day (EOD) Operations Audit report"),
+    ("reports", "weekly", "reports.weekly", "Reports", False, "View Weekly Trends analytics report"),
+    ("reports", "custom_range", "reports.custom_range", "Reports", False, "View Custom Date Range operations report"),
+    ("reports", "monthly_pnl", "reports.monthly_pnl", "Reports", True, "View Monthly Business Profit & Loss statement"),
+    ("reports", "print", "reports.print", "Reports", False, "Print EOD audit sheet and reports"),
     ("reports", "view_financial", "reports.view_financial", "Reports", True, "View financial margins and gross profit metrics"),
     ("reports", "export", "reports.export", "Reports", False, "Export analytical reports"),
+    # B2B
+    ("b2b", "view", "b2b.view", "B2B", False, "View B2B corporate accounts and credit ledgers"),
+    ("b2b", "add", "b2b.add", "B2B", False, "Add new B2B corporate customer"),
+    ("b2b", "edit", "b2b.edit", "B2B", False, "Edit B2B company profile and billing parameters"),
+    ("b2b", "manage_credit", "b2b.manage_credit", "B2B", True, "Manage B2B credit limits, billing terms and credit holds"),
+    ("b2b", "export", "b2b.export", "B2B", False, "Export B2B ledger and corporate accounts"),
+    # Costs & Financials
+    ("costs", "customer_price", "costs.customer_price", "Costs", True, "View customer sale prices, billed shipment rates, invoice totals, and customer quotes"),
+    ("costs", "carrier_cost", "costs.carrier_cost", "Costs", True, "View courier purchase costs, carrier bills, predicted & actual carrier charges"),
+    ("costs", "net_value", "costs.net_value", "Costs", True, "View net value after courier cost, gross profit, and bottom-line rupee amounts"),
+    ("costs", "margins", "costs.margins", "Costs", True, "View profit margin percentages, markup %, and margin realization rates"),
     # Users & Roles
     ("users", "view", "users.view", "Users", False, "View staff roster and center assignments"),
     ("users", "invite", "users.invite", "Users", False, "Invite new staff members via email"),
     ("users", "edit", "users.edit", "Users", False, "Edit staff profile and center access"),
     ("users", "suspend", "users.suspend", "Users", False, "Suspend or reactivate staff accounts"),
     ("users", "manage_permissions", "users.manage_permissions", "Users", False, "Configure roles and permissions"),
+    # Attendance
+    ("attendance", "view", "attendance.view", "Attendance", False, "View staff attendance summaries and time breakdown"),
+    ("attendance", "manage", "attendance.manage", "Attendance", False, "Manage and configure organization-wide attendance & timings"),
+    ("attendance", "punch", "attendance.punch", "Attendance", False, "Record daily attendance punch in/out events"),
     # Settings
     ("settings", "view", "settings.view", "Settings", False, "View system configuration and carrier parameters"),
     ("settings", "manage", "settings.manage", "Settings", True, "Modify company details, banks, and API keys"),
@@ -230,7 +254,11 @@ def seed_permissions_and_roles(db: Session):
         code = member.value
         resource, action = code.split('.', 1)
         catalog.setdefault(code, (resource, action, code, resource.title(), False, code))
-    catalog['costs.view'] = ('costs', 'view', 'costs.view', 'Financial visibility', True, 'View courier purchase costs; does not grant Net Value or P&L access')
+    catalog['costs.view'] = ('costs', 'view', 'costs.view', 'Costs', True, 'View courier purchase costs; does not grant Net Value or P&L access')
+    catalog['costs.customer_price'] = ('costs', 'customer_price', 'costs.customer_price', 'Costs', True, 'View customer sale prices, billed shipment rates, invoice totals, and customer quotes')
+    catalog['costs.carrier_cost'] = ('costs', 'carrier_cost', 'costs.carrier_cost', 'Costs', True, 'View courier purchase costs, carrier bills, predicted & actual carrier charges')
+    catalog['costs.net_value'] = ('costs', 'net_value', 'costs.net_value', 'Costs', True, 'View net value after courier cost, gross profit, and bottom-line rupee amounts')
+    catalog['costs.margins'] = ('costs', 'margins', 'costs.margins', 'Costs', True, 'View profit margin percentages, markup %, and margin realization rates')
     permissions = {}
     for resource, action, code, module, financial, description in catalog.values():
         permission = db.query(Permission).filter_by(code=code).first()
@@ -239,12 +267,17 @@ def seed_permissions_and_roles(db: Session):
                                     is_financial=financial, description=description)
             db.add(permission)
             db.flush()
+        else:
+            permission.resource = resource
+            permission.action = action
+            permission.description = description
+            permission.is_financial = financial
         permissions[code] = permission
     config = db.query(SystemSettings).filter_by(id=1).first()
     if not config:
         config = SystemSettings(id=1, config_json={})
         db.add(config)
-    initialized = (config.config_json or {}).get('companyRolePolicyV1', False)
+    initialized = (config.config_json or {}).get('companyRolePolicyV2', False)
     legacy = {'Manager': 'Center Manager', 'Counter Staff': 'Front Counter Staff', 'Operations Executive': 'Operations Staff'}
     for code, name in ROLE_NAMES.items():
         role = db.query(Role).filter_by(name=name).first()
@@ -266,7 +299,7 @@ def seed_permissions_and_roles(db: Session):
                 if not db.query(RolePermission).filter_by(role_id=role.id, permission_id=permission.id).first():
                     db.add(RolePermission(role_id=role.id, permission_id=permission.id,
                                           scope='all' if code == 'super_admin' else 'center'))
-    config.config_json = {**(config.config_json or {}), 'companyRolePolicyV1': True}
+    config.config_json = {**(config.config_json or {}), 'companyRolePolicyV2': True}
     db.commit()
 
 
@@ -442,3 +475,4 @@ def seed_database(db: Session):
         config.config_json = ensure_carrier_accounts(saved_config)
         db.commit()
     print("Baseline system initialized with Enterprise RBAC & Super Admin (Gangabathina Chanakya).")
+

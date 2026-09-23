@@ -1,3 +1,4 @@
+import { ButtonSpinner } from './LoadingSpinner';
 import React, { useRef, useState } from 'react';
 import { apiClient } from '../api/client';
 import { dateAfter } from '../utils/followupDates';
@@ -46,6 +47,6 @@ export default function ScheduleFollowup({ customers, onSaved, onClose }) {
             <div className="form-group"><label htmlFor="followup-priority">Priority</label><select id="followup-priority" value={form.priority} onChange={e => setForm({ ...form, priority: e.target.value })}>{['Low', 'Medium', 'High'].map(p => <option key={p}>{p}</option>)}</select></div>
             <div className="form-group"><label htmlFor="followup-channel">Contact method</label><select id="followup-channel" value={form.channel_action} onChange={e => setForm({ ...form, channel_action: e.target.value })}>{['Call', 'WhatsApp', 'Email', 'SMS'].map(c => <option key={c}>{c}</option>)}</select></div>
             <div className="form-group"><label htmlFor="followup-notes">Task / notes</label><textarea id="followup-notes" required maxLength="2000" value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} /></div>
-        </div><div className="account-check-pagination">{[5, 10, 15, 30].map(days => <button type="button" key={days} className="btn btn-sm btn-outline" onClick={() => setForm({ ...form, due_date: dateAfter(days) })}>In {days} days</button>)}</div><div className="form-actions"><button className="btn btn-primary-blue" type="submit">{saving ? 'Scheduling…' : 'Schedule follow-up'}</button></div></fieldset>{error && <p role="alert">{error}</p>}</form>
+        </div><div className="account-check-pagination">{[5, 10, 15, 30].map(days => <button type="button" key={days} className="btn btn-sm btn-outline" onClick={() => setForm({ ...form, due_date: dateAfter(days) })}>In {days} days</button>)}</div><div className="form-actions"><button className="btn btn-primary-blue" type="submit">{saving ? <ButtonSpinner text="Scheduling…" /> : 'Schedule follow-up'}</button></div></fieldset>{error && <p role="alert">{error}</p>}</form>
     </div></div>;
 }

@@ -9,9 +9,10 @@ import { money, dateLabel, colors } from './accountsHelpers';
 
 export function ShipmentLedger({ report, accounts, filters, setFilters, onSearch, ledger, page, setPage, refresh, onViewShipment, onAddShipmentExpense }) {
     const { hasPermission } = useAuth();
-    const financial = hasPermission('reports.view_financial');
-    const costs = financial || hasPermission('costs.view');
-    const columns = 10 + Number(costs) + (financial ? 3 : 0);
+    const canViewPrice = hasPermission('costs.customer_price');
+    const costs = hasPermission('costs.carrier_cost') || hasPermission('costs.view');
+    const financial = (hasPermission('costs.net_value') || hasPermission('reports.view_financial')) && canViewPrice && costs;
+    const columns = 9 + Number(canViewPrice) + Number(costs) + (financial ? 3 : 0);
     const items = ledger.data?.items || [];
     const count = ledger.data?.total_count || 0;
     return <section className="ao-panel ao-ledger">
@@ -25,18 +26,17 @@ export function ShipmentLedger({ report, accounts, filters, setFilters, onSearch
         </form>
         {ledger.error && <p role="alert" className="ao-alert">{ledger.error}<button onClick={refresh}>Retry</button></p>}
         <div className="ao-table-scroll" tabIndex={0} role="region" aria-label="Shipment accounts ledger">
-            <table className="ao-table"><thead><tr>{['Date', 'AWB', 'Courier', 'Customer', 'Destination', 'Customer Sale (Incl. GST)', ...(costs ? ['Courier Cost'] : []), ...(financial ? ['Sale Excl. GST', 'Expense', 'Net Value'] : []), 'Payment Mode', 'Collection Status', 'Payment to Courier', 'Action'].map(name => <th key={name}>{name}</th>)}</tr></thead>
+            <table className="ao-table"><thead><tr>{['Date', 'AWB', 'Courier', 'Customer', 'Destination', ...(canViewPrice ? ['Customer Sale (Incl. GST)'] : []), ...(costs ? ['Courier Cost'] : []), ...(financial ? ['Sale Excl. GST', 'Expense', 'Net Value'] : []), 'Payment Mode', 'Collection Status', 'Payment to Courier', 'Action'].map(name => <th key={name}>{name}</th>)}</tr></thead>
                 <tbody>{!ledger.loading && items.map(s => <tr key={s.id}>
                     <td>{dateLabel(s.date)}</td><td><TrackingLink awb={s.awb} courier={s.courier} /></td><td><CourierLogo courier={s.courier} height={13} /></td>
-                    <td title={s.customer_name}>{s.customer_name}</td><td>{s.destination}</td><td>{money(s.gross_sale)}</td>
+                    <td>{s.customer_name}</td><td>{s.destination || '—'}</td>
+                    {canViewPrice && <td>{money(s.gross_sale)}</td>}
                     {costs && <td>{money(s.cost)}</td>}
-                    {financial && <><td>{money(s.sale)}</td><td>{money(s.expense)}</td><td><GstValuePair excluding={s.value} including={s.value_with_gst} formatValue={money} /></td></>}
-                    <td>{s.payment_mode || '-'}</td><td><span className={`ao-status ${s.collection_status === 'Paid' ? 'paid' : 'due'}`}>{s.collection_status}</span></td>
-                    <td><span className={`ao-status ${s.courier_status === 'Paid' ? 'paid' : 'due'}`}>{['Paid', 'Pending', 'Processing'].includes(s.courier_status) ? s.courier_status : 'Pending'}</span></td>
-                    <td><button className="ao-eye" aria-label={`View shipment ${s.awb}`} onClick={() => onViewShipment(s)}><Eye size={13} /></button>{financial && onAddShipmentExpense && <button className="ao-eye" aria-label={`Add expense to ${s.awb}`} onClick={() => onAddShipmentExpense(s)}><MoreHorizontal size={13} /></button>}</td>
-                </tr>)}
-                {(ledger.loading || !items.length) && <tr><td colSpan={columns} className="ao-empty ao-ledger-empty">{ledger.loading ? 'Loading shipments...' : 'No shipments match this period and filters.'}</td></tr>}
-                </tbody>
+                    {financial && <><td>{money(s.sale)}</td><td>{money(s.expense)}</td><td><strong>{money(s.value)}</strong></td></>}
+                    <td>{s.payment_mode || '—'}</td><td><span className={`ao-badge ${s.collection_status?.toLowerCase()}`}>{s.collection_status}</span></td>
+                    <td><span className={`ao-badge ${s.courier_status?.toLowerCase()}`}>{s.courier_status}</span></td>
+                    <td><button className="ao-icon-button" title="View shipment" onClick={() => onViewShipment(s.id)}><Eye size={12} /></button></td>
+                </tr>)}</tbody>
             </table>
         </div>
         <footer><span>Showing {count ? (page - 1) * 5 + 1 : 0} to {Math.min(page * 5, count)} of {count} shipments</span><Pager page={page} count={count} onChange={setPage} /></footer>
@@ -44,7 +44,9 @@ export function ShipmentLedger({ report, accounts, filters, setFilters, onSearch
 }
 export function AccountsCharts({ report, data, range, go, refresh }) {
     const { hasPermission } = useAuth();
-    const financial = hasPermission('reports.view_financial');
+    const canViewPrice = hasPermission('costs.customer_price');
+    const canViewCost = hasPermission('costs.carrier_cost') || hasPermission('costs.view');
+    const financial = (hasPermission('costs.net_value') || hasPermission('reports.view_financial')) && canViewPrice && canViewCost;
     const partners = Object.entries(report?.by_partner || {});
     const partnerTotal = partners.reduce((sum, [, value]) => sum + Number(value), 0);
     const totals = report?.totals || {};

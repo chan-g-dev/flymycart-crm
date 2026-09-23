@@ -15,6 +15,7 @@ import {
     RefreshCw,
     Phone,
     ShieldCheck,
+    Lock,
     X
 } from 'lucide-react';
 import { CourierLogo } from '../components/CourierLogos';
@@ -42,7 +43,9 @@ export const Dashboard = ({
     isLoading = false
 }) => {
     const { currentUser, hasPermission } = useAuth();
-    const financial = hasPermission('reports.view_financial');
+    const canViewPrice = hasPermission('costs.customer_price');
+    const canViewCost = hasPermission('costs.carrier_cost') || hasPermission('costs.view');
+    const financial = (hasPermission('costs.net_value') || hasPermission('reports.view_financial')) && canViewPrice && canViewCost;
     const recent = useRecentBookings(selectedCenter, shipments);
     const recentPageCount = Math.max(1, Math.ceil(recent.total / 10));
     const recentPages = [...new Set([1, recentPageCount, recent.page - 2, recent.page - 1, recent.page, recent.page + 1, recent.page + 2])]
@@ -134,95 +137,107 @@ export const Dashboard = ({
             {isLoading && !data && effectiveShipments.length === 0 ? (
                 <CardSkeleton count={6} />
             ) : (
-                <div className="dash-stat-cards-grid dashboard-kpi-grid">
+                <div className="dash-stat-cards-grid dashboard-kpi-grid" style={{ gridTemplateColumns: canViewPrice ? undefined : 'repeat(3, minmax(0, 1fr))' }}>
                     {/* 1. Today's Bookings */}
-                <div className="dash-mini-card">
-                    <div className="dash-mini-card-header">
-                        <div className="dash-mini-icon-box">
-                            <Package size={15} />
+                    <div className="dash-mini-card">
+                        <div className="dash-mini-card-header">
+                            <div className="dash-mini-icon-box">
+                                <Package size={15} />
+                            </div>
+                            <span className="card-label">Today's Bookings</span>
                         </div>
-                        <span className="card-label">Today's Bookings</span>
+                        <div className="card-value">{todayBookingsCount}</div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '4px' }}>
+                            <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Fleet Active: {totalFleetVolume}</span>
+                            <a href="javascript:void(0)" onClick={() => onNavigate('shipments')} className="card-link">
+                                <span>View all</span> &rarr;
+                            </a>
+                        </div>
                     </div>
-                    <div className="card-value">{todayBookingsCount}</div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '4px' }}>
-                        <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Fleet Active: {totalFleetVolume}</span>
-                        <a href="javascript:void(0)" onClick={() => onNavigate('shipments')} className="card-link">
-                            <span>View all</span> &rarr;
-                        </a>
-                    </div>
-                </div>
 
-                {/* 2. Today's Sales */}
-                <div className="dash-mini-card">
-                    <div className="dash-mini-card-header">
-                        <div className="dash-mini-icon-box">
-                            <CircleDollarSign size={15} />
+                    {/* 2. Today's Sales */}
+                    {canViewPrice && (
+                        <div className="dash-mini-card">
+                            <div className="dash-mini-card-header">
+                                <div className="dash-mini-icon-box">
+                                    <CircleDollarSign size={15} />
+                                </div>
+                                <span className="card-label">Today's Sales</span>
+                            </div>
+                            <div className="card-value">{formatCurrency(safeData.today_sales_with_gst ?? (todaySales + (safeData.today_gst || 0)))}</div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '4px' }}>
+                                <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                                    {formatCurrency(todaySales)} Base + {formatCurrency(safeData.today_gst || Math.max(0, (safeData.today_sales_with_gst || 0) - todaySales))} GST
+                                </span>
+                                <a href="javascript:void(0)" onClick={() => onNavigate('reports')} className="card-link">
+                                    <span>Reports</span> &rarr;
+                                </a>
+                            </div>
                         </div>
-                        <span className="card-label">Today's Sales</span>
-                    </div>
-                    <div className="card-value">{formatCurrency(safeData.today_sales_with_gst ?? (todaySales + (safeData.today_gst || 0)))}</div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '4px' }}>
-                        <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-                            {formatCurrency(todaySales)} Base • M-T-D: {formatCurrency(safeData.total_sales_with_gst ?? (totalSales + (safeData.total_gst || 0)))} with GST
-                        </span>
-                        <a href="javascript:void(0)" onClick={() => onNavigate('reports')} className="card-link">
-                            <span>Reports</span> &rarr;
-                        </a>
-                    </div>
-                </div>
+                    )}
 
-                {/* 3. Today's Collection */}
-                <div className="dash-mini-card">
-                    <div className="dash-mini-card-header">
-                        <div className="dash-mini-icon-box">
-                            <Wallet size={15} />
+                    {/* 3. Today's Collection */}
+                    {canViewPrice && (
+                        <div className="dash-mini-card">
+                            <div className="dash-mini-card-header">
+                                <div className="dash-mini-icon-box">
+                                    <Wallet size={15} />
+                                </div>
+                                <span className="card-label">Today's Collection</span>
+                            </div>
+                            <div className="card-value" style={{ color: 'var(--emerald)' }}>
+                                {formatCurrency(todayCollected)}
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '4px' }}>
+                                <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                                    Collected: {formatCurrency(totalCollected)}
+                                </span>
+                                <a href="javascript:void(0)" onClick={() => onNavigate('accounts')} className="card-link">
+                                    <span>Ledger</span> &rarr;
+                                </a>
+                            </div>
                         </div>
-                        <span className="card-label">Today's Collection</span>
-                    </div>
-                    <div className="card-value" style={{ color: 'var(--emerald)' }}>{formatCurrency(todayCollected)}</div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '4px' }}>
-                        <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Collected: {formatCurrency(totalCollected)}</span>
-                        <a href="javascript:void(0)" onClick={() => onNavigate('accounts')} className="card-link">
-                            <span>Ledger</span> &rarr;
-                        </a>
-                    </div>
-                </div>
+                    )}
 
-                {/* 4. B2B Outstanding */}
-                <div className="dash-mini-card">
-                    <div className="dash-mini-card-header">
-                        <div className="dash-mini-icon-box">
-                            <Building2 size={15} />
+                    {/* 4. B2B Outstanding */}
+                    {canViewPrice && (
+                        <div className="dash-mini-card">
+                            <div className="dash-mini-card-header">
+                                <div className="dash-mini-icon-box">
+                                    <Building2 size={15} />
+                                </div>
+                                <span className="card-label">B2B Outstanding</span>
+                            </div>
+                            <div className="card-value" style={{ color: '#d97706' }}>
+                                {formatCurrency(b2bOutstanding)}
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '4px' }}>
+                                <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                                    {b2bOverdueCount > 0 ? `${b2bOverdueCount} Account${b2bOverdueCount === 1 ? '' : 's'} Overdue` : 'All accounts settled'}
+                                </span>
+                                <a href="javascript:void(0)" onClick={() => onNavigate('b2b')} className="card-link">
+                                    <span>Manage</span> &rarr;
+                                </a>
+                            </div>
                         </div>
-                        <span className="card-label">B2B Outstanding</span>
-                    </div>
-                    <div className="card-value" style={{ color: '#d97706' }}>{formatCurrency(b2bOutstanding)}</div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '4px' }}>
-                        <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-                            {b2bOverdueCount > 0 ? `${b2bOverdueCount} Account${b2bOverdueCount === 1 ? '' : 's'} Overdue` : 'All accounts settled'}
-                        </span>
-                        <a href="javascript:void(0)" onClick={() => onNavigate('b2b')} className="card-link">
-                            <span>Manage</span> &rarr;
-                        </a>
-                    </div>
-                </div>
+                    )}
 
-                {/* 5. Follow-ups Due */}
-                <div className="dash-mini-card">
-                    <div className="dash-mini-card-header">
-                        <div className="dash-mini-icon-box">
-                            <PhoneCall size={15} />
+                    {/* 5. Follow-ups Due */}
+                    <div className="dash-mini-card">
+                        <div className="dash-mini-card-header">
+                            <div className="dash-mini-icon-box">
+                                <PhoneCall size={15} />
+                            </div>
+                            <span className="card-label">Follow-ups Due</span>
                         </div>
-                        <span className="card-label">Follow-ups Due</span>
+                        <div className="card-value" style={{ color: '#2563eb' }}>{followupsDue}</div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '4px' }}>
+                            <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Awaiting action</span>
+                            <a href="javascript:void(0)" onClick={() => onNavigate('followups')} className="card-link">
+                                <span>Follow-ups</span> &rarr;
+                            </a>
+                        </div>
                     </div>
-                    <div className="card-value" style={{ color: '#2563eb' }}>{followupsDue}</div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '4px' }}>
-                        <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Awaiting action</span>
-                        <a href="javascript:void(0)" onClick={() => onNavigate('followups')} className="card-link">
-                            <span>Follow-ups</span> &rarr;
-                        </a>
-                    </div>
-                </div>
 
                 {/* 6. Refunds Pending */}
                 <div className="dash-mini-card">
@@ -286,7 +301,7 @@ export const Dashboard = ({
             </dialog>
 
             {/* Middle Row (2 Column Grid) */}
-            <div className="dash-middle-grid">
+            <div className="dash-middle-grid" style={{ gridTemplateColumns: financial ? undefined : '1fr' }}>
                 {/* 1. Today's Bookings Breakdown */}
                 <div className="dash-box dashboard-volume-panel">
                     <div>
@@ -372,75 +387,77 @@ export const Dashboard = ({
                     </div>
                 </div>
 
-                {/* 3. Accounts Snapshot */}
-{financial && <div className="dash-box dashboard-accounts-panel">
-                    <div className="dash-box-header">
-                        <h3>Accounts Snapshot</h3>
-                        <a href="javascript:void(0)" onClick={() => onNavigate('accounts')} className="box-link">
-                            View all &rarr;
-                        </a>
-                    </div>
+                {/* 2. Accounts Snapshot */}
+                {financial && (
+                    <div className="dash-box dashboard-accounts-panel">
+                        <div className="dash-box-header">
+                            <h3>Accounts Snapshot</h3>
+                            <a href="javascript:void(0)" onClick={() => onNavigate('accounts')} className="box-link">
+                                View all &rarr;
+                            </a>
+                        </div>
 
-                    <div style={{ fontSize: '11px', fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '4px' }}>
-                        Prepaid Wallets
-                    </div>
-                    <div className="dashboard-accounts-scroll" tabIndex={0} role="region" aria-label="Prepaid wallets">
-                    <table className="acc-mini-table">
-                        <thead>
-                            <tr>
-                                <th>Provider</th>
-                                <th>Opening</th>
-                                <th>Used</th>
-                                <th style={{ textAlign: 'right' }}>Available Balance</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {(accountsData?.prepaid_wallets || [
-                                { name: 'ICL', opening_balance: 50000, total_usage: 6700, current_balance: 78300 },
-                                { name: 'BRV', opening_balance: 30000, total_usage: 5600, current_balance: 44400 }
-                            ]).map(w => (
-                                <tr key={w.name}>
-                                    <td><span className="provider-pill" style={{ background: '#0f172a', color: 'white' }}>{w.name}</span></td>
-                                    <td>{formatCurrency(w.opening_balance)}</td>
-                                    <td>{formatCurrency(w.total_usage)}</td>
-                                    <td style={{ textAlign: 'right', fontWeight: 700, color: 'var(--emerald)' }}>{formatCurrency(w.current_balance)}</td>
+                        <div style={{ fontSize: '11px', fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '4px' }}>
+                            Prepaid Wallets
+                        </div>
+                        <div className="dashboard-accounts-scroll" tabIndex={0} role="region" aria-label="Prepaid wallets">
+                        <table className="acc-mini-table">
+                            <thead>
+                                <tr>
+                                    <th>Provider</th>
+                                    <th>Opening</th>
+                                    <th>Used</th>
+                                    <th style={{ textAlign: 'right' }}>Available Balance</th>
                                 </tr>
-                            ))}
-                        </tbody>
-                    </table>
-                    </div>
+                            </thead>
+                            <tbody>
+                                {(accountsData?.prepaid_wallets || [
+                                    { name: 'ICL', opening_balance: 50000, total_usage: 6700, current_balance: 78300 },
+                                    { name: 'BRV', opening_balance: 30000, total_usage: 5600, current_balance: 44400 }
+                                ]).map(w => (
+                                    <tr key={w.name}>
+                                        <td><span className="provider-pill" style={{ background: '#0f172a', color: 'white' }}>{w.name}</span></td>
+                                        <td>{formatCurrency(w.opening_balance)}</td>
+                                        <td>{formatCurrency(w.total_usage)}</td>
+                                        <td style={{ textAlign: 'right', fontWeight: 700, color: 'var(--emerald)' }}>{formatCurrency(w.current_balance)}</td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                        </div>
 
-                    <div style={{ fontSize: '11px', fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '4px', marginTop: '8px' }}>
-                        Postpaid Accounts
-                    </div>
-                    <div className="dashboard-accounts-scroll" tabIndex={0} role="region" aria-label="Postpaid accounts">
-                    <table className="acc-mini-table">
-                        <thead>
-                            <tr>
-                                <th>Provider</th>
-                                <th>Deposit</th>
-                                <th>Unbilled</th>
-                                <th style={{ textAlign: 'right' }}>Outstanding</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {(accountsData?.postpaid_accounts || [
-                                { name: 'Aramex', deposit: 200000, unbilled_usage: 0, net_payable: 0 },
-                                { name: 'Blue Dart', deposit: 150000, unbilled_usage: 0, net_payable: 0 }
-                            ]).map(p => (
-                                <tr key={p.name}>
-                                    <td><strong style={{ color: p.name === 'Aramex' ? '#dc2626' : '#1d4ed8' }}>{p.name}</strong></td>
-                                    <td>{formatCurrency(p.deposit)}</td>
-                                    <td>{formatCurrency(p.unbilled_usage ?? p.predicted_cost ?? 0)}</td>
-                                    <td style={{ textAlign: 'right', fontWeight: 700, color: (p.net_payable || 0) > 0 ? '#e11d48' : 'var(--emerald)' }}>
-                                        {formatCurrency(p.net_payable ?? 0)}
-                                    </td>
+                        <div style={{ fontSize: '11px', fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '4px', marginTop: '8px' }}>
+                            Postpaid Accounts
+                        </div>
+                        <div className="dashboard-accounts-scroll" tabIndex={0} role="region" aria-label="Postpaid accounts">
+                        <table className="acc-mini-table">
+                            <thead>
+                                <tr>
+                                    <th>Provider</th>
+                                    <th>Deposit</th>
+                                    <th>Unbilled</th>
+                                    <th style={{ textAlign: 'right' }}>Outstanding</th>
                                 </tr>
-                            ))}
-                        </tbody>
-                    </table>
+                            </thead>
+                            <tbody>
+                                {(accountsData?.postpaid_accounts || [
+                                    { name: 'Aramex', deposit: 200000, unbilled_usage: 0, net_payable: 0 },
+                                    { name: 'Blue Dart', deposit: 150000, unbilled_usage: 0, net_payable: 0 }
+                                ]).map(p => (
+                                    <tr key={p.name}>
+                                        <td><strong style={{ color: p.name === 'Aramex' ? '#dc2626' : '#1d4ed8' }}>{p.name}</strong></td>
+                                        <td>{formatCurrency(p.deposit)}</td>
+                                        <td>{formatCurrency(p.unbilled_usage ?? p.predicted_cost ?? 0)}</td>
+                                        <td style={{ textAlign: 'right', fontWeight: 700, color: (p.net_payable || 0) > 0 ? '#e11d48' : 'var(--emerald)' }}>
+                                            {formatCurrency(p.net_payable ?? 0)}
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                        </div>
                     </div>
-                </div>}
+                )}
             </div>
 
             {/* Partner Logistics Network Banner */}
@@ -501,18 +518,18 @@ export const Dashboard = ({
                                 <th style={{ minWidth: '110px', textAlign: 'center' }}>Courier</th>
                                 <th style={{ minWidth: '140px', textAlign: 'left' }}>Destination</th>
                                 <th style={{ minWidth: '95px', textAlign: 'center' }}>Weight</th>
-                                <th style={{ minWidth: '105px', textAlign: 'right' }}>Value</th>
+                                {canViewPrice && <th style={{ minWidth: '105px', textAlign: 'right' }}>Value</th>}
                                 <th>Payment Mode</th><th>Collection Status</th><th>Payment to Courier</th><th style={{ minWidth: '125px', textAlign: 'center' }}>Status</th><th>Action</th>
                             </tr>
                         </thead>
                         <tbody>
                             {recent.loading ? (
-                                <TableSkeleton rows={5} columns={12} />
+                                <TableSkeleton rows={5} columns={canViewPrice ? 12 : 11} />
                             ) : recent.error ? (
-                                <tr><td colSpan="12" style={{ textAlign: 'center', padding: '32px' }}><p role="alert">{recent.error}</p><button type="button" className="recent-bookings-button" onClick={recent.retry}>Retry</button></td></tr>
+                                <tr><td colSpan={canViewPrice ? 12 : 11} style={{ textAlign: 'center', padding: '32px' }}><p role="alert">{recent.error}</p><button type="button" className="recent-bookings-button" onClick={recent.retry}>Retry</button></td></tr>
                             ) : recent.items.length === 0 ? (
                                 <tr>
-                                    <td colSpan="12" style={{ textAlign: 'center', padding: '32px', color: 'var(--text-muted)' }}>
+                                    <td colSpan={canViewPrice ? 12 : 11} style={{ textAlign: 'center', padding: '32px', color: 'var(--text-muted)' }}>
                                         {recent.date ? `No bookings found for ${formatDate(recent.date)}.` : 'No bookings found.'}
                                     </td>
                                 </tr>
@@ -571,16 +588,18 @@ export const Dashboard = ({
                                             <td style={{ textAlign: 'center', verticalAlign: 'middle' }}>
                                                 <strong>{s.chargeable_weight || s.actual_weight}</strong> kg
                                             </td>
-                                            <td style={{ fontWeight: 700, color: '#0f172a', textAlign: 'right', verticalAlign: 'middle' }}>
-                                                {formatCurrency(s.price)}
-                                            </td>
+                                            {canViewPrice && (
+                                                <td style={{ fontWeight: 700, color: '#0f172a', textAlign: 'right', verticalAlign: 'middle' }}>
+                                                    {formatCurrency(s.price)}
+                                                </td>
+                                            )}
                                             <ShipmentPaymentCells shipment={s} />
                                             <td style={{ textAlign: 'center', verticalAlign: 'middle' }}>
                                                 <span className={`status-pill ${s.status === 'Delivered' ? 'delivered' : s.status === 'Delayed' ? 'delayed' : 'in-transit'}`}>
                                                     {s.status}
                                                 </span>
                                             </td>
-                                            <td>{hasPermission('shipments.edit') ? <button type="button" className="recent-bookings-button" onClick={() => onOpenStatusModal(s)}>Update status</button> : <span>?</span>}</td>
+                                            <td>{hasPermission('shipments.edit') ? <button type="button" className="recent-bookings-button" onClick={() => onOpenStatusModal(s)}>Update status</button> : <span>—</span>}</td>
                                         </tr>
                                     );
                                 })
@@ -601,114 +620,119 @@ export const Dashboard = ({
                 </div>}
             </div>
 
-            {/* Bottom 4 Column Row (Charts & Follow-ups) */}
-            <div className="dash-bottom-grid">
+            {/* Bottom Row (Charts & Follow-ups) */}
+            <div className="dash-bottom-grid" style={{ gridTemplateColumns: `repeat(${Number(canViewPrice) * 2 + Number(financial) + 1}, minmax(0, 1fr))` }}>
                 {/* 1. Sales vs Collection */}
-                <div className="dash-box donut-widget dashboard-summary-card">
-                    <div className="dash-box-header">
-                        <h3>Sales vs Collection</h3>
-                        {chartSelector('sales', 'Sales vs Collection')}
+                {canViewPrice && (
+                    <div className="dash-box donut-widget dashboard-summary-card">
+                        <div className="dash-box-header">
+                            <h3>Sales vs Collection</h3>
+                            {chartSelector('sales', 'Sales vs Collection')}
+                        </div>
+                        <div className="summary-chart-context">Collection against sales incl. GST</div>
+                        {chartTypes.sales === 'donut' ? (<div className="donut-chart-container">
+                            <svg viewBox="0 0 36 36" style={{ width: '84px', height: '84px' }}>
+                                <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="#dbe3ef" strokeWidth="4.2" strokeDasharray="100, 100" />
+                                <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="#10b981" strokeWidth="4.2" strokeDasharray={`${collectionPercent}, 100`} />
+                            </svg>
+                            <div className="donut-center-label" title={`Sales: ${formatCurrency(billedSales)} | Collected: ${formatCurrency(totalCollected)} (${collectionPercent}%)`}>
+                                <strong>{collectionPercent}%</strong>
+                                <small>Collected</small>
+                            </div>
+                        </div>) : <ChartVisualization title="Sales vs Collection" type={chartTypes.sales} data={[{ label: 'Sales', value: billedSales, color: '#2563eb' }, { label: 'Collected', value: totalCollected, color: '#10b981' }, { label: 'Pending', value: pendingCollection, color: '#94a3b8' }]} formatValue={formatCompactCurrency} />}
+                        <div className="donut-legend">
+                            <div className="donut-legend-item">
+                                <span className="donut-legend-label" title="Sales Incl. GST"><span className="legend-dot" style={{ background: '#2563eb' }}></span> Sales Incl. GST</span>
+                                <strong title={formatCurrency(billedSales)}>{formatCurrency(billedSales)}</strong>
+                            </div>
+                            <div className="donut-legend-item">
+                                <span className="donut-legend-label" title="Total Collected"><span className="legend-dot" style={{ background: '#10b981' }}></span> Collected</span>
+                                <strong style={{ color: 'var(--emerald)' }} title={formatCurrency(totalCollected)}>{formatCurrency(totalCollected)}</strong>
+                            </div>
+                            <div className="donut-legend-item">
+                                <span className="donut-legend-label" title="Pending Collection"><span className="legend-dot" style={{ background: '#94a3b8' }}></span> Pending</span>
+                                <strong title={formatCurrency(pendingCollection)}>{formatCurrency(pendingCollection)}</strong>
+                            </div>
+                        </div>
                     </div>
-                    <div className="summary-chart-context">Collection against sales incl. GST</div>
-                    {chartTypes.sales === 'donut' ? (<div className="donut-chart-container">
-                        <svg viewBox="0 0 36 36" style={{ width: '84px', height: '84px' }}>
-                            <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="#dbe3ef" strokeWidth="4.2" strokeDasharray="100, 100" />
-                            <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="#10b981" strokeWidth="4.2" strokeDasharray={`${collectionPercent}, 100`} />
-                        </svg>
-                        <div className="donut-center-label" title={`Sales: ${formatCurrency(billedSales)} | Collected: ${formatCurrency(totalCollected)} (${collectionPercent}%)`}>
-                            <strong>{collectionPercent}%</strong>
-                            <small>Collected</small>
-                        </div>
-                    </div>) : <ChartVisualization title="Sales vs Collection" type={chartTypes.sales} data={[{ label: 'Sales', value: billedSales, color: '#2563eb' }, { label: 'Collected', value: totalCollected, color: '#10b981' }, { label: 'Pending', value: pendingCollection, color: '#94a3b8' }]} formatValue={formatCompactCurrency} />}
-                    <div className="donut-legend">
-                        <div className="donut-legend-item">
-                            <span className="donut-legend-label" title="Sales Incl. GST"><span className="legend-dot" style={{ background: '#2563eb' }}></span> Sales Incl. GST</span>
-                            <strong title={formatCurrency(billedSales)}>{formatCurrency(billedSales)}</strong>
-                        </div>
-                        <div className="donut-legend-item">
-                            <span className="donut-legend-label" title="Total Collected"><span className="legend-dot" style={{ background: '#10b981' }}></span> Collected</span>
-                            <strong style={{ color: 'var(--emerald)' }} title={formatCurrency(totalCollected)}>{formatCurrency(totalCollected)}</strong>
-                        </div>
-                        <div className="donut-legend-item">
-                            <span className="donut-legend-label" title="Pending Collection"><span className="legend-dot" style={{ background: '#94a3b8' }}></span> Pending</span>
-                            <strong title={formatCurrency(pendingCollection)}>{formatCurrency(pendingCollection)}</strong>
-                        </div>
-                    </div>
-                </div>
+                )}
 
                 {/* 2. Provider Cost vs Profit */}
-                {financial && <div className="dash-box donut-widget dashboard-summary-card carrier-value-card">
-                    <div className="dash-box-header">
-                        <h3>Carrier Cost & Value</h3>
-                        {chartSelector('margin', 'Carrier Cost & Value')}
+                {financial && (
+                    <div className="dash-box donut-widget dashboard-summary-card carrier-value-card">
+                        <div className="dash-box-header">
+                            <h3>Carrier Cost & Value</h3>
+                            {chartSelector('margin', 'Carrier Cost & Value')}
+                        </div>
+                        <div className="carrier-gst-toggle" role="group" aria-label="Carrier chart GST basis">
+                            <button type="button" aria-pressed={carrierGstMode === 'excl'} onClick={() => setCarrierGstMode('excl')}>Excl. GST</button>
+                            <button type="button" aria-pressed={carrierGstMode === 'incl'} onClick={() => setCarrierGstMode('incl')}>Incl. GST</button>
+                        </div>
+                        {chartTypes.margin === 'donut' ? (<div className="donut-chart-container">
+                            <svg viewBox="0 0 36 36" style={{ width: '84px', height: '84px' }}>
+                                <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="#dbe3ef" strokeWidth="4.2" strokeDasharray="100, 100" />
+                                <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="#10b981" strokeWidth="4.2" strokeDasharray={`${Math.min(100, Math.max(0, marginPercent))}, 100`} />
+                            </svg>
+                            <div className="donut-center-label" title={`Revenue: ${formatCurrency(carrierRevenue)} | Value ${carrierGstLabel}: ${formatCurrency(carrierValue)} (${marginPercent}%)`}>
+                                <strong style={{ color: 'var(--emerald)' }}>{marginPercent}%</strong>
+                                <small>Value / Revenue</small>
+                            </div>
+                        </div>) : <ChartVisualization title="Carrier Cost & Value" type={chartTypes.margin} data={[{ label: `Revenue (${carrierGstLabel})`, value: carrierRevenue, color: '#10b981' }, { label: 'Cost', value: providerCost, color: '#64748b' }, { label: `Value (${carrierGstLabel})`, value: carrierValue, color: '#10b981' }]} formatValue={formatCompactCurrency} />}
+                        <div className="donut-legend">
+                            <div className="donut-legend-item">
+                                <span className="donut-legend-label" title={`Revenue ${carrierGstLabel}`}><span className="legend-dot" style={{ background: '#10b981' }}></span> Revenue {carrierGstLabel}</span>
+                                <strong title={formatCurrency(carrierRevenue)}>{formatCurrency(carrierRevenue)}</strong>
+                            </div>
+                            <div className="donut-legend-item">
+                                <span className="donut-legend-label" title="Carrier Cost"><span className="legend-dot" style={{ background: '#64748b' }}></span> Carrier Cost</span>
+                                <strong title={formatCurrency(providerCost)}>{formatCurrency(providerCost)}</strong>
+                            </div>
+                            <div className="dashboard-value-summary">
+                                <span title="Carrier cost uses the recorded amount in both GST views.">Value after courier cost</span>
+                                <div><span>{carrierGstLabel}</span><strong>{formatCurrency(carrierValue)}</strong></div>
+                            </div>
+                        </div>
                     </div>
-                    <div className="carrier-gst-toggle" role="group" aria-label="Carrier chart GST basis">
-                        <button type="button" aria-pressed={carrierGstMode === 'excl'} onClick={() => setCarrierGstMode('excl')}>Excl. GST</button>
-                        <button type="button" aria-pressed={carrierGstMode === 'incl'} onClick={() => setCarrierGstMode('incl')}>Incl. GST</button>
-                    </div>
-                    {chartTypes.margin === 'donut' ? (<div className="donut-chart-container">
-                        <svg viewBox="0 0 36 36" style={{ width: '84px', height: '84px' }}>
-                            <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="#dbe3ef" strokeWidth="4.2" strokeDasharray="100, 100" />
-                            <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="#10b981" strokeWidth="4.2" strokeDasharray={`${Math.min(100, Math.max(0, marginPercent))}, 100`} />
-                        </svg>
-                        <div className="donut-center-label" title={`Revenue: ${formatCurrency(carrierRevenue)} | Value ${carrierGstLabel}: ${formatCurrency(carrierValue)} (${marginPercent}%)`}>
-                            <strong style={{ color: 'var(--emerald)' }}>{marginPercent}%</strong>
-                            <small>Value / Revenue</small>
-                        </div>
-                    </div>) : <ChartVisualization title="Carrier Cost & Value" type={chartTypes.margin} data={[{ label: `Revenue (${carrierGstLabel})`, value: carrierRevenue, color: '#10b981' }, { label: 'Cost', value: providerCost, color: '#64748b' }, { label: `Value (${carrierGstLabel})`, value: carrierValue, color: '#10b981' }]} formatValue={formatCompactCurrency} />}
-                    <div className="donut-legend">
-                        <div className="donut-legend-item">
-                            <span className="donut-legend-label" title={`Revenue ${carrierGstLabel}`}><span className="legend-dot" style={{ background: '#10b981' }}></span> Revenue {carrierGstLabel}</span>
-                            <strong title={formatCurrency(carrierRevenue)}>{formatCurrency(carrierRevenue)}</strong>
-                        </div>
-                        <div className="donut-legend-item">
-                            <span className="donut-legend-label" title="Carrier Cost"><span className="legend-dot" style={{ background: '#64748b' }}></span> Carrier Cost</span>
-                            <strong title={formatCurrency(providerCost)}>{formatCurrency(providerCost)}</strong>
-                        </div>
-                        <div className="dashboard-value-summary">
-                            <span title="Carrier cost uses the recorded amount in both GST views.">Value after courier cost</span>
-                            <div><span>{carrierGstLabel}</span><strong>{formatCurrency(carrierValue)}</strong></div>
-
-                        </div>
-                    </div>
-                </div>}
+                )}
 
                 {/* 3. B2B Outstanding Aging */}
-                <div className="dash-box donut-widget dashboard-summary-card">
-                    <div className="dash-box-header">
-                        <h3>B2B Outstanding Aging</h3>
-                        {chartSelector('aging', 'B2B Outstanding Aging')}
+                {canViewPrice && (
+                    <div className="dash-box donut-widget dashboard-summary-card">
+                        <div className="dash-box-header">
+                            <h3>B2B Outstanding Aging</h3>
+                            {chartSelector('aging', 'B2B Outstanding Aging')}
+                        </div>
+                        <div className="summary-chart-context">Outstanding by payment age</div>
+                        {chartTypes.aging === 'donut' ? (<div className="donut-chart-container">
+                            <svg viewBox="0 0 36 36" style={{ width: '84px', height: '84px' }}>
+                                <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="#dbe3ef" strokeWidth="4.2" strokeDasharray="100, 100" />
+                                <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="#10b981" strokeWidth="4.2" strokeDasharray={`${agingNotDuePercent}, 100`} />
+                                <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="#2563eb" strokeWidth="4" strokeDasharray={`${aging1To30Percent}, 100`} strokeDashoffset={-agingNotDuePercent} />
+                                <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="#f59e0b" strokeWidth="4" strokeDasharray={`${aging31To60Percent}, 100`} strokeDashoffset={-(agingNotDuePercent + aging1To30Percent)} />
+                            </svg>
+                            <div className="donut-center-label" title={`Total Outstanding: ${formatCurrency(b2bOutstanding)}`}>
+                                <strong style={{ fontSize: b2bOutstanding >= 100000 ? '12px' : '13px' }}>
+                                    {formatCompactCurrency(b2bOutstanding)}
+                                </strong>
+                                <small>Due</small>
+                            </div>
+                        </div>) : <ChartVisualization title="B2B Outstanding Aging" type={chartTypes.aging} data={[{ label: 'Not due', value: agingNotDue, color: '#10b981' }, { label: '1-30 days', value: aging1To30, color: '#2563eb' }, { label: '31-60 days', value: aging31To60, color: '#f59e0b' }]} formatValue={formatCompactCurrency} />}
+                        <div className="donut-legend">
+                            <div className="donut-legend-item">
+                                <span className="donut-legend-label" title="Not Due"><span className="legend-dot" style={{ background: '#10b981' }}></span> Not Due</span>
+                                <strong title={formatCurrency(agingNotDue)}>{formatCurrency(agingNotDue)}</strong>
+                            </div>
+                            <div className="donut-legend-item">
+                                <span className="donut-legend-label" title="1 - 30 Days Overdue"><span className="legend-dot" style={{ background: '#2563eb' }}></span> 1 - 30 Days</span>
+                                <strong title={formatCurrency(aging1To30)}>{formatCurrency(aging1To30)}</strong>
+                            </div>
+                            <div className="donut-legend-item">
+                                <span className="donut-legend-label" title="31 - 60 Days Overdue"><span className="legend-dot" style={{ background: '#f59e0b' }}></span> 31 - 60 Days</span>
+                                <strong title={formatCurrency(aging31To60)}>{formatCurrency(aging31To60)}</strong>
+                            </div>
+                        </div>
                     </div>
-                    <div className="summary-chart-context">Outstanding by payment age</div>
-                    {chartTypes.aging === 'donut' ? (<div className="donut-chart-container">
-                        <svg viewBox="0 0 36 36" style={{ width: '84px', height: '84px' }}>
-                            <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="#dbe3ef" strokeWidth="4" strokeDasharray="100, 100" />
-                            <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="#10b981" strokeWidth="4" strokeDasharray={`${agingNotDuePercent}, 100`} />
-                            <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="#2563eb" strokeWidth="4" strokeDasharray={`${aging1To30Percent}, 100`} strokeDashoffset={-agingNotDuePercent} />
-                            <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="#f59e0b" strokeWidth="4" strokeDasharray={`${aging31To60Percent}, 100`} strokeDashoffset={-(agingNotDuePercent + aging1To30Percent)} />
-                        </svg>
-                        <div className="donut-center-label" title={`Total Outstanding: ${formatCurrency(b2bOutstanding)}`}>
-                            <strong style={{ fontSize: b2bOutstanding >= 100000 ? '12px' : '13px' }}>
-                                {formatCompactCurrency(b2bOutstanding)}
-                            </strong>
-                            <small>Due</small>
-                        </div>
-                    </div>) : <ChartVisualization title="B2B Outstanding Aging" type={chartTypes.aging} data={[{ label: 'Not due', value: agingNotDue, color: '#10b981' }, { label: '1-30 days', value: aging1To30, color: '#2563eb' }, { label: '31-60 days', value: aging31To60, color: '#f59e0b' }]} formatValue={formatCompactCurrency} />}
-                    <div className="donut-legend">
-                        <div className="donut-legend-item">
-                            <span className="donut-legend-label" title="Not Due"><span className="legend-dot" style={{ background: '#10b981' }}></span> Not Due</span>
-                            <strong title={formatCurrency(agingNotDue)}>{formatCurrency(agingNotDue)}</strong>
-                        </div>
-                        <div className="donut-legend-item">
-                            <span className="donut-legend-label" title="1 - 30 Days Overdue"><span className="legend-dot" style={{ background: '#2563eb' }}></span> 1 - 30 Days</span>
-                            <strong title={formatCurrency(aging1To30)}>{formatCurrency(aging1To30)}</strong>
-                        </div>
-                        <div className="donut-legend-item">
-                            <span className="donut-legend-label" title="31 - 60 Days Overdue"><span className="legend-dot" style={{ background: '#f59e0b' }}></span> 31 - 60 Days</span>
-                            <strong title={formatCurrency(aging31To60)}>{formatCurrency(aging31To60)}</strong>
-                        </div>
-                    </div>
-                </div>
+                )}
 
                 {/* 4. Top Follow-ups Due */}
                 <div className="dash-box dashboard-summary-card followups-summary-card">

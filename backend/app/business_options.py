@@ -33,10 +33,25 @@ def validate_business_options(payload):
         if not isinstance(values, list) or not 1 <= len(values) <= 100 or any(not isinstance(v, str) or not v.strip() or len(v.strip()) > 100 for v in values):
             raise HTTPException(400, 'Enter 1-100 services, each with a name of up to 100 characters')
         result['serviceTypes'] = list(dict.fromkeys(v.strip() for v in values))
+    if 'couriers' in result:
+        values = result['couriers']
+        if not isinstance(values, list) or not 1 <= len(values) <= 100 or any(not isinstance(v, str) or not v.strip() or len(v.strip()) > 100 for v in values):
+            raise HTTPException(400, 'Enter 1-100 couriers, each with a name of up to 100 characters')
+        result['couriers'] = list(dict.fromkeys(v.strip() for v in values))
+    if 'centers' in result:
+        values = result['centers']
+        if not isinstance(values, list) or not 1 <= len(values) <= 100 or any(not isinstance(v, str) or not v.strip() or len(v.strip()) > 100 for v in values):
+            raise HTTPException(400, 'Enter 1-100 business centers, each with a name of up to 100 characters')
+        result['centers'] = list(dict.fromkeys(v.strip() for v in values))
     if 'paymentMethods' in result:
         supported = {'UPI','PhonePe','Google Pay','Office QR','Cash','Bank Transfer','Cheque','Card','Other'}
         methods = result['paymentMethods']
         if not isinstance(methods, list) or not methods or any(not isinstance(v, str) or v not in supported for v in methods):
             raise HTTPException(400, 'Select at least one supported payment method')
         result['paymentMethods'] = list(dict.fromkeys(methods))
+    if 'courierLogos' in result:
+        logos = result['courierLogos']
+        if not isinstance(logos, dict):
+            raise HTTPException(400, 'courierLogos must be an object')
+        result['courierLogos'] = {str(k).strip(): str(v).strip() for k, v in logos.items() if str(k).strip() and str(v).strip()}
     return result

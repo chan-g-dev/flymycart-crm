@@ -67,6 +67,8 @@ def log_invoice_audit(db: Session, user_name: str, inv_id: str, action: str, bef
     except Exception as e:
         print(f"Invoice audit error: {e}")
 
+from app.access_policy import can_view_customer_price
+
 @invoices_router.get("", response_model=List[InvoiceOut])
 @invoices_router.get("/", response_model=List[InvoiceOut])
 def get_invoices(
@@ -95,7 +97,12 @@ def get_invoices(
         )
     query = query.order_by(desc(Invoice.created_at), Invoice.id)
     response.headers["X-Total-Count"] = str(query.count())
-    return query.limit(limit).offset(offset).all()
+    invoices = query.limit(limit).offset(offset).all()
+    out = [InvoiceOut.model_validate(inv) for inv in invoices]
+    if not can_view_customer_price(ctx):
+        for inv_out in out:
+            inv_out.amount = inv_out.gst = inv_out.total = inv_out.paid = inv_out.balance = None
+    return out
 
 @invoices_router.get("/{invoice_id}", response_model=InvoiceOut)
 def get_invoice(
@@ -106,7 +113,10 @@ def get_invoice(
     inv = db.query(Invoice).filter((Invoice.id == invoice_id) | (Invoice.invoice_no == invoice_id)).first()
     if not inv:
         raise HTTPException(status_code=404, detail="Invoice not found")
-    return inv
+    inv_out = InvoiceOut.model_validate(inv)
+    if not can_view_customer_price(ctx):
+        inv_out.amount = inv_out.gst = inv_out.total = inv_out.paid = inv_out.balance = None
+    return inv_out
 
 @invoices_router.post("/{invoice_id}/payments")
 def record_invoice_payment(

@@ -18,6 +18,7 @@ from app.routers.refunds import refunds_router
 from app.routers.followups import followups_router
 from app.routers.reports import reports_router
 from app.routers.settings import settings_router
+from app.routers.attendance import attendance_router
 
 __all__ = [
     "auth_router",
@@ -35,5 +36,6 @@ __all__ = [
     "refunds_router",
     "followups_router",
     "reports_router",
-    "settings_router"
+    "settings_router",
+    "attendance_router"
 ]

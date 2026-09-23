@@ -1,4 +1,5 @@
-﻿import RolePermissionEditor from './RolePermissionEditor';
+import { LoadingSpinner } from './LoadingSpinner';
+import RolePermissionEditor from './RolePermissionEditor';
 import { useAuth } from '../context/authSession';
 import React, { useEffect, useState } from 'react';
 import { ShieldCheck, ChevronDown } from 'lucide-react';
@@ -6,7 +7,7 @@ import { apiClient } from '../api/client';
 import './UserAccessEditor.css';
 const roleNames = ['SUPER_ADMIN', 'Manager', 'Team Leader', 'Counter Staff', 'Operations Executive'];
 const readable = value => value.replaceAll('_', ' ').replace(/\b\w/g, c => c.toUpperCase());
-const moduleName = value => ({ b2b: 'B2B & Credit', costs: 'Courier Costs', dashboards: 'Dashboard', followups: 'Follow-ups', users: 'Users & Access' }[value] || readable(value));
+const moduleName = value => ({ attendance: 'Attendance & Timings', b2b: 'B2B & Credit', costs: 'Courier Costs', dashboards: 'Dashboard', followups: 'Follow-ups', users: 'Users & Access' }[value] || readable(value));
 const scopeName = value => ({ all: 'All centers', center: 'Assigned centers', own: 'Own center' }[value] || value);
 export default function RoleAccessMatrix() {
     const { currentUser } = useAuth();
@@ -26,7 +27,7 @@ export default function RoleAccessMatrix() {
     }, [revision]);
     if (editing) return <RolePermissionEditor role={editing} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); setRevision(n => n + 1); setMessage('Role permissions saved. Individual overrides are unchanged.'); }} />;
     return <section className="role-overview"><header><h3>Company role defaults</h3><p>Explore what each role can access. Personal overrides are managed in Individual Permissions.</p></header>
-        {message && <p role="status">{message}</p>}{error && <p role="alert">{error}</p>}{loading && <p>Loading roles...</p>}
+        {message && <p role="status">{message}</p>}{error && <p role="alert">{error}</p>}{loading && <LoadingSpinner text="Loading roles..." />}
         <div className="role-overview-list">{roles.map(role => {
             const groups = {};
             for (const permission of role.permissions) {

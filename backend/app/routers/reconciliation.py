@@ -13,10 +13,10 @@ from app.cache import cache_engine
 from typing import List, Dict, Any, Optional
 from fastapi import APIRouter, Depends, HTTPException, Request, File, UploadFile, Form, Query, Response
 from sqlalchemy.orm import Session, joinedload
-from sqlalchemy import desc, func, or_
+from sqlalchemy import desc, func, or_, case
 
 from app.database import get_db
-from app.models import Shipment, ReconciliationBatch, ReconciliationItem, AuditLog
+from app.models import Shipment, ReconciliationBatch, ReconciliationItem, AuditLog, AccountingEntry
 from app.schemas import ReconciliationProcessRequest, ReconciliationBatchOut
 from app.finance_engine import calculate_gross_profit, match_provider_bill_entries
 from app.auth import create_audit_log
@@ -212,12 +212,28 @@ def apply_reconciliation(
     )
     db.add(rec_batch)
 
+    provider_payments = float(db.query(func.sum(AccountingEntry.amount)).filter(
+        AccountingEntry.kind == 'provider_payment',
+        or_(func.lower(AccountingEntry.provider) == provider_clean, func.lower(AccountingEntry.provider) == payload.get("provider", "").lower().strip())
+    ).scalar() or 0)
+    existing_reconciled = float(db.query(func.sum(case((Shipment.cost_reconciled.is_(True), Shipment.actual_provider_cost), else_=0))).filter(
+        or_(func.lower(Shipment.provider_name) == provider_clean, func.lower(Shipment.courier) == provider_clean),
+        Shipment.provider_type == "postpaid"
+    ).scalar() or 0)
+    # A corrected bill replaces costs already included in the provider total.
+    replaced_total = sum(float(ship.actual_provider_cost or 0) for ship, _ in verified_items
+                         if ship.provider_type == "postpaid" and ship.cost_reconciled)
+    new_postpaid_total = sum(cost for ship, cost in verified_items if ship.provider_type == "postpaid")
+    total_reconciled_with_batch = round(existing_reconciled - replaced_total + new_postpaid_total, 2)
+    is_fully_paid = (provider_payments >= total_reconciled_with_batch) and (total_reconciled_with_batch > 0)
+
     for ship, act_cost in verified_items:
         awb = ship.awb
 
         if ship:
             ship.actual_provider_cost = act_cost
             ship.cost_reconciled = True
+            ship.carrier_payment_status = "Paid" if (ship.provider_type == "prepaid" or is_fully_paid) else "Reconciled"
             ship.gross_profit = calculate_gross_profit(
                 selling_price=ship.price,
                 provider_cost=ship.provider_cost,

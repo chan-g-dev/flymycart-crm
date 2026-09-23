@@ -1,4 +1,4 @@
-from app.access_policy import can_view_costs
+from app.access_policy import can_view_costs, can_view_values, can_view_customer_price
 """Accounts workspace reporting and private expense-bill attachments."""
 import datetime as dt
 import uuid
@@ -55,7 +55,7 @@ def update_expense_categories(payload: ExpenseCategoriesUpdate, ctx=Depends(requ
 
 
 def financial_access(ctx):
-    return bool(ctx.get('is_super_admin') or ctx.get('permissions', {}).get('*') or ctx.get('permissions', {}).get('reports.view_financial'))
+    return can_view_costs(ctx)
 
 def money(value):
     return round(float(value or 0), 2)
@@ -161,16 +161,29 @@ def get_workspace_overview(date_from: dt.date | None = None, date_to: dt.date | 
                 bank[account] -= float(refund.amount or 0)
     refunds = refund_query(db, center)
     refunds = window(refunds, Refund.request_date, date_from, date_to)
+    price_visible = can_view_customer_price(ctx)
+    profit_visible = price_visible and financial and can_view_values(ctx)
+    for summary in (totals, previous):
+        if summary is None:
+            continue
+        if not price_visible:
+            for key in ('sales', 'gross_sales', 'collected', 'refunds'):
+                summary[key] = None
+        if not profit_visible:
+            summary['net'] = summary['net_with_gst'] = None
+    if not price_visible:
+        pending = b2b = None
+        by_mode = {}
     return {
         'totals': {**totals, 'pending': pending, 'b2b': b2b}, 'previous': previous,
         'financial_access': financial, 'by_mode': by_mode, 'by_category': by_category, 'by_partner': by_partner,
         'accounts': sorted(accounts),
-        'bank_accounts': [{'name': name, 'recorded_balance': money(bank[name])} for name in sorted(accounts)] if financial else [],
+        'bank_accounts': [{'name': name, 'recorded_balance': money(bank[name])} for name in sorted(accounts)] if financial and price_visible else [],
         'expense_categories': sorted(set(config.get('expenseCategories', [])) | {name or 'General' for (name,) in entry_query(db, center).filter(AccountingEntry.kind == 'expense').with_entities(AccountingEntry.category).distinct()}),
         'couriers': sorted(name for (name,) in ships.with_entities(Shipment.courier).distinct() if name),
         'transfer_count': entries.filter(AccountingEntry.kind == 'transfer').count() if financial else None,
         'refund_count': refunds.filter(Refund.status != 'Rejected').count(),
-        'refund_amount': money(refunds.filter(Refund.status == 'Refunded').with_entities(func.coalesce(func.sum(Refund.amount), 0)).scalar()),
+        'refund_amount': money(refunds.filter(Refund.status == 'Refunded').with_entities(func.coalesce(func.sum(Refund.amount), 0)).scalar()) if price_visible else None,
         'shipment_count': ships.count(),
     }
 
@@ -192,19 +205,46 @@ def get_shipment_ledger(date_from: dt.date | None = None, date_to: dt.date | Non
     rows = query.order_by(Shipment.date.desc(), Shipment.created_at.desc(), Shipment.id).offset(offset).limit(limit).all()
     ids = [s.id for s in rows]
     expenses = dict(db.query(AccountingEntry.shipment_id, func.sum(AccountingEntry.amount)).filter(AccountingEntry.kind == 'expense', AccountingEntry.shipment_id.in_(ids)).group_by(AccountingEntry.shipment_id)) if financial and ids else {}
+    can_view_price = can_view_customer_price(ctx)
+    can_view_cost = can_view_costs(ctx)
+    can_view_profit = can_view_values(ctx) and can_view_cost and can_view_price
+    reconciled_totals = dict(
+        db.query(func.lower(Shipment.provider_name), func.sum(case((Shipment.cost_reconciled.is_(True), func.coalesce(Shipment.actual_provider_cost, Shipment.provider_cost)), else_=Shipment.provider_cost)))
+        .filter(Shipment.provider_type == "postpaid")
+        .group_by(func.lower(Shipment.provider_name))
+        .all()
+    )
+    provider_payments = dict(
+        db.query(func.lower(AccountingEntry.provider), func.sum(AccountingEntry.amount))
+        .filter(AccountingEntry.kind == 'provider_payment', AccountingEntry.provider.isnot(None))
+        .group_by(func.lower(AccountingEntry.provider))
+        .all()
+    )
     result = []
     for s in rows:
         cost = s.actual_provider_cost if s.cost_reconciled and s.actual_provider_cost is not None else s.provider_cost
         expense = money(expenses.get(s.id, 0))
         gross_sale = money(s.total_amount if s.total_amount is not None else money(s.price) + money(s.gst_amount))
+        p_name = (s.provider_name or s.courier or '').lower().strip()
+        p_reconciled = float(reconciled_totals.get(p_name, 0) or 0)
+        p_paid = float(provider_payments.get(p_name, 0) or 0)
+        is_carrier_settled = (p_paid >= p_reconciled) and (p_reconciled > 0)
+
+        if s.provider_type == 'prepaid':
+            courier_status = 'Paid'
+        elif is_carrier_settled or getattr(s, 'carrier_payment_status', None) == 'Paid':
+            courier_status = 'Paid'
+        elif not s.cost_reconciled:
+            courier_status = 'Pending'
+        else:
+            courier_status = 'Reconciled'
         result.append({'id': s.id, 'date': s.date, 'awb': s.awb, 'courier': s.courier, 'customer_name': s.customer_name,
             'customer_id': s.customer_id, 'destination': s.receiver_country or s.receiver_city,
-            'sale': money(s.price), 'gross_sale': gross_sale, 'cost': money(cost) if can_view_costs(ctx) else None, 'expense': expense if financial else None,
-            'value': money(money(s.price) - money(cost) - expense) if financial else None,
-            'value_with_gst': money(gross_sale - money(cost) - expense) if financial else None,
+            'sale': money(s.price) if can_view_price else None, 'gross_sale': gross_sale if can_view_price else None, 'cost': money(cost) if can_view_cost else None, 'expense': expense if can_view_cost else None,
+            'value': money(money(s.price) - money(cost) - expense) if can_view_profit else None,
+            'value_with_gst': money(gross_sale - money(cost) - expense) if can_view_profit else None,
             'payment_mode': s.payment_method, 'collection_status': s.payment_status,
-            # Payouts are provider-level; do not pretend they are allocated to individual AWBs.
-            'courier_status': ('Paid' if s.provider_type == 'prepaid' else 'Pending')})
+            'courier_status': courier_status})
     return {'items': result, 'total_count': count}
 
 @workspace_router.get('/entries')

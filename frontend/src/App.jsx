@@ -1,38 +1,40 @@
-import RefundPayoutModal from './components/RefundPayoutModal';
-import { businessDate } from './utils/businessDates';
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { LoadingSpinner } from './components/LoadingSpinner';
+import React, { useState, useEffect, useMemo, useCallback, useRef, lazy, Suspense } from 'react';
 import { useAuth } from './context/authSession';
 import { apiClient } from './api/client';
 
 import Sidebar from './components/Sidebar';
 import Topbar from './components/Topbar';
-import CustomerDrawer from './components/CustomerDrawer';
-import ShipmentModal from './components/ShipmentModal';
-import CustomerModal from './components/CustomerModal';
-import InvoiceModal from './components/InvoiceModal';
-import ReconciliationModal from './components/ReconciliationModal';
-import {
-    WalletRechargeModal,
-    RefundModal,
-    CommunicationModal,
-    B2BCompanyModal,
-    ShipmentStatusModal
-} from './components/ActionModals';
+const RefundPayoutModal = lazy(() => import('./components/RefundPayoutModal'));
+const CustomerDrawer = lazy(() => import('./components/CustomerDrawer'));
+const ShipmentModal = lazy(() => import('./components/ShipmentModal'));
+const CustomerModal = lazy(() => import('./components/CustomerModal'));
+const InvoiceModal = lazy(() => import('./components/InvoiceModal'));
+const ReconciliationModal = lazy(() => import('./components/ReconciliationModal'));
+const WalletRechargeModal = lazy(() => import('./components/ActionModals').then(module => ({ default: module.WalletRechargeModal })));
+const RefundModal = lazy(() => import('./components/ActionModals').then(module => ({ default: module.RefundModal })));
+const CommunicationModal = lazy(() => import('./components/ActionModals').then(module => ({ default: module.CommunicationModal })));
+const B2BCompanyModal = lazy(() => import('./components/ActionModals').then(module => ({ default: module.B2BCompanyModal })));
+const ShipmentStatusModal = lazy(() => import('./components/ActionModals').then(module => ({ default: module.ShipmentStatusModal })));
 
-import { Dashboard } from './pages/Dashboard';
-import { Customers, Shipments } from './pages/CustomersAndShipments';
-import { Invoices, Accounts, B2B } from './pages/InvoicesAccountsB2B';
-import { Refunds } from './pages/Refunds';
-import { Followups } from './pages/Followups';
-import { Reports } from './pages/Reports';
-import { Settings } from './pages/Settings';
-import { Users } from './pages/UsersSection';
+const Dashboard = lazy(() => import('./pages/Dashboard').then(module => ({ default: module.Dashboard })));
+const Customers = lazy(() => import('./pages/CustomersAndShipments').then(module => ({ default: module.Customers })));
+const Shipments = lazy(() => import('./pages/CustomersAndShipments').then(module => ({ default: module.Shipments })));
+const Invoices = lazy(() => import('./pages/InvoicesAccountsB2B').then(module => ({ default: module.Invoices })));
+const Accounts = lazy(() => import('./pages/InvoicesAccountsB2B').then(module => ({ default: module.Accounts })));
+const B2B = lazy(() => import('./pages/InvoicesAccountsB2B').then(module => ({ default: module.B2B })));
+const Refunds = lazy(() => import('./pages/Refunds').then(module => ({ default: module.Refunds })));
+const Followups = lazy(() => import('./pages/Followups').then(module => ({ default: module.Followups })));
+const Reports = lazy(() => import('./pages/Reports').then(module => ({ default: module.Reports })));
+const Attendance = lazy(() => import('./pages/Attendance').then(module => ({ default: module.Attendance })));
+const Settings = lazy(() => import('./pages/Settings').then(module => ({ default: module.Settings })));
+const Users = lazy(() => import('./pages/UsersSection').then(module => ({ default: module.Users })));
 import { AuthPage } from './components/AuthPage';
 import { getCurrentPath, navigate } from './utils/navigation';
 
 const VALID_PAGES = [
     'dashboard', 'customers', 'shipments', 'invoices',
-    'accounts', 'b2b', 'refunds', 'followups', 'reports', 'users', 'settings'
+    'accounts', 'b2b', 'refunds', 'followups', 'reports', 'attendance', 'users', 'settings'
 ];
 
 const getInitialPage = () => {
@@ -51,7 +53,7 @@ const getInitialPage = () => {
 };
 
 const loadCached = (_key, fallback) => fallback;
-const setCached = () => {};
+
 
 export function App() {
     const { isAuthenticated, isPendingApproval, isRejected, isSuspended, logout, authLoading, currentUser } = useAuth();
@@ -174,95 +176,93 @@ export function App() {
         }
     }, [isAuthenticated, currentUser, authLoading]);
 
-    // Load CRM data on demand (initial load, explicit refresh, or completed mutation).
-    const refreshAll = async (silent = false) => {
+    const loadGeneration = useRef(0);
+    const [loadError, setLoadError] = useState('');
+    const loadPage = useCallback(async (silent = false) => {
+        const generation = ++loadGeneration.current;
         if (!silent) setIsLoading(true);
-        try {
-            // Phase 1: Critical UI Path (Dashboard + Shipments + Customers + Settings + Pending Counts)
-            const [dash, custs, ships, setts, pCount] = await Promise.all([
-                apiClient.getDashboardSummary().catch(() => null),
-                apiClient.getCustomers().catch(() => []),
-                apiClient.getShipments().catch(() => []),
-                apiClient.getSettings().catch(() => null),
-                apiClient.getPendingStaffCount().catch(() => ({ pending_count: 0 }))
-            ]);
-
-            if (dash) {
-                setDashboardData(dash);
-                setCached('dashboard', dash);
-            }
-            if (Array.isArray(custs)) { setCustomers(custs); setCached('customers', custs); }
-            if (Array.isArray(ships)) { setShipments(ships); setCached('shipments', ships); }
-            if (setts) { setSettings(setts); setCached('settings', setts); }
-            setPendingStaffCount(pCount?.pending_count || 0);
-
-            // Phase 2: Asynchronous secondary stream in background
-            await Promise.all([
-                apiClient.getInvoices().catch(() => []),
-                apiClient.getAccountsSummary().catch(() => null),
-                apiClient.getReconciliationBatches().catch(() => []),
-                apiClient.getB2BSummary().catch(() => null),
-                apiClient.getRefunds().catch(() => []),
-                apiClient.getFollowups().catch(() => [])
-            ]).then(([invs, acc, recons, b2b, refs, fus]) => {
-                if (Array.isArray(invs)) { setInvoices(invs); setCached('invoices', invs); }
-                if (acc) { setAccountsData(acc); setCached('accounts', acc); }
-                if (Array.isArray(recons)) { setReconciliations(recons); setCached('reconciliations', recons); }
-                if (b2b) {
-                    setB2BData(b2b);
-                    setCached('b2b', b2b);
-                } else {
-                    setB2BData(prev => prev || {
-                        total_credit_sales: 0,
-                        collected: 0,
-                        outstanding: 0,
-                        due_this_week: 0,
-                        overdue: 0,
-                        aging: { not_due: 0, days1_30: 0, days31_60: 0, days61_90: 0, days90_plus: 0, total_outstanding: 0, overdue_total: 0 },
-                        companies: []
-                    });
+        setLoadError('');
+        const resources = {
+            dashboard: [apiClient.getDashboardSummary, setDashboardData],
+            customers: [apiClient.getCustomers, setCustomers],
+            shipments: [apiClient.getShipments, setShipments],
+            invoices: [apiClient.getInvoices, setInvoices],
+            accounts: [apiClient.getAccountsSummary, setAccountsData],
+            reconciliations: [apiClient.getReconciliationBatches, setReconciliations],
+            b2b: [apiClient.getB2BSummary, setB2BData],
+            refunds: [apiClient.getRefunds, setRefunds],
+            followups: [apiClient.getFollowups, setFollowups],
+            settings: [apiClient.getSettings, value => {
+                setSettings(value);
+                window.__FMC_SETTINGS__ = value;
+                if (value?.courierLogos) {
+                    try { localStorage.setItem('fmc_courier_logos', JSON.stringify(value.courierLogos)); } catch {}
                 }
-                if (Array.isArray(refs)) { setRefunds(refs); setCached('refunds', refs); }
-                if (Array.isArray(fus)) { setFollowups(fus); setCached('followups', fus); }
-            }).catch(console.error);
+            }],
+        };
+        const pages = {
+            dashboard: ['accounts', 'b2b', 'followups', ...(selectedCenter && selectedCenter !== 'All Centers' ? ['customers'] : [])],
+            customers: ['customers'],
+            shipments: ['shipments', 'invoices'],
+            invoices: ['invoices', 'shipments', 'customers'],
+            accounts: ['accounts', 'reconciliations', 'b2b', 'refunds', 'shipments', 'invoices', 'customers'],
+            b2b: ['b2b', 'shipments'],
+            refunds: ['refunds', 'shipments'],
+            followups: ['followups', 'customers'],
+        };
+        await Promise.all(['dashboard', 'settings', ...(pages[currentPage] || [])].map(async key => {
+            try {
+                const [fetch, publish] = resources[key];
+                const value = await fetch();
+                if (generation === loadGeneration.current) publish(value);
+            } catch (error) {
+                if (generation === loadGeneration.current && error.response?.status !== 403) {
+                    setLoadError('Some data could not be loaded. Please retry.');
+                }
+            }
+        }));
+        if (generation === loadGeneration.current) setIsLoading(false);
+    }, [currentPage, selectedCenter]);
 
-        } catch (err) {
-            console.error('Error fetching CRM data:', err);
-        } finally {
-            if (!silent) setIsLoading(false);
+    const refreshAll = async (silent = false) => {
+        await loadPage(silent === true);
+        if (isDrawerOpen && drawerData?.customer?.id) {
+            const customerId = drawerData.customer.id;
+            const profile = await apiClient.getCustomer360(customerId);
+            setDrawerData(current => current?.customer?.id === customerId ? profile : current);
         }
     };
 
-    // Perform one initial data load after authentication. No polling or automatic syncing.
     useEffect(() => {
-        if (!isAuthenticated) return;
-        refreshAll(false);
-    }, [isAuthenticated, currentUser?.roleId]);
+        setDashboardData(null);
+        setCustomers([]);
+        setShipments([]);
+        setInvoices([]);
+        setAccountsData(null);
+        setReconciliations([]);
+        setB2BData(null);
+        setRefunds([]);
+        setFollowups([]);
+        setSettings(null);
+        setDrawerData(null);
+        setPreviewInvoice(null);
+        setPendingStaffCount(0);
+    }, [currentUser?.id, currentUser?.roleId]);
 
-    // Eagerly hydrate B2B data when switching to B2B page if not already populated
     useEffect(() => {
-        if (isAuthenticated && currentPage === 'b2b' && !b2bData) {
-            apiClient.getB2BSummary()
-                .then(res => {
-                    if (res) {
-                        setB2BData(res);
-                        setCached('b2b', res);
-                    }
-                })
-                .catch(err => {
-                    console.warn('[B2B Hydration] Using safe fallback state:', err);
-                    setB2BData(prev => prev || {
-                        total_credit_sales: 0,
-                        collected: 0,
-                        outstanding: 0,
-                        due_this_week: 0,
-                        overdue: 0,
-                        aging: { not_due: 0, days1_30: 0, days31_60: 0, days61_90: 0, days90_plus: 0, total_outstanding: 0, overdue_total: 0 },
-                        companies: []
-                    });
-                });
-        }
-    }, [isAuthenticated, currentPage, b2bData]);
+        if (!isAuthenticated || authLoading) return;
+        loadPage();
+        return () => { ++loadGeneration.current; };
+    }, [isAuthenticated, authLoading, currentUser?.id, currentUser?.roleId, loadPage]);
+
+    useEffect(() => {
+        if (!isAuthenticated || authLoading) return;
+        let active = true;
+        apiClient.getPendingStaffCount().then(value => {
+            if (active) setPendingStaffCount(value?.pending_count || 0);
+        }).catch(() => {});
+        return () => { active = false; };
+    }, [isAuthenticated, authLoading, currentUser?.id, currentUser?.roleId]);
 
     const handleLoginSuccess = async () => {
         navigate('/dashboard');
@@ -275,7 +275,6 @@ export function App() {
         const center = localStorage.getItem('fmc_user_center') || 'Main Hub (Bangalore)';
         setWelcomeGreeting({ name, role, center });
         showToast(`Welcome back, ${name}! Logged in successfully.`, 'success');
-        await refreshAll(false);
     };
 
     // Navigation and subnavigation handlers
@@ -408,7 +407,7 @@ export function App() {
     const filteredFollowups = useMemo(() => {
         if (!selectedCenter || selectedCenter === 'All Centers') return followups;
         return followups.filter(f => {
-            const cust = customers.find(c => c.id === f.customer_id || c.name === f.customer_name);
+            const cust = customers.find(c => c.id === f.customer_id || c.name === (f.customer_name || f.customer));
             return cust ? matchesCenter(cust.center) : true;
         });
     }, [followups, customers, selectedCenter, matchesCenter]);
@@ -425,29 +424,18 @@ export function App() {
         if (!dashboardData) return null;
         if (!selectedCenter || selectedCenter === 'All Centers') return dashboardData;
 
-        const todayStr = businessDate();
-        const todayCenterShips = filteredShipments.filter(s => s.date === todayStr);
-        const todaySales = todayCenterShips.reduce((acc, s) => acc + (s.price || 0), 0);
-        const todayCollected = todayCenterShips.reduce((acc, s) => {
-            if (s.payment_status === 'Paid') return acc + (s.price || 0);
-            if (s.payment_status === 'Partial') return acc + filteredInvoices.filter(inv => inv.shipment_id === s.id).reduce((total, inv) => total + (inv.paid || 0), 0);
-            return acc;
-        }, 0);
-        const centerB2BOutstanding = filteredShipments
-            .filter(s => s.customer_type === 'B2B' && s.payment_status !== 'Paid')
-            .reduce((acc, s) => acc + Math.max(0, filteredInvoices.filter(inv => inv.shipment_id === s.id).reduce((total, inv) => total + (inv.balance || 0), 0)), 0);
-
+        const summary = dashboardData.center_summaries?.[selectedCenter];
         return {
             ...dashboardData,
-            ...(dashboardData.center_summaries?.[selectedCenter] || {}),
-            today_shipments_count: dashboardData.center_summaries?.[selectedCenter]?.today_shipments_count ?? todayCenterShips.length,
-            today_sales: dashboardData.center_summaries?.[selectedCenter]?.today_sales ?? todaySales,
-            today_collected: dashboardData.collections_by_center?.[selectedCenter] || 0,
-            pending_collection: Math.max(0, todaySales - todayCollected),
-            b2b_outstanding: centerB2BOutstanding,
-            recent_shipments: filteredShipments.slice(0, 10)
+            ...summary,
+            today_shipments_count: summary?.today_shipments_count ?? 0,
+            today_sales: summary?.today_sales ?? 0,
+            today_collected: dashboardData.collections_by_center?.[selectedCenter] ?? 0,
+            pending_collection: summary?.pending_collection ?? 0,
+            b2b_outstanding: summary?.b2b_outstanding ?? 0,
+            recent_shipments: (dashboardData.recent_shipments || []).filter(s => matchesCenter(s.center))
         };
-    }, [dashboardData, filteredShipments, filteredInvoices, selectedCenter]);
+    }, [dashboardData, selectedCenter, matchesCenter]);
 
     const filteredAccountsData = useMemo(() => {
         if (!accountsData) return null;
@@ -464,8 +452,8 @@ export function App() {
             ...accountsData,
             total_sales: dashboardData?.center_summaries?.[selectedCenter]?.total_sales ?? totalSales,
             total_sales_with_gst: dashboardData?.center_summaries?.[selectedCenter]?.total_sales_with_gst ?? filteredShipments.reduce((sum, s) => sum + Number(s.total_amount ?? (Number(s.price || 0) + Number(s.gst_amount || 0))), 0),
-            total_collected: totalCollected,
-            pending_collection: Math.max(0, totalSales - totalCollected),
+            total_collected: dashboardData?.center_summaries?.[selectedCenter]?.total_collected ?? totalCollected,
+            pending_collection: Math.max(0, (dashboardData?.center_summaries?.[selectedCenter]?.total_sales_with_gst ?? totalSales) - (dashboardData?.center_summaries?.[selectedCenter]?.total_collected ?? totalCollected)),
             recent_invoices: filteredInvoices.slice(0, 10)
         };
     }, [accountsData, dashboardData, filteredShipments, filteredInvoices, selectedCenter]);
@@ -481,10 +469,12 @@ export function App() {
 
         return {
             ...b2bData,
-            total_outstanding: totalOutstanding,
+            total_outstanding: dashboardData?.center_summaries?.[selectedCenter]?.b2b_outstanding ?? totalOutstanding,
             recent_shipments: centerB2BShips.slice(0, 10)
         };
-    }, [b2bData, filteredShipments, selectedCenter]);
+    }, [b2bData, dashboardData, filteredShipments, selectedCenter]);
+
+    if (authLoading) return <LoadingSpinner size="lg" text="Loading your workspace..." />;
 
     if (!isAuthenticated || !currentUser) {
         return (
@@ -560,11 +550,14 @@ export function App() {
                     onSelectCenter={setSelectedCenter}
                 />
 
-                <main className="page-content">
+                <main className="page-content" aria-busy={isLoading}>
+                    {isLoading && <div className="fmc-page-loading"><LoadingSpinner inline size="sm" text="Loading records..." /></div>}
+                    {loadError && <div role="alert">{loadError} <button className="btn btn-outline" onClick={() => loadPage()}>Retry</button></div>}
+                    <Suspense fallback={<LoadingSpinner size="lg" text="Loading screen..." />}>
                     {currentPage === 'dashboard' && (
                         <Dashboard
                             data={filteredDashboardData}
-                            shipments={filteredShipments}
+                            shipments={dashboardData?.recent_shipments}
                             accountsData={filteredAccountsData}
                             b2bData={filteredB2BData}
                             followups={filteredFollowups}
@@ -587,16 +580,13 @@ export function App() {
                             onOpenCustomerDrawer={handleOpenCustomerDrawer}
                             onDeleteCustomer={handleDeleteCustomer}
                             isLoading={isLoading}
-                            onSearch={async (s, t) => {
-                                const res = await apiClient.getCustomers({ search: s, customer_type: t });
-                                setCustomers(res);
-                            }}
                         />
                     )}
 
                     {currentPage === 'shipments' && (
                         <Shipments
                             shipments={filteredShipments}
+                            invoices={invoices}
                             settings={settings}
                             selectedCenter={selectedCenter}
                             onOpenShipmentModal={() => setIsShipmentModalOpen(true)}
@@ -608,10 +598,6 @@ export function App() {
                             }}
                             onOpenStatusModal={(ship) => setSelectedStatusShipment(ship)}
                             onDeleteShipment={handleDeleteShipment}
-                            onFilter={async (params) => {
-                                const res = await apiClient.getShipments(params);
-                                setShipments(res);
-                            }}
                         />
                     )}
 
@@ -679,6 +665,12 @@ export function App() {
                         <Reports activeTab={activeSubPage} refreshKey={dashboardData} />
                     )}
 
+                    {currentPage === 'attendance' && (
+                        <Attendance
+                            settings={settings}
+                        />
+                    )}
+
                     {currentPage === 'users' && (
                         <Users
                             settings={settings}
@@ -696,11 +688,13 @@ export function App() {
                             }}
                         />
                     )}
+                    </Suspense>
                 </main>
             </div>
 
             {/* Modals & Customer 360 Drawer */}
-            <CustomerDrawer
+            <Suspense fallback={<div className="modal-overlay"><LoadingSpinner size="lg" text="Loading form..." className="fmc-form-loading" /></div>}>
+            {(isDrawerOpen || isDrawerLoading) && <CustomerDrawer
                 isOpen={isDrawerOpen || isDrawerLoading}
                 isLoading={isDrawerLoading}
                 onClose={() => {
@@ -710,28 +704,28 @@ export function App() {
                 data={drawerData}
                 onOpenCommModal={handleOpenCommModal}
                 onPreviewInvoice={setPreviewInvoice}
-            />
+            />}
 
-            <ShipmentModal
+            {(isShipmentModalOpen) && <ShipmentModal
                 isOpen={isShipmentModalOpen}
                 onClose={() => setIsShipmentModalOpen(false)}
                 onCreated={refreshAll}
                 settings={settings}
-            />
+            />}
 
-            <CustomerModal
+            {(isCustomerModalOpen) && <CustomerModal
                 isOpen={isCustomerModalOpen}
                 onClose={() => setIsCustomerModalOpen(false)}
                 onCreated={refreshAll}
-            />
+            />}
 
-            <InvoiceModal
+            {(!!previewInvoice) && <InvoiceModal
                 isOpen={!!previewInvoice}
                 onClose={() => setPreviewInvoice(null)}
                 invoice={previewInvoice}
                 onPaymentRecorded={refreshAll}
                 settings={settings}
-            />
+            />}
 
             {isReconModalOpen && <ReconciliationModal
                 isOpen={isReconModalOpen}
@@ -740,44 +734,45 @@ export function App() {
                 settings={settings}
             />}
 
-            <WalletRechargeModal
+            {(isWalletModalOpen) && <WalletRechargeModal
                 isOpen={isWalletModalOpen}
                 onClose={() => setIsWalletModalOpen(false)}
                 walletName={activeWalletName}
                 onRecharged={refreshAll}
                 settings={settings}
-            />
+            />}
 
             {payoutRefundId && <RefundPayoutModal settings={settings} id={payoutRefundId} onClose={() => setPayoutRefundId(null)} onSaved={refreshAll} />}
-            <RefundModal
+            {(isRefundModalOpen) && <RefundModal
                 isOpen={isRefundModalOpen}
                 onClose={() => setIsRefundModalOpen(false)}
                 onCreated={refreshAll}
-            />
+            />}
 
-            <CommunicationModal
+            {(isCommModalOpen) && <CommunicationModal
                 isOpen={isCommModalOpen}
                 onClose={() => setIsCommModalOpen(false)}
                 customerName={activeCommCustomer}
                 onCreated={refreshAll}
                 settings={settings}
-            />
+            />}
 
-            <B2BCompanyModal
+            {(isB2BModalOpen) && <B2BCompanyModal
                 settings={settings}
                 isOpen={isB2BModalOpen}
                 onClose={() => setIsB2BModalOpen(false)}
                 onCreated={refreshAll}
-            />
+            />}
 
-            <ShipmentStatusModal
+            {(!!selectedStatusShipment) && <ShipmentStatusModal
                 isOpen={!!selectedStatusShipment}
                 onClose={() => setSelectedStatusShipment(null)}
                 shipment={selectedStatusShipment}
                 onUpdated={refreshAll}
-            />
+            />}
 
 
+            </Suspense>
             {/* Floating Toast Notification */}
             {toast && (
                 <div className="fmc-toast-container">

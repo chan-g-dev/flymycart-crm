@@ -19,7 +19,8 @@ import {
     LogOut,
     Menu,
     CheckCircle2,
-    Boxes
+    Boxes,
+    Clock
 } from 'lucide-react';
 import { useAuth } from '../context/authSession';
 import { apiClient } from '../api/client';
@@ -86,6 +87,12 @@ const PAGE_CONFIG = {
         subtitle: 'EOD operations, Weekly & Monthly business P&L',
         icon: TrendingUp,
         color: '#06b6d4'
+    },
+    attendance: {
+        title: 'Staff Attendance & Timings',
+        subtitle: 'Daily check-in, lunch, breaks, shift timings & performance overview',
+        icon: Clock,
+        color: '#3b82f6'
     },
     users: { 
         title: 'Users & Permissions', 

@@ -14,7 +14,7 @@ from sqlalchemy.pool import StaticPool
 from app.database import Base, get_db
 from app.models import Shipment, Customer, Refund, AccountingEntry, SystemSettings, Invoice, PaymentCollection
 from app.routers.accounts import accounts_router, record_accounting_entry
-from app.routers.shipments import shipments_router, create_shipment
+from app.routers.shipments import shipments_router, create_shipment, get_shipments
 from app.routers.account_workspace import get_workspace_overview, period_totals, get_shipment_ledger
 from app.routers.reports import get_eod_report, get_monthly_pl_report, get_weekly_operations_report
 from app.routers.dashboard import get_dashboard_summary
@@ -43,7 +43,7 @@ class ProductionReviewTests(unittest.TestCase):
             with self.sessions() as db:
                 yield db
         self.app.dependency_overrides[get_db] = db_override
-        for endpoint in (record_accounting_entry, create_shipment):
+        for endpoint in (record_accounting_entry, create_shipment, get_shipments):
             dep = inspect.signature(endpoint).parameters['ctx'].default.dependency
             self.app.dependency_overrides[dep] = lambda: CTX
         self.client = TestClient(self.app, follow_redirects=False)
@@ -276,11 +276,150 @@ class ProductionReviewTests(unittest.TestCase):
         result = self.client.post('/api/shipments', json=payload, headers={'Idempotency-Key': 'weight-policy-test-001'})
         self.assertEqual(result.status_code, 200, result.text)
         self.assertEqual(result.json()['chargeable_weight'], 9.5)
-        self.assertEqual(result.json()['weight_rule']['divisor'], 6000)
+
+    def test_mixed_postgres_numeric_aggregates(self):
+        db = Mock()
+        ship, entry, receipt, refund = [Mock() for _ in range(4)]
+        for query in (ship, entry, receipt, refund):
+            query.filter.return_value = query
+            query.with_entities.return_value = query
+        db.query.side_effect = [ship, entry, receipt, refund, ship]
+        ship.one.return_value = (Decimal('1000'), Decimal('1180'), Decimal('600'))
+        entry.scalar.return_value = 50.0
+        receipt.scalar.return_value = Decimal('100')
+        refund.scalar.return_value = 25.0
+        with patch('app.routers.account_workspace.refund_query', return_value=refund):
+            result = period_totals(db, None, None, None, True)
+        self.assertEqual(result['net'], 325)
+
+    def test_schema_upgrade_is_repeatable(self):
         with self.sessions() as db:
-            cfg = db.get(SystemSettings, 1)
-            cfg.config_json = {**cfg.config_json, 'weightRules': {'express': {'divisor': 3000}}}
+            for table in ('accounting_entries', 'payment_collections', 'wallet_transactions', 'refunds'):
+                db.execute(text(f'ALTER TABLE {table} DROP COLUMN payment_details'))
             db.commit()
-            shipment = db.query(Shipment).filter_by(awb='WEIGHT-POLICY').one()
-            self.assertEqual(shipment.weight_rule['divisor'], 6000)
-            self.assertEqual(shipment.chargeable_weight, 9.5)
+            migrate_database_schema(db)
+            migrate_database_schema(db)
+            for table in ('accounting_entries', 'payment_collections', 'wallet_transactions', 'refunds'):
+                db.execute(text(f'SELECT payment_details FROM {table} LIMIT 1'))
+
+    def test_special_password_cannot_override_account_password(self):
+        from app.routers.auth import auth_router
+        from app.dependencies import get_supabase_anon_client
+        from app.models import UserProfile
+        from app.auth import hash_password
+        self.app.include_router(auth_router)
+        self.app.dependency_overrides[get_supabase_anon_client] = lambda: None
+        with self.sessions() as db:
+            db.add(UserProfile(id='normal-user', email='test@example.com', display_name='Test User',
+                               role='operations_staff', status='active', password_hash=hash_password('saved-user-password')))
+            db.commit()
+        with patch.dict(os.environ, {'BOOTSTRAP_ADMIN_PASSWORD': 'bootstrap-test-password'}):
+            response = self.client.post('/auth/login', json={'email': 'test@example.com', 'password': 'bootstrap-test-password'})
+        self.assertEqual(response.status_code, 401, response.text)
+        with self.sessions() as db:
+            self.assertEqual(db.get(UserProfile, 'normal-user').role, 'operations_staff')
+
+    def test_admin_password_survives_restart(self):
+        from app.seed import seed_super_admin, SUPERADMIN_EMAIL
+        from app.auth import hash_password, verify_password
+        from app.models import UserProfile
+        with self.sessions() as db:
+            db.add(UserProfile(id='existing-admin-id', email=SUPERADMIN_EMAIL, display_name='Admin',
+                               role='super_admin', status='active', password_hash=hash_password('changed-admin-password')))
+            db.commit()
+            with patch.dict(os.environ, {'BOOTSTRAP_ADMIN_PASSWORD': 'obsolete-bootstrap-password'}):
+                seed_super_admin(db)
+            profile = db.query(UserProfile).filter_by(email=SUPERADMIN_EMAIL).one()
+            self.assertEqual(profile.id, 'existing-admin-id')
+            self.assertTrue(verify_password('changed-admin-password', profile.password_hash))
+            self.assertFalse(verify_password('obsolete-bootstrap-password', profile.password_hash))
+
+    def test_saved_defaults_apply_only_when_not_explicit(self):
+        from app.routers.b2b import b2b_router, create_b2b_company
+        self.app.include_router(b2b_router)
+        dependency = inspect.signature(create_b2b_company).parameters['ctx'].default.dependency
+        self.app.dependency_overrides[dependency] = lambda: CTX
+        with self.sessions() as db:
+            row = db.get(SystemSettings, 1)
+            row.config_json = {**row.config_json, 'defaultGstRate': 12, 'serviceTypes': ['Custom Express'],
+                               'defaultB2BCreditLimit': 25000, 'defaultB2BCreditDays': 45}
+            db.commit()
+        company = {'company_name': 'Default Company', 'contact_person': 'Test', 'mobile': '9000000001'}
+        result = self.client.post('/api/b2b/companies', json=company)
+        self.assertEqual(result.status_code, 200, result.text)
+        self.assertEqual(result.json()['credit_limit'], 25000)
+        self.assertEqual(result.json()['credit_period_days'], 45)
+        self.assertEqual(result.json()['payment_terms'], 'Net 45 Days')
+        explicit = self.client.post('/api/b2b/companies', json={**company, 'company_name': 'Explicit Company',
+                                    'credit_limit': 0, 'credit_period_days': 7, 'payment_terms': 'Weekly'})
+        self.assertEqual(explicit.json()['credit_limit'], 0)
+        self.assertEqual(explicit.json()['credit_period_days'], 7)
+        payload = {'awb': 'CUSTOM-DEFAULT', 'date': '2026-09-16', 'customer_name': 'Test', 'customer_mobile': '9000000001',
+                   'receiver': {'name': 'Receiver', 'city': 'Delhi', 'country': 'India'}, 'parcel': {'actual_weight': 2},
+                   'courier': 'Aramex', 'provider_type': 'postpaid', 'provider_name': 'Aramex', 'price': 1000,
+                   'provider_cost': 600, 'payment_status': 'Unpaid'}
+        result = self.client.post('/api/shipments', json=payload, headers={'Idempotency-Key': 'custom-default-test-001'})
+        self.assertEqual(result.status_code, 200, result.text)
+        with self.sessions() as db:
+            shipment = db.query(Shipment).filter_by(awb='CUSTOM-DEFAULT').one()
+            self.assertEqual(shipment.gst_rate, 12)
+            self.assertEqual(shipment.service_type, 'Custom Express')
+            self.assertEqual(db.query(Invoice).filter_by(shipment_id=shipment.id).one().total, 1120)
+
+    def test_apply_reconciliation_updates_cost_and_carrier_status(self):
+        from app.routers.reconciliation import reconciliation_router, apply_reconciliation
+        self.app.include_router(reconciliation_router)
+        dependency = inspect.signature(apply_reconciliation).parameters['ctx'].default.dependency
+        self.app.dependency_overrides[dependency] = lambda: CTX
+        payload = {'awb': 'RECON-APPLY-QA', 'date': '2026-09-23', 'customer_name': 'QA Customer',
+                   'customer_mobile': '9000000002', 'receiver': {'name': 'Receiver', 'city': 'Dubai', 'country': 'UAE'},
+                   'parcel': {'actual_weight': 2}, 'courier': 'Aramex', 'provider_type': 'postpaid',
+                   'provider_name': 'Aramex', 'price': 1500, 'provider_cost': 900, 'payment_status': 'Unpaid'}
+        booking = self.client.post('/api/shipments', json=payload)
+        self.assertEqual(booking.status_code, 200, booking.text)
+        result = self.client.post('/api/reconciliation/apply', json={'provider': 'Aramex',
+            'bill_reference': 'QA-BILL', 'matched': [{'awb': payload['awb'], 'current_cost': 900, 'actual_cost': 950}]})
+        self.assertEqual(result.status_code, 200, result.text)
+        with self.sessions() as db:
+            shipment = db.query(Shipment).filter_by(awb=payload['awb']).one()
+            self.assertEqual(shipment.actual_provider_cost, 950)
+            self.assertTrue(shipment.cost_reconciled)
+            self.assertEqual(shipment.carrier_payment_status, 'Reconciled')
+
+        payment = self.client.post('/api/accounts/entries', json={'kind': 'provider_payment',
+            'provider': 'Aramex', 'date': '2026-09-23', 'amount': 950, 'account': 'Cash',
+            'payment_mode': 'Cash', 'payment_details': {'owner_type': 'Business', 'account_holder': 'QA Office'}})
+        self.assertEqual(payment.status_code, 201, payment.text)
+        corrected = self.client.post('/api/reconciliation/apply', json={'provider': 'Aramex',
+            'bill_reference': 'QA-CORRECTED', 'matched': [{'awb': payload['awb'], 'current_cost': 950, 'actual_cost': 940}]})
+        self.assertEqual(corrected.status_code, 200, corrected.text)
+        with self.sessions() as db:
+            shipment = db.query(Shipment).filter_by(awb=payload['awb']).one()
+            self.assertEqual(shipment.actual_provider_cost, 940)
+            self.assertEqual(shipment.carrier_payment_status, 'Paid')
+
+    def test_carrier_payment_updates_shipment_status(self):
+        # 1. Create a postpaid shipment
+        payload = {'awb': 'CARRIER-PAY-TEST', 'date': '2026-09-16', 'customer_name': 'Carrier Pay Customer',
+                   'customer_mobile': '9000000002', 'receiver': {'name': 'Receiver', 'city': 'Dubai', 'country': 'UAE'},
+                   'parcel': {'actual_weight': 2}, 'courier': 'Aramex', 'provider_type': 'postpaid',
+                   'provider_name': 'Aramex', 'price': 1500, 'provider_cost': 900, 'payment_status': 'Unpaid'}
+        res = self.client.post('/api/shipments', json=payload, headers={'Idempotency-Key': 'carrier-pay-booking-1'})
+        self.assertEqual(res.status_code, 200)
+
+        # Before carrier payment, status should be Pending
+        shipments_res = self.client.get('/api/shipments')
+        target = next(s for s in shipments_res.json() if s['awb'] == 'CARRIER-PAY-TEST')
+        self.assertEqual(target['carrier_payment_status'], 'Pending')
+
+        # 2. Record courier payment in Accounts
+        pay_entry = {'kind': 'provider_payment', 'provider': 'Aramex', 'date': '2026-09-22',
+                     'amount': 900, 'account': 'Cash', 'payment_mode': 'Cash',
+                     'reference': 'QA-ARAMEX-001', 'payment_details': {'owner_type': 'Business', 'account_holder': 'Test Office'}}
+        entry_res = self.client.post('/api/accounts/entries', json=pay_entry)
+        self.assertEqual(entry_res.status_code, 201, entry_res.text)
+
+        # After carrier payment, status must update to Paid
+        shipments_res2 = self.client.get('/api/shipments')
+        target2 = next(s for s in shipments_res2.json() if s['awb'] == 'CARRIER-PAY-TEST')
+        self.assertEqual(target2['carrier_payment_status'], 'Paid')

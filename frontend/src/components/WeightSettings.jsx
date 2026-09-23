@@ -1,3 +1,4 @@
+import { ButtonSpinner } from './LoadingSpinner';
 import React, { useState } from 'react';
 import { defaultWeightRule, weightSettings } from '../utils/weightRules';
 
@@ -49,7 +50,7 @@ export default function WeightSettings({ settings, onSave, canManage }) {
             </fieldset>)}
             {canManage && <div style={{ display: 'flex', gap: 12, marginTop: 16 }}>
                 <button type="button" className="btn btn-outline" disabled={form.overrides.length >= 100} onClick={() => setForm({ ...form, overrides: [...form.overrides, { ...defaultWeightRule, courier: '', service: '', destination: 'Any' }] })}>Add override</button>
-                <button type="submit" className="btn btn-primary-blue">{saving ? 'Saving...' : 'Save Weight Rules'}</button>
+                <button type="submit" className="btn btn-primary-blue">{saving ? <ButtonSpinner text="Saving..." /> : 'Save Weight Rules'}</button>
             </div>}
         </fieldset>
         {message && <p role="status">{message}</p>}

@@ -179,6 +179,11 @@ def require_permission(permission_code: str, minimum_scope: str = "own"):
                 detail=f"Access Denied: Missing required permission '{permission_code}'.",
             )
 
+        if permission_code in ('reconciliation.view', 'reconciliation.run'):
+            from app.access_policy import can_view_costs
+            if not can_view_costs(ctx):
+                raise HTTPException(403, 'Carrier Cost access is required for reconciliation.')
+
         granted_scope = user_perms[permission_code]
         if granted_scope != "all":
             # "own" means the user's primary assigned center (DataScope.OWN_CENTER).

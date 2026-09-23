@@ -1,3 +1,6 @@
+import { ButtonSpinner } from '../components/LoadingSpinner';
+import TablePagination from '../components/TablePagination';
+import useTablePage from '../components/useTablePage';
 import PaymentDetails from '../components/PaymentDetails';
 import AccountsOverview from '../components/AccountsOverview';
 import { businessDate } from '../utils/businessDates';
@@ -20,7 +23,9 @@ import { ContentShimmer } from '../components/ContentShimmer';
 import { TrackingLink } from '../components/TrackingLink';
 import { apiClient } from '../api/client';
 
-export const Invoices = ({ invoices, onPreviewInvoice }) => {
+export const Invoices = ({ invoices, onPreviewInvoice, selectedCenter }) => {
+    const { hasPermission } = useAuth();
+    const canViewPrice = hasPermission('costs.customer_price');
     const [searchVal, setSearchVal] = useState('');
     const [statusVal, setStatusVal] = useState('');
 
@@ -36,20 +41,22 @@ export const Invoices = ({ invoices, onPreviewInvoice }) => {
         return matchesSearch && matchesStatus;
     });
 
+    const tablePage = useTablePage(filtered, JSON.stringify([searchVal, statusVal, selectedCenter]));
+
     const exportToCSV = () => {
         if (!invoices || invoices.length === 0) return;
-        const headers = ['Invoice No', 'Date', 'Customer Name', 'AWB', 'Carrier', 'Subtotal (INR)', 'GST (INR)', 'Total (INR)', 'Amount Paid (INR)', 'Balance Due (INR)', 'Status'];
+        const headers = [
+            'Invoice No', 'Date', 'Customer Name', 'AWB', 'Carrier',
+            ...(canViewPrice ? ['Subtotal (INR)', 'GST (INR)', 'Total (INR)', 'Amount Paid (INR)', 'Balance Due (INR)'] : []),
+            'Status'
+        ];
         const rows = invoices.map(i => [
             `"${i.invoice_no}"`,
             `"${i.date}"`,
             `"${i.customer_name}"`,
             `"${i.awb || ''}"`,
             `"${i.courier || ''}"`,
-            i.amount || 0,
-            i.gst || 0,
-            i.total || 0,
-            i.paid || 0,
-            i.balance || 0,
+            ...(canViewPrice ? [i.amount || 0, i.gst || 0, i.total || 0, i.paid || 0, i.balance || 0] : []),
             `"${i.status}"`
         ]);
 
@@ -105,18 +112,22 @@ export const Invoices = ({ invoices, onPreviewInvoice }) => {
                                 <th>Date</th>
                                 <th>Customer Name</th>
                                 <th>AWB &amp; Courier</th>
-                                <th>Total Amount</th>
-                                <th>Paid</th>
-                                <th>Balance</th>
+                                {canViewPrice && (
+                                    <>
+                                        <th>Total Amount</th>
+                                        <th>Paid</th>
+                                        <th>Balance</th>
+                                    </>
+                                )}
                                 <th>Status</th>
                                 <th className="invoice-actions-column">Actions</th>
                             </tr>
                         </thead>
                         <tbody>
                             {filtered.length === 0 ? (
-                                <tr><td colSpan="9" style={{ textAlign: 'center', padding: '30px', color: 'var(--text-muted)' }}>No invoices found matching criteria.</td></tr>
+                                <tr><td colSpan={canViewPrice ? 9 : 6} style={{ textAlign: 'center', padding: '30px', color: 'var(--text-muted)' }}>No invoices found matching criteria.</td></tr>
                             ) : (
-                                filtered.map(inv => (
+                                tablePage.rows.map(inv => (
                                     <tr key={inv.id}>
                                         <td><strong style={{ color: 'var(--primary-blue)' }}>{inv.invoice_no}</strong></td>
                                         <td style={{ color: 'var(--text-muted)' }}>{formatDate(inv.date)}</td>
@@ -127,11 +138,15 @@ export const Invoices = ({ invoices, onPreviewInvoice }) => {
                                                 {inv.courier && <CourierLogo courier={inv.courier} height={15} />}
                                             </div>
                                         </td>
-                                        <td style={{ fontWeight: 800 }}>{formatCurrency(inv.total)}</td>
-                                        <td style={{ color: 'var(--emerald)', fontWeight: 700 }}>{formatCurrency(inv.paid)}</td>
-                                        <td style={{ color: inv.balance > 0 ? 'var(--rose)' : 'var(--text-muted)', fontWeight: 700 }}>
-                                            {formatCurrency(inv.balance)}
-                                        </td>
+                                        {canViewPrice && (
+                                            <>
+                                                <td style={{ fontWeight: 800 }}>{formatCurrency(inv.total)}</td>
+                                                <td style={{ color: 'var(--emerald)', fontWeight: 700 }}>{formatCurrency(inv.paid)}</td>
+                                                <td style={{ color: inv.balance > 0 ? 'var(--rose)' : 'var(--text-muted)', fontWeight: 700 }}>
+                                                    {formatCurrency(inv.balance)}
+                                                </td>
+                                            </>
+                                        )}
                                         <td>
                                             <span className={`status-pill ${inv.status === 'Paid' ? 'delivered' : inv.status === 'Partial' ? 'picked-up' : 'delayed'}`}>
                                                 {inv.status}
@@ -148,6 +163,7 @@ export const Invoices = ({ invoices, onPreviewInvoice }) => {
                         </tbody>
                     </table>
                 </div>
+                <TablePagination {...tablePage} />
             </div>
         </div>
     );
@@ -543,7 +559,7 @@ const LegacyAccounts = ({
 
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '16px', paddingTop: '12px', borderTop: '1px solid var(--card-border)' }}>
                             <button className="btn btn-primary-blue" disabled={saving}>
-                                {saving ? 'Recording Transaction…' : 'Record Transaction'}
+                                {saving ? <ButtonSpinner text="Recording Transaction…" /> : 'Record Transaction'}
                             </button>
                             {entryMessage && (
                                 <span style={{ fontSize: '12.5px', fontWeight: 700, color: entryMessage.includes('success') ? 'var(--emerald)' : 'var(--rose)' }}>
@@ -612,6 +628,8 @@ const LegacyAccounts = ({
 };
 
 export const B2B = ({ b2bData, onOpenCustomerDrawer, onOpenB2BModal, onRefresh }) => {
+    const { hasPermission } = useAuth();
+    const canViewPrice = hasPermission('costs.customer_price');
     const formatCurrency = (n) => '₹' + Number(n || 0).toLocaleString('en-IN');
     const [timeoutExpired, setTimeoutExpired] = useState(false);
     const [isRefreshing, setIsRefreshing] = useState(false);
@@ -629,21 +647,34 @@ export const B2B = ({ b2bData, onOpenCustomerDrawer, onOpenB2BModal, onRefresh }
     }, [b2bData]);
 
     const activeData = b2bData || (timeoutExpired ? {
+        companies: [],
         total_credit_sales: 0,
         collected: 0,
         outstanding: 0,
         due_this_week: 0,
         overdue: 0,
-        aging: { not_due: 0, days1_30: 0, days31_60: 0, days61_90: 0, days90_plus: 0, total_outstanding: 0, overdue_total: 0 },
-        companies: []
+        aging: { not_due: 0, days1_30: 0, days31_60: 0, days61_90: 0, days90_plus: 0 }
     } : null);
 
     if (!activeData) {
-        return <ContentShimmer message="Calculating Corporate Aging Schedules (30–90 Days) & Credit Limits..." />;
+        return (
+            <div className="b2b-directory-page">
+                <div className="page-header">
+                    <div>
+                        <h2 className="page-title">🏢 B2B Corporate Credit & Aging Receivables</h2>
+                        <p className="page-subtitle">Manage corporate credit limits, payment terms, and 5-bucket aging schedule</p>
+                    </div>
+                </div>
+                <ContentShimmer type="cards" count={5} />
+                <div style={{ marginTop: '16px' }}>
+                    <ContentShimmer type="table" rows={6} />
+                </div>
+            </div>
+        );
     }
 
     const handleManualRefresh = async () => {
-        if (onRefresh) {
+        if (onRefresh && !isRefreshing) {
             setIsRefreshing(true);
             try {
                 await onRefresh();
@@ -655,14 +686,16 @@ export const B2B = ({ b2bData, onOpenCustomerDrawer, onOpenB2BModal, onRefresh }
 
     const exportToCSV = () => {
         if (!activeData.companies || activeData.companies.length === 0) return;
-        const headers = ['Company', 'Contact Person', 'Mobile', 'Credit Limit (INR)', 'Total Billed (INR)', 'Outstanding (INR)', 'Credit Period (Days)', 'Status'];
+        const headers = [
+            'Company', 'Contact Person', 'Mobile',
+            ...(canViewPrice ? ['Credit Limit (INR)', 'Total Billed (INR)', 'Outstanding (INR)'] : []),
+            'Credit Period (Days)', 'Status'
+        ];
         const rows = activeData.companies.map(c => [
             `"${c.company}"`,
             `"${c.contact_name}"`,
             `"${c.mobile}"`,
-            c.credit_limit || 0,
-            c.total_billed || 0,
-            c.outstanding || 0,
+            ...(canViewPrice ? [c.credit_limit || 0, c.total_billed || 0, c.outstanding || 0] : []),
             c.credit_period_days || 30,
             `"${c.status}"`
         ]);
@@ -705,40 +738,44 @@ export const B2B = ({ b2bData, onOpenCustomerDrawer, onOpenB2BModal, onRefresh }
             </div>
 
             {/* KPI Cards */}
-            <div className="dash-stat-cards-grid" style={{ gridTemplateColumns: 'repeat(5, 1fr)', marginBottom: '10px' }}>
-                <div className="dash-mini-card"><span className="card-label">Total Credit Sales</span><div className="card-value">{formatCurrency(activeData.total_credit_sales)}</div></div>
-                <div className="dash-mini-card"><span className="card-label">Collected</span><div className="card-value" style={{ color: 'var(--emerald)' }}>{formatCurrency(activeData.collected)}</div></div>
-                <div className="dash-mini-card"><span className="card-label">Total Outstanding</span><div className="card-value" style={{ color: 'var(--amber)' }}>{formatCurrency(activeData.outstanding)}</div></div>
-                <div className="dash-mini-card"><span className="card-label">Due This Week</span><div className="card-value" style={{ color: 'var(--rose)' }}>{formatCurrency(activeData.due_this_week)}</div></div>
-                <div className="dash-mini-card"><span className="card-label">Overdue &gt; Terms</span><div className="card-value" style={{ color: 'var(--rose)' }}>{formatCurrency(activeData.overdue)}</div></div>
-            </div>
+            {canViewPrice && (
+                <>
+                    <div className="dash-stat-cards-grid" style={{ gridTemplateColumns: 'repeat(5, 1fr)', marginBottom: '10px' }}>
+                        <div className="dash-mini-card"><span className="card-label">Total Credit Sales</span><div className="card-value">{formatCurrency(activeData.total_credit_sales)}</div></div>
+                        <div className="dash-mini-card"><span className="card-label">Collected</span><div className="card-value" style={{ color: 'var(--emerald)' }}>{formatCurrency(activeData.collected)}</div></div>
+                        <div className="dash-mini-card"><span className="card-label">Total Outstanding</span><div className="card-value" style={{ color: 'var(--amber)' }}>{formatCurrency(activeData.outstanding)}</div></div>
+                        <div className="dash-mini-card"><span className="card-label">Due This Week</span><div className="card-value" style={{ color: 'var(--rose)' }}>{formatCurrency(activeData.due_this_week)}</div></div>
+                        <div className="dash-mini-card"><span className="card-label">Overdue &gt; Terms</span><div className="card-value" style={{ color: 'var(--rose)' }}>{formatCurrency(activeData.overdue)}</div></div>
+                    </div>
 
-            {/* 5-Bucket Aging Schedule */}
-            <div className="dash-box" style={{ marginBottom: '12px' }}>
-                <h4 style={{ fontSize: '12px', fontWeight: 800, color: 'var(--text-main)', marginBottom: '12px' }}>📊 5-Bucket Receivables Aging Schedule</h4>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '10px' }}>
-                    <div style={{ background: 'var(--bg-app)', padding: '8px', borderRadius: 'var(--radius-sm)', textAlign: 'center', border: '1px solid var(--card-border)' }}>
-                        <div style={{ fontSize: '10px', fontWeight: 800, color: 'var(--emerald)' }}>NOT DUE</div>
-                        <div style={{ fontSize: '16px', fontWeight: 900, marginTop: '4px' }}>{formatCurrency(activeData.aging?.not_due)}</div>
+                    {/* 5-Bucket Aging Schedule */}
+                    <div className="dash-box" style={{ marginBottom: '12px' }}>
+                        <h4 style={{ fontSize: '12px', fontWeight: 800, color: 'var(--text-main)', marginBottom: '12px' }}>📊 5-Bucket Receivables Aging Schedule</h4>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '10px' }}>
+                            <div style={{ background: 'var(--bg-app)', padding: '8px', borderRadius: 'var(--radius-sm)', textAlign: 'center', border: '1px solid var(--card-border)' }}>
+                                <div style={{ fontSize: '10px', fontWeight: 800, color: 'var(--emerald)' }}>NOT DUE</div>
+                                <div style={{ fontSize: '16px', fontWeight: 900, marginTop: '4px' }}>{formatCurrency(activeData.aging?.not_due)}</div>
+                            </div>
+                            <div style={{ background: 'var(--bg-app)', padding: '8px', borderRadius: 'var(--radius-sm)', textAlign: 'center', border: '1px solid var(--card-border)' }}>
+                                <div style={{ fontSize: '10px', fontWeight: 800, color: 'var(--sky)' }}>1 - 30 DAYS</div>
+                                <div style={{ fontSize: '16px', fontWeight: 900, marginTop: '4px' }}>{formatCurrency(activeData.aging?.days1_30)}</div>
+                            </div>
+                            <div style={{ background: 'var(--bg-app)', padding: '8px', borderRadius: 'var(--radius-sm)', textAlign: 'center', border: '1px solid var(--card-border)' }}>
+                                <div style={{ fontSize: '10px', fontWeight: 800, color: 'var(--amber)' }}>31 - 60 DAYS</div>
+                                <div style={{ fontSize: '16px', fontWeight: 900, marginTop: '4px' }}>{formatCurrency(activeData.aging?.days31_60)}</div>
+                            </div>
+                            <div style={{ background: 'var(--bg-app)', padding: '8px', borderRadius: 'var(--radius-sm)', textAlign: 'center', border: '1px solid var(--card-border)' }}>
+                                <div style={{ fontSize: '10px', fontWeight: 800, color: '#8b5cf6' }}>61 - 90 DAYS</div>
+                                <div style={{ fontSize: '16px', fontWeight: 900, marginTop: '4px' }}>{formatCurrency(activeData.aging?.days61_90)}</div>
+                            </div>
+                            <div style={{ background: 'var(--bg-app)', padding: '8px', borderRadius: 'var(--radius-sm)', textAlign: 'center', border: '1px solid var(--card-border)' }}>
+                                <div style={{ fontSize: '10px', fontWeight: 800, color: 'var(--rose)' }}>90+ DAYS OVERDUE</div>
+                                <div style={{ fontSize: '16px', fontWeight: 900, marginTop: '4px', color: 'var(--rose)' }}>{formatCurrency(activeData.aging?.days90_plus)}</div>
+                            </div>
+                        </div>
                     </div>
-                    <div style={{ background: 'var(--bg-app)', padding: '8px', borderRadius: 'var(--radius-sm)', textAlign: 'center', border: '1px solid var(--card-border)' }}>
-                        <div style={{ fontSize: '10px', fontWeight: 800, color: 'var(--sky)' }}>1 - 30 DAYS</div>
-                        <div style={{ fontSize: '16px', fontWeight: 900, marginTop: '4px' }}>{formatCurrency(activeData.aging?.days1_30)}</div>
-                    </div>
-                    <div style={{ background: 'var(--bg-app)', padding: '8px', borderRadius: 'var(--radius-sm)', textAlign: 'center', border: '1px solid var(--card-border)' }}>
-                        <div style={{ fontSize: '10px', fontWeight: 800, color: 'var(--amber)' }}>31 - 60 DAYS</div>
-                        <div style={{ fontSize: '16px', fontWeight: 900, marginTop: '4px' }}>{formatCurrency(activeData.aging?.days31_60)}</div>
-                    </div>
-                    <div style={{ background: 'var(--bg-app)', padding: '8px', borderRadius: 'var(--radius-sm)', textAlign: 'center', border: '1px solid var(--card-border)' }}>
-                        <div style={{ fontSize: '10px', fontWeight: 800, color: '#8b5cf6' }}>61 - 90 DAYS</div>
-                        <div style={{ fontSize: '16px', fontWeight: 900, marginTop: '4px' }}>{formatCurrency(activeData.aging?.days61_90)}</div>
-                    </div>
-                    <div style={{ background: 'var(--bg-app)', padding: '8px', borderRadius: 'var(--radius-sm)', textAlign: 'center', border: '1px solid var(--card-border)' }}>
-                        <div style={{ fontSize: '10px', fontWeight: 800, color: 'var(--rose)' }}>90+ DAYS OVERDUE</div>
-                        <div style={{ fontSize: '16px', fontWeight: 900, marginTop: '4px', color: 'var(--rose)' }}>{formatCurrency(activeData.aging?.days90_plus)}</div>
-                    </div>
-                </div>
-            </div>
+                </>
+            )}
 
             {/* Companies Table */}
             <div className="table-card">
@@ -751,9 +788,13 @@ export const B2B = ({ b2bData, onOpenCustomerDrawer, onOpenB2BModal, onRefresh }
                             <tr>
                                 <th style={{ minWidth: '180px' }}>Company / Contact</th>
                                 <th style={{ minWidth: '120px' }}>Mobile</th>
-                                <th style={{ minWidth: '120px' }}>Credit Limit</th>
-                                <th style={{ minWidth: '120px' }}>Outstanding</th>
-                                <th style={{ minWidth: '120px' }}>Limit Utilized</th>
+                                {canViewPrice && (
+                                    <>
+                                        <th style={{ minWidth: '120px' }}>Credit Limit</th>
+                                        <th style={{ minWidth: '120px' }}>Outstanding</th>
+                                        <th style={{ minWidth: '120px' }}>Limit Utilized</th>
+                                    </>
+                                )}
                                 <th style={{ minWidth: '100px' }}>Terms</th>
                                 <th style={{ minWidth: '110px' }}>Status</th>
                                 <th style={{ minWidth: '100px', textAlign: 'center' }}>Action</th>
@@ -770,16 +811,20 @@ export const B2B = ({ b2bData, onOpenCustomerDrawer, onOpenB2BModal, onRefresh }
                                                 <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginTop: '2px' }}>{c.contact_name}</div>
                                             </td>
                                             <td>{c.mobile}</td>
-                                            <td>{formatCurrency(c.credit_limit)}</td>
-                                            <td><strong style={{ color: c.outstanding > 0 ? 'var(--rose)' : 'var(--emerald)' }}>{formatCurrency(c.outstanding)}</strong></td>
-                                            <td>
-                                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                                    <div style={{ flex: 1, height: '6px', background: 'var(--bg-app)', borderRadius: '3px', overflow: 'hidden' }}>
-                                                        <div style={{ width: `${Math.min(100, util)}%`, height: '100%', background: util > 85 ? 'var(--rose)' : (util > 50 ? 'var(--amber)' : 'var(--emerald)') }}></div>
-                                                    </div>
-                                                    <span style={{ fontSize: '10px', fontWeight: 700 }}>{util}%</span>
-                                                </div>
-                                            </td>
+                                            {canViewPrice && (
+                                                <>
+                                                    <td>{formatCurrency(c.credit_limit)}</td>
+                                                    <td><strong style={{ color: c.outstanding > 0 ? 'var(--rose)' : 'var(--emerald)' }}>{formatCurrency(c.outstanding)}</strong></td>
+                                                    <td>
+                                                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                                            <div style={{ flex: 1, height: '6px', background: 'var(--bg-app)', borderRadius: '3px', overflow: 'hidden' }}>
+                                                                <div style={{ width: `${Math.min(100, util)}%`, height: '100%', background: util > 85 ? 'var(--rose)' : (util > 50 ? 'var(--amber)' : 'var(--emerald)') }}></div>
+                                                            </div>
+                                                            <span style={{ fontSize: '10px', fontWeight: 700 }}>{util}%</span>
+                                                        </div>
+                                                    </td>
+                                                </>
+                                            )}
                                             <td><span className="status-pill in-transit">{c.credit_period_days} Days</span></td>
                                             <td>
                                                 <span className={`status-pill ${c.outstanding > c.credit_limit ? 'delayed' : (c.outstanding > 0 ? 'picked-up' : 'delivered')}`}>
@@ -796,7 +841,7 @@ export const B2B = ({ b2bData, onOpenCustomerDrawer, onOpenB2BModal, onRefresh }
                                 })
                             ) : (
                                 <tr>
-                                    <td colSpan={8} style={{ textAlign: 'center', padding: '36px 16px', color: 'var(--text-muted)' }}>
+                                    <td colSpan={canViewPrice ? 8 : 5} style={{ textAlign: 'center', padding: '36px 16px', color: 'var(--text-muted)' }}>
                                         <Building2 size={32} style={{ opacity: 0.35, marginBottom: '8px' }} />
                                         <div style={{ fontWeight: 600, fontSize: '14px', color: 'var(--text-main)' }}>No Corporate B2B Clients Registered</div>
                                         <div style={{ fontSize: '12px', marginTop: '4px', marginBottom: '14px' }}>

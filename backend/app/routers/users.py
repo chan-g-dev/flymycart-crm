@@ -561,6 +561,12 @@ def update_user_centers(
     if not profile:
         raise HTTPException(status_code=404, detail="User not found.")
 
+    if not ctx.get('is_super_admin'):
+        assigned = set(ctx.get('centers', []))
+        target_centers = {center.center_id for center in profile.centers}
+        if role_code(profile) == 'super_admin' or not target_centers.issubset(assigned) or not set(payload.center_ids).issubset(assigned):
+            raise HTTPException(403, 'You can only manage center assignments within your existing access.')
+
     db.query(UserCenterAccess).filter(UserCenterAccess.user_id == profile.id).delete()
 
     for c_id in payload.center_ids:
@@ -572,6 +578,7 @@ def update_user_centers(
         ))
 
     profile.authorization_version += 1
+    revoke_all_user_sessions(db, profile.id, 'Center assignments changed', auto_commit=False)
     db.commit()
 
     create_audit_log(
@@ -689,13 +696,12 @@ def update_role_permissions(
             detail="Protected System Role: SUPER_ADMIN must always retain all permissions."
         )
 
-    from app.access_policy import SUPER_ONLY
     catalog = {p.id: p for p in db.query(Permission)}
     seen = set()
     for item in payload.permissions:
         permission_id = item.get('permission_id')
-        if permission_id not in catalog or catalog[permission_id].code in SUPER_ONLY:
-            raise HTTPException(422, 'Unknown or Super Admin-only permission')
+        if permission_id not in catalog:
+            raise HTTPException(422, 'Unknown permission')
         if item.get('scope', 'center') not in ('own', 'center', 'all') or permission_id in seen:
             raise HTTPException(422, 'Invalid scope or duplicate permission')
         seen.add(permission_id)
@@ -834,7 +840,7 @@ def get_individual_access(user_id: str, ctx=Depends(require_super_admin), db: Se
         'effective_permissions': resolve_permissions(db, profile),
         'overrides': {row.permission_code: 'allow' if row.allowed else 'deny'
                       for row in db.query(UserPermissionOverride).filter_by(user_id=user_id)},
-        'permissions': [{'code': p.code, 'module': p.module, 'description': p.description, 'protected': p.code in SUPER_ONLY}
+        'permissions': [{'code': p.code, 'module': p.module, 'description': p.description, 'protected': False}
                         for p in db.query(Permission).order_by(Permission.module, Permission.code)],
         'centers': [c.center_id for c in profile.centers],
         'protected': role_code(profile) == 'super_admin',
@@ -850,9 +856,9 @@ def update_individual_access(user_id: str, payload: IndividualAccessUpdate, requ
         raise HTTPException(400, 'Super Admin access is protected')
     if profile.authorization_version != payload.version:
         raise HTTPException(409, 'Access changed since this form opened. Reload before saving.')
-    valid = {p.code for p in db.query(Permission)} - SUPER_ONLY
+    valid = {p.code for p in db.query(Permission)}
     if set(payload.overrides) - valid:
-        raise HTTPException(422, 'Unknown or Super Admin-only permission')
+        raise HTTPException(422, 'Unknown permission')
     before = {p.permission_code: 'allow' if p.allowed else 'deny'
               for p in db.query(UserPermissionOverride).filter_by(user_id=user_id)}
     db.query(UserPermissionOverride).filter_by(user_id=user_id).delete()

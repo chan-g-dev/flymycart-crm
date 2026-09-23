@@ -22,7 +22,7 @@ export const LoadingSpinner = ({
     const pixelSize = typeof size === 'number' ? size : (sizeMap[size] || 20);
 
     const spinner = (
-        <Loader2 
+        <Loader2 aria-hidden="true"
             size={pixelSize} 
             className={`fmc-spin-icon ${color === 'white' ? 'fmc-spin-white' : ''}`}
             style={{ 
@@ -35,7 +35,7 @@ export const LoadingSpinner = ({
 
     if (inline) {
         return (
-            <span className={`fmc-inline-spinner ${className}`} style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+            <span role="status" aria-live="polite" aria-label={text || 'Loading'} className={`fmc-inline-spinner ${className}`} style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
                 {spinner}
                 {text && <span style={{ fontSize: '12px', fontWeight: 500 }}>{text}</span>}
             </span>
@@ -43,7 +43,7 @@ export const LoadingSpinner = ({
     }
 
     return (
-        <div className={`fmc-spinner-wrapper ${className}`} style={{
+        <div role="status" aria-live="polite" aria-label={text || 'Loading'} className={`fmc-spinner-wrapper ${className}`} style={{
             display: 'flex',
             flexDirection: 'column',
             alignItems: 'center',
@@ -69,13 +69,13 @@ export const LoadingSpinner = ({
 /**
  * Micro-spinner tailored for form buttons during async submission
  */
-export const ButtonSpinner = ({ size = 14, color = 'white', text = null }) => (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-        <Loader2 
+export const ButtonSpinner = ({ size = 14, color = 'inherit', text = null }) => (
+    <span role="status" aria-label={text || 'Working'} style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+        <Loader2 aria-hidden="true"
             size={size} 
             style={{ 
                 animation: 'fmc-spin 0.7s linear infinite',
-                color: color === 'white' ? '#ffffff' : '#0284c7'
+                color: color === 'inherit' ? 'currentColor' : color === 'white' ? '#ffffff' : '#0284c7'
             }} 
         />
         {text && <span>{text}</span>}

@@ -1,7 +1,9 @@
+import TablePagination from '../components/TablePagination';
+import useTablePage from '../components/useTablePage';
 import ShipmentPaymentCells from '../components/ShipmentPaymentCells';
 import GstValuePair from '../components/GstValuePair';
 import { businessDate } from '../utils/businessDates';
-import React, { useState } from 'react';
+import React, { useState, useDeferredValue, useMemo } from 'react';
 import { 
     Plus, 
     History, 
@@ -22,11 +24,11 @@ import { TableSkeleton, ButtonSpinner } from '../components/LoadingSpinner';
 import { TrackingLink } from '../components/TrackingLink';
 
 export const Customers = ({ 
-    customers, 
+    customers: allCustomers,
+    selectedCenter,
     onOpenCustomerModal, 
     onOpenCustomerDrawer, 
     onDeleteCustomer, 
-    onSearch,
     isLoading = false 
 }) => {
     const { hasPermission } = useAuth();
@@ -35,15 +37,20 @@ export const Customers = ({
     const [customerToDelete, setCustomerToDelete] = useState(null);
     const [isDeleting, setIsDeleting] = useState(false);
 
+    const deferredSearch = useDeferredValue(searchVal);
+    const customers = useMemo(() => (allCustomers || []).filter(c =>
+        (!typeVal || c.customer_type === typeVal) &&
+        (!deferredSearch || [c.name, c.mobile, c.company, c.email].some(value => String(value || '').toLowerCase().includes(deferredSearch.toLowerCase())))
+    ), [allCustomers, typeVal, deferredSearch]);
+    const tablePage = useTablePage(customers, JSON.stringify([deferredSearch, typeVal, selectedCenter]));
+
     const formatCurrency = (n) => '₹' + Number(n || 0).toLocaleString('en-IN');
     const handleSearchChange = (e) => {
         setSearchVal(e.target.value);
-        onSearch(e.target.value, typeVal);
     };
 
     const handleTypeChange = (e) => {
         setTypeVal(e.target.value);
-        onSearch(searchVal, e.target.value);
     };
 
     const exportToCSV = () => {
@@ -132,17 +139,17 @@ export const Customers = ({
                                 <th style={{ width: '7%' }}>Type</th>
                                 <th style={{ width: '16%' }}>Center</th>
                                 <th style={{ width: '9%' }}>Shipments</th>
-                                <th style={{ width: '10%' }}>Total Spend</th>
+                                {hasPermission('costs.customer_price') && <th style={{ width: '10%' }}>Total Spend</th>}
                                 <th style={{ width: '16%' }}>Actions</th>
                             </tr>
                         </thead>
                         <tbody>
                             {isLoading && (!customers || customers.length === 0) ? (
-                                <TableSkeleton rows={5} cols={7} />
+                                <TableSkeleton rows={5} cols={hasPermission('costs.customer_price') ? 7 : 6} />
                             ) : customers?.length === 0 ? (
-                                <tr><td colSpan="7" style={{ textAlign: 'center', padding: '32px', color: 'var(--text-muted)' }}>No customers found matching search.</td></tr>
+                                <tr><td colSpan={hasPermission('costs.customer_price') ? 7 : 6} style={{ textAlign: 'center', padding: '32px', color: 'var(--text-muted)' }}>No customers found matching search.</td></tr>
                             ) : (
-                                customers?.map(c => (
+                                tablePage.rows.map(c => (
                                     <tr key={c.id}>
                                         <td>
                                             <div style={{ fontWeight: 700, color: 'var(--text-main)', fontSize: '10.5px' }}>{c.name}</div>
@@ -173,9 +180,11 @@ export const Customers = ({
                                         <td>
                                             <strong style={{ fontSize: '11.5px', color: 'var(--text-main)' }}>{c.total_bookings || 0}</strong> <span style={{ color: 'var(--text-muted)', fontSize: '10px' }}>{c.total_bookings === 1 ? 'booking' : 'bookings'}</span>
                                         </td>
-                                        <td style={{ fontWeight: 800, color: 'var(--text-main)', fontSize: '11.5px' }}>
-                                            {formatCurrency(c.total_spend || 0)}
-                                        </td>
+                                        {hasPermission('costs.customer_price') && (
+                                            <td style={{ fontWeight: 800, color: 'var(--text-main)', fontSize: '11.5px' }}>
+                                                {formatCurrency(c.total_spend || 0)}
+                                            </td>
+                                        )}
                                         <td className="customer-actions-cell">
                                             <div className="customer-actions-stack">
                                                 <button className="btn-action-customer" onClick={() => onOpenCustomerDrawer(c.id)}>
@@ -204,6 +213,7 @@ export const Customers = ({
                         </tbody>
                     </table>
                 </div>
+                <TablePagination {...tablePage} />
             </div>
 
             {/* Luxury Interactive Delete Confirmation Modal */}
@@ -314,14 +324,15 @@ export const Customers = ({
 };
 
 export const Shipments = ({ 
-    shipments, 
+    shipments,
+    invoices = [],
     settings,
     onOpenShipmentModal, 
     onOpenCustomerDrawer, 
     onViewInvoice, 
     onDeleteShipment, 
     onOpenStatusModal, 
-    onFilter,
+    selectedCenter,
     isLoading = false 
 }) => {
     const { hasPermission } = useAuth();
@@ -329,7 +340,15 @@ export const Shipments = ({
     const [statusVal, setStatusVal] = useState('');
     const [courierVal, setCourierVal] = useState('');
     const [billingType, setBillingType] = useState('');
-    const visibleShipments = (shipments || []).filter(s => !billingType || s.provider_type === billingType);
+    const deferredSearch = useDeferredValue(searchVal);
+    const invoiceNumbers = useMemo(() => new Map(invoices.map(i => [i.shipment_id, i.invoice_no])), [invoices]);
+    const visibleShipments = useMemo(() => (shipments || []).filter(s =>
+        (!billingType || s.provider_type === billingType) &&
+        (!statusVal || s.status === statusVal) &&
+        (!courierVal || s.courier === courierVal) &&
+        (!deferredSearch || [s.awb, s.customer_name, s.receiver_city, s.receiver_name, s.receiver_phone, s.sender_phone, invoiceNumbers.get(s.id)].some(value => String(value || '').toLowerCase().includes(deferredSearch.toLowerCase())))
+    ), [shipments, billingType, statusVal, courierVal, deferredSearch, invoiceNumbers]);
+    const tablePage = useTablePage(visibleShipments, JSON.stringify([deferredSearch, billingType, statusVal, courierVal, selectedCenter]));
     const [shipmentToDelete, setShipmentToDelete] = useState(null);
     const [isDeleting, setIsDeleting] = useState(false);
 
@@ -357,9 +376,6 @@ export const Shipments = ({
     const formatCurrency = (n) => '₹' + Number(n || 0).toLocaleString('en-IN');
     const formatDate = (d) => d ? new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '-';
 
-    const handleSearch = (s, st, c) => {
-        onFilter({ search: s, status: st, courier: c });
-    };
 
     const exportToCSV = () => {
         if (!shipments || shipments.length === 0) return;
@@ -385,8 +401,9 @@ export const Shipments = ({
         ]);
 
         const keepColumns = headers.map((_, index) => index).filter(index => {
-            if (index === 12) return hasPermission('costs.view') || hasPermission('reports.view_financial');
-            if (index === 13 || index === 14) return hasPermission('reports.view_financial');
+            if (index === 10 || index === 11) return hasPermission('costs.customer_price');
+            if (index === 12) return hasPermission('costs.carrier_cost') || hasPermission('costs.view');
+            if (index === 13 || index === 14) return hasPermission('costs.net_value') || hasPermission('reports.view_financial');
             return true;
         });
         headers = keepColumns.map(index => headers[index]);
@@ -406,28 +423,18 @@ export const Shipments = ({
     };
 
     const getCountryBadge = (country, city) => {
-        const dest = (city || country || '').toLowerCase();
-        let code = 'IN';
-        let name = city || country || 'Domestic';
-        if (dest.includes('usa') || dest.includes('francisco') || dest.includes('palo alto') || dest.includes('new york') || dest.includes('states')) { code = 'US'; }
-        else if (dest.includes('dubai') || dest.includes('uae') || dest.includes('sharjah') || dest.includes('abu dhabi')) { code = 'AE'; }
-        else if (dest.includes('london') || dest.includes('uk') || dest.includes('united kingdom')) { code = 'GB'; }
-        else if (dest.includes('berlin') || dest.includes('germany') || dest.includes('munich') || dest.includes('frankfurt')) { code = 'DE'; }
-        else if (dest.includes('riyadh') || dest.includes('saudi') || dest.includes('jeddah')) { code = 'SA'; }
-        else if (dest.includes('doha') || dest.includes('qatar')) { code = 'QA'; }
-        else if (dest.includes('singapore')) { code = 'SG'; }
-        else if (dest.includes('sydney') || dest.includes('melbourne') || dest.includes('australia')) { code = 'AU'; }
-        else if (dest.includes('toronto') || dest.includes('canada') || dest.includes('vancouver')) { code = 'CA'; }
-        else if (dest.includes('paris') || dest.includes('france')) { code = 'FR'; }
-        else if (dest.includes('tokyo') || dest.includes('japan')) { code = 'JP'; }
-
+        const name = country || city || '—';
         return (
-            <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-                <span className="country-iso-badge">{code}</span>
-                <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-main)', whiteSpace: 'nowrap' }}>{name}</span>
-            </div>
+            <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-main)', whiteSpace: 'nowrap' }}>
+                {name}
+            </span>
         );
     };
+
+    const canViewCustomerPrice = hasPermission('costs.customer_price');
+    const canViewCarrierCost = hasPermission('costs.carrier_cost') || hasPermission('costs.view');
+    const canViewNetValue = (hasPermission('costs.net_value') || hasPermission('reports.view_financial')) && canViewCustomerPrice && canViewCarrierCost;
+    const shipmentColCount = 11 + (canViewCustomerPrice ? 1 : 0) + (canViewNetValue ? 1 : 0);
 
     return (
         <div>
@@ -460,7 +467,6 @@ export const Shipments = ({
                         value={searchVal}
                         onChange={e => {
                             setSearchVal(e.target.value);
-                            handleSearch(e.target.value, statusVal, courierVal);
                         }}
                     />
                 </div>
@@ -469,7 +475,6 @@ export const Shipments = ({
                     value={statusVal} 
                     onChange={e => {
                         setStatusVal(e.target.value);
-                        handleSearch(searchVal, e.target.value, courierVal);
                     }}
                 >
                     <option value="">All Statuses</option>
@@ -485,7 +490,6 @@ export const Shipments = ({
                     value={courierVal} 
                     onChange={e => {
                         setCourierVal(e.target.value);
-                        handleSearch(searchVal, statusVal, e.target.value);
                     }}
                 >
                     <option value="">All Couriers ({availableCouriers.length})</option>
@@ -493,7 +497,7 @@ export const Shipments = ({
                         <option key={c} value={c}>{c}</option>
                     ))}
                 </select>
-                <select className="filter-select" aria-label="Carrier billing type" value={billingType} onChange={e => setBillingType(e.target.value)}>
+                <select className="filter-select" value={billingType} onChange={e => setBillingType(e.target.value)}>
                     <option value="">All billing types</option><option value="prepaid">Prepaid</option><option value="postpaid">Postpaid</option>
                 </select>
             </div>
@@ -509,23 +513,23 @@ export const Shipments = ({
                                 <th>Courier</th>
                                 <th>Carrier Billing</th><th>Destination</th>
                                 <th>Weight</th>
-                                <th>Customer Sale (INR)</th>
-                                {hasPermission('reports.view_financial') && <th>Value After Courier Cost</th>}
+                                {canViewCustomerPrice && <th>Customer Sale (INR)</th>}
+                                {canViewNetValue && <th>Value After Courier Cost</th>}
                                 <th>Payment Mode</th><th>Collection Status</th><th>Payment to Courier</th><th>Status</th>
                                 <th>Actions</th>
                             </tr>
                         </thead>
                         <tbody>
                             {isLoading && (!shipments || shipments.length === 0) ? (
-                                <TableSkeleton rows={6} cols={11} />
+                                <TableSkeleton rows={6} cols={shipmentColCount} />
                             ) : visibleShipments.length === 0 ? (
-                                <tr><td colSpan={hasPermission('reports.view_financial') ? 14 : 13} style={{ textAlign: 'center', padding: '32px', color: 'var(--text-muted)' }}>No shipments found matching filters.</td></tr>
+                                <tr><td colSpan={shipmentColCount} style={{ textAlign: 'center', padding: '32px', color: 'var(--text-muted)' }}>No shipments found matching filters.</td></tr>
                             ) : (
-                                visibleShipments.map(s => {
+                                tablePage.rows.map(s => {
                                     const profit = s.gross_profit !== undefined && s.gross_profit !== null
                                         ? s.gross_profit 
                                         : (s.price || 0) - (s.cost_reconciled ? (s.actual_provider_cost ?? s.provider_cost ?? 0) : (s.provider_cost || 0));
-                                    const isProfitVisible = s.gross_profit !== null && hasPermission('viewCostMargins');
+                                    const isProfitVisible = s.gross_profit !== null && canViewNetValue;
 
                                     return (
                                         <tr key={s.id}>
@@ -562,18 +566,22 @@ export const Shipments = ({
                                             <td style={{ textAlign: 'center' }}>
                                                 <strong style={{ fontSize: '10.5px' }}>{s.chargeable_weight || s.actual_weight}</strong> <span style={{ fontSize: '10.5px', color: 'var(--text-muted)' }}>kg</span>
                                             </td>
-                                            <td style={{ fontWeight: 800, color: 'var(--text-main)', textAlign: 'right', whiteSpace: 'nowrap' }}>
-                                                {formatCurrency(s.price)}
-                                            </td>
-{hasPermission('reports.view_financial') &&                                             <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
-                                                {isProfitVisible ? (
-                                                    <strong style={{ color: profit >= 0 ? 'var(--emerald)' : 'var(--rose)', fontSize: '11px' }}>
-                                                        <GstValuePair excluding={profit} including={profit + Number(s.total_amount ?? (Number(s.price || 0) + Number(s.gst_amount || 0))) - Number(s.price || 0)} formatValue={formatCurrency} />
-                                                    </strong>
-                                                ) : (
-                                                    <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontStyle: 'italic' }}>Protected</span>
-                                                )}
-                                            </td>}
+                                            {canViewCustomerPrice && (
+                                                <td style={{ fontWeight: 800, color: 'var(--text-main)', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                                                    {s.price !== null && s.price !== undefined ? formatCurrency(s.price) : '—'}
+                                                </td>
+                                            )}
+                                            {canViewNetValue && (
+                                                <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                                                    {isProfitVisible ? (
+                                                        <strong style={{ color: profit >= 0 ? 'var(--emerald)' : 'var(--rose)', fontSize: '11px' }}>
+                                                            <GstValuePair excluding={profit} including={profit + Number(s.total_amount ?? (Number(s.price || 0) + Number(s.gst_amount || 0))) - Number(s.price || 0)} formatValue={formatCurrency} />
+                                                        </strong>
+                                                    ) : (
+                                                        '—'
+                                                    )}
+                                                </td>
+                                            )}
                                             <ShipmentPaymentCells shipment={s} />
                                             <td style={{ textAlign: 'center' }}>
                                                 <span 
@@ -614,6 +622,7 @@ export const Shipments = ({
                         </tbody>
                     </table>
                 </div>
+                <TablePagination {...tablePage} />
             </div>
 
             {/* Luxury Interactive Delete Confirmation Modal for Shipments */}

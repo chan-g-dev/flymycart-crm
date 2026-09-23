@@ -2,7 +2,7 @@
 from fastapi import HTTPException
 from sqlalchemy import event, select, or_
 from sqlalchemy.orm import Session, with_loader_criteria
-from app.models import Customer, Shipment, Invoice, BookingRequest, Refund, Followup, CommunicationLog, PaymentCollection, B2BCompany, AccountCheck, AccountingEntry
+from app.models import Customer, Shipment, Invoice, BookingRequest, Refund, Followup, CommunicationLog, PaymentCollection, B2BCompany, AccountCheck, AccountingEntry, ReconciliationBatch, ReconciliationItem
 
 
 def policies(centers):
@@ -21,6 +21,11 @@ def policies(centers):
         PaymentCollection: PaymentCollection.shipment_id.in_(shipments),
         AccountCheck: AccountCheck.center.in_(centers),
         AccountingEntry: AccountingEntry.center.in_(centers),
+        # Whole-batch totals are only safe when every item belongs to accessible shipments.
+        ReconciliationBatch: ReconciliationBatch.id.in_(select(ReconciliationItem.__table__.c.batch_id).where(
+            ReconciliationItem.__table__.c.awb.in_(awbs))) & ~ReconciliationBatch.id.in_(
+                select(ReconciliationItem.__table__.c.batch_id).where(~ReconciliationItem.__table__.c.awb.in_(awbs))),
+        ReconciliationItem: ReconciliationItem.awb.in_(awbs),
     }
 
 

@@ -1,3 +1,4 @@
+import { LoadingSpinner } from './LoadingSpinner';
 import ChartVisualization, { ChartTypeSelect } from './ChartVisualization';
 import PaymentDetailsSummary from './PaymentDetailsSummary';
 import React, { useState } from 'react';
@@ -68,7 +69,7 @@ export function EntryLedger({ params, revision, kind, onRefresh }) {
             {(kind === 'transfer' ? ['Date', 'From Account', 'To Account', 'Amount', 'Payment Mode', 'Reference'] : ['Date', 'Category', 'Vendor / Person', 'Paid From', 'Amount', 'Payment Mode', 'Remarks', 'Bill']).map(name => <th key={name}>{name}</th>)}
         </tr></thead><tbody>{items.map(row => <tr key={row.id}><td>{dateLabel(row.date)}</td>
             {kind === 'transfer' ? <><td>{row.account}</td><td>{row.transfer_to}</td><td>{money(row.amount)}</td><td>{row.payment_mode || '—'}</td><td>{row.reference}<PaymentDetailsSummary details={row.payment_details} /></td></> : <><td>{row.category || 'General'}</td><td>{row.vendor || '—'}</td><td>{row.account}</td><td>{money(row.amount)}</td><td>{row.payment_mode || '—'}</td><td>{row.reference}<PaymentDetailsSummary details={row.payment_details} /></td><td>{row.bill_name ? <button onClick={() => download(row)}><Download size={13} /> Bill</button> : '—'}</td></>}
-        </tr>)}{!items.length && <tr><td colSpan={8} className="ao-empty">{request.loading ? 'Loading transactions…' : 'No transactions in this period.'}</td></tr>}</tbody></table></div>
+        </tr>)}{!items.length && <tr><td colSpan={8} className="ao-empty">{request.loading ? <LoadingSpinner inline text="Loading transactions…" /> : 'No transactions in this period.'}</td></tr>}</tbody></table></div>
         <footer><span>{request.data?.total_count || 0} transactions</span><Pager page={page} count={request.data?.total_count || 0} size={20} onChange={setPage} /></footer>
     </section>;
 }

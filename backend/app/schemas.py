@@ -237,10 +237,10 @@ class ShipmentOut(BaseModel):
     service_type: str
     provider_type: str
     provider_name: str
-    price: float
+    price: Optional[float] = None
     is_gst_applicable: bool = True
     gst_rate: float = 18.0
-    gst_amount: float = 0.0
+    gst_amount: Optional[float] = 0.0
     total_amount: Optional[float] = None
 
     # Sensitive Financial Fields (masked if unauthorized)
@@ -250,6 +250,7 @@ class ShipmentOut(BaseModel):
     gross_profit: Optional[float] = None
 
     payment_status: str
+    carrier_payment_status: Optional[str] = "Pending"
     payment_method: str
     paid_to: str
     collected_by: str
@@ -303,16 +304,16 @@ class InvoiceOut(BaseModel):
     courier: Optional[str] = None
     service: Optional[str] = None
     description: Optional[str] = None
-    amount: float
+    amount: Optional[float] = None
     is_gst_invoice: bool = True
     tax_rate: float = 18.0
     cgst: float = 0.0
     sgst: float = 0.0
     igst: float = 0.0
-    gst: float
-    total: float
-    paid: float
-    balance: float
+    gst: Optional[float] = None
+    total: Optional[float] = None
+    paid: Optional[float] = None
+    balance: Optional[float] = None
     status: str
     created_at: Optional[datetime.datetime] = None
 

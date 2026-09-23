@@ -8,5 +8,14 @@ def business_today(now=None):
     """Keep business dates in IST; authentication and audit timestamps remain UTC."""
     instant = now if now is not None else datetime.now(timezone.utc)
     if instant.tzinfo is None:
-        raise ValueError("Expected a timezone-aware instant")
+        instant = instant.replace(tzinfo=timezone.utc)
     return instant.astimezone(BUSINESS_TIMEZONE).date()
+
+
+def business_now(now=None):
+    """Returns current datetime in IST (Indian Standard Time)."""
+    instant = now if now is not None else datetime.now(timezone.utc)
+    if instant.tzinfo is None:
+        instant = instant.replace(tzinfo=timezone.utc)
+    return instant.astimezone(BUSINESS_TIMEZONE)
+

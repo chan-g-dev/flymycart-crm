@@ -24,6 +24,7 @@ from app.dependencies import require_permission, get_current_session_context
 from app.permissions import PermissionCode
 from app.cache import cache_engine
 from app.storage import storage_manager
+from app.access_policy import can_view_customer_price
 
 customers_router = APIRouter(prefix="/api/customers", tags=["Customers"])
 
@@ -88,6 +89,8 @@ def get_customers(
         output.total_bookings = count
         output.total_spend = spend or 0
         output.outstanding_balance = outstanding or 0
+        if not can_view_customer_price(ctx):
+            output.total_spend = output.outstanding_balance = None
         result.append(output)
     return result
 
@@ -243,6 +246,14 @@ def get_customer_360(
         total_outstanding = sum(max(0, billed.get(s.id, float(s.price or 0)) - paid.get(s.id, 0)) for s in shipments_raw)
     except Exception:
         total_outstanding = 0.0
+
+    if not can_view_customer_price(ctx):
+        for invoice in invoices:
+            for key in ('amount', 'gst', 'total', 'paid', 'balance'):
+                invoice[key] = None
+        for refund in refunds:
+            refund['amount'] = None
+        total_spent = total_outstanding = None
 
     return {
         "customer": cust_dict,

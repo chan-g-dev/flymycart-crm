@@ -18,6 +18,7 @@ from app.auth import mask_shipment_financials
 from app.schemas import ShipmentOut
 from app.dependencies import require_permission
 from app.permissions import PermissionCode
+from app.access_policy import can_view_costs, can_view_values, can_view_customer_price
 
 reports_router = APIRouter(prefix="/api/reports", tags=["Reports"])
 
@@ -30,18 +31,14 @@ def estimated_count(db, start, end):
 @reports_router.get("/weekly")
 def get_weekly_operations_report(
     end_date: Optional[str] = None,
-    ctx: Dict[str, Any] = Depends(require_permission(PermissionCode.REPORTS_VIEW)),
+    ctx: Dict[str, Any] = Depends(require_permission("reports.weekly")),
     db: Session = Depends(get_db),
     start_date: Optional[str] = None,
+    date: Optional[str] = None
 ):
-    """Monday–Sunday calendar report; end_date selects a day in that week.
-
-    Financial margins remain exclusive to users with the financial-report permission.
-    The aggregates are calculated in SQL so the endpoint remains efficient as shipment
-    volume grows.
-    """
+    target_end = end_date or date
     try:
-        period_end = datetime.date.fromisoformat(end_date) if end_date else business_today()
+        period_end = datetime.date.fromisoformat(target_end) if target_end else business_today()
     except ValueError:
         raise HTTPException(400, "Invalid end date")
     try:
@@ -57,11 +54,12 @@ def get_weekly_operations_report(
         raise HTTPException(400, "Choose a date range from 1 to 366 days")
     start_text, end_text = period_start.isoformat(), period_end.isoformat()
 
+    billed = func.coalesce(Shipment.total_amount, Shipment.price + func.coalesce(Shipment.gst_amount, 0))
     daily_rows = db.query(
         Shipment.date,
         func.count(Shipment.id),
         func.sum(Shipment.price),
-        func.sum(func.coalesce(Shipment.total_amount, Shipment.price + func.coalesce(Shipment.gst_amount, 0))),
+        func.sum(billed),
         func.sum(case((Shipment.cost_reconciled.is_(True), func.coalesce(Shipment.actual_provider_cost, Shipment.provider_cost)), else_=Shipment.provider_cost)),
     ).filter(Shipment.date.between(start_text, end_text)).group_by(Shipment.date).all()
     status_rows = db.query(Shipment.status, func.count(Shipment.id)).filter(
@@ -72,11 +70,10 @@ def get_weekly_operations_report(
     ).group_by(Shipment.courier).all()
 
     by_date = {row[0]: row for row in daily_rows}
-    can_view_fin = bool(
-        ctx.get("is_super_admin")
-        or ctx.get("permissions", {}).get("*")
-        or ctx.get("permissions", {}).get(PermissionCode.REPORTS_VIEW_FINANCIAL)
-    )
+    can_view_price = can_view_customer_price(ctx)
+    can_view_cost = can_view_costs(ctx)
+    can_view_profit = can_view_values(ctx) and can_view_cost and can_view_price
+
     daily_collections = dict(db.query(PaymentCollection.date, func.sum(PaymentCollection.amount)).filter(
         PaymentCollection.date.between(start_text, end_text)).group_by(PaymentCollection.date).all())
     days = []
@@ -90,29 +87,29 @@ def get_weekly_operations_report(
         days.append({
             "date": day,
             "shipments_count": int(row[1]) if row else 0,
-            "revenue": revenue if can_view_fin else None,
-            "revenue_with_gst": rev_with_gst if can_view_fin else None,
-            "gst_total": gst_val if can_view_fin else None,
-            "collections": round(float(daily_collections.get(day, 0) or 0), 2),
-            "provider_cost": cost if can_view_fin else None,
-            "gross_profit": round(revenue - cost, 2) if can_view_fin else None,
-            "gross_profit_with_gst": round(rev_with_gst - cost, 2) if can_view_fin else None,
+            "revenue": revenue if can_view_price else None,
+            "revenue_with_gst": rev_with_gst if can_view_price else None,
+            "gst_total": gst_val if can_view_price else None,
+            "collections": round(float(daily_collections.get(day, 0) or 0), 2) if can_view_price else None,
+            "provider_cost": cost if can_view_cost else None,
+            "gross_profit": round(revenue - cost, 2) if can_view_profit else None,
+            "gross_profit_with_gst": round(rev_with_gst - cost, 2) if can_view_profit else None,
         })
 
     expenses, expense_breakdown = expense_summary(db, start_text, end_text)
     return {
-        "operational_expenses": expenses if can_view_fin else None,
-        "expense_breakdown": expense_breakdown if can_view_fin else {},
+        "operational_expenses": expenses if can_view_cost else None,
+        "expense_breakdown": expense_breakdown if can_view_cost else {},
         "period_start": start_text,
         "period_end": end_text,
         "period_days": period_days,
-        "estimated_cost_shipments": estimated_count(db, start_text, end_text) if can_view_fin else None,
+        "estimated_cost_shipments": estimated_count(db, start_text, end_text) if can_view_cost else None,
         "shipments_count": sum(day["shipments_count"] for day in days),
         "active_days": sum(1 for day in days if day["shipments_count"] > 0),
         "daily": days,
         "status_counts": {status or "Unknown": count for status, count in status_rows},
         "courier_counts": {courier or "Unknown": count for courier, count in courier_rows},
-        "financials_visible": can_view_fin,
+        "financials_visible": can_view_profit,
     }
 
 
@@ -120,7 +117,7 @@ def get_weekly_operations_report(
 def get_range_report(
     date_from: datetime.date,
     date_to: datetime.date,
-    ctx=Depends(require_permission(PermissionCode.REPORTS_VIEW)),
+    ctx=Depends(require_permission("reports.custom_range")),
     db: Session = Depends(get_db)
 ):
     if date_from > date_to or (date_to - date_from).days > 365:
@@ -130,7 +127,7 @@ def get_range_report(
 @reports_router.get("/eod")
 def get_eod_report(
     date: Optional[str] = None,
-    ctx: Dict[str, Any] = Depends(require_permission(PermissionCode.REPORTS_VIEW)),
+    ctx: Dict[str, Any] = Depends(require_permission("reports.eod")),
     db: Session = Depends(get_db)
 ):
     target_date = date or business_today().isoformat()
@@ -186,7 +183,9 @@ def get_eod_report(
     gross_profit = round(sales_total - total_cost, 2)
     expenses, expense_breakdown = expense_summary(db, target_date, target_date)
     net_profit = round(gross_profit - refunds_amt - expenses, 2)
-    can_view_fin = bool(ctx.get("is_super_admin") or ctx.get("permissions", {}).get("*") or ctx.get("permissions", {}).get(PermissionCode.REPORTS_VIEW_FINANCIAL))
+    can_view_price = can_view_customer_price(ctx)
+    can_view_cost = can_view_costs(ctx)
+    can_view_profit = can_view_values(ctx) and can_view_cost and can_view_price
 
     formatted_shipments = []
     for s in shipments:
@@ -198,33 +197,33 @@ def get_eod_report(
             pass
 
     return {
-        "operational_expenses": expenses if can_view_fin else None,
-        "expense_breakdown": expense_breakdown if can_view_fin else {},
+        "operational_expenses": expenses if can_view_cost else None,
+        "expense_breakdown": expense_breakdown if can_view_cost else {},
         "date": target_date,
-        "estimated_cost_shipments": estimated_count(db, target_date, target_date) if can_view_fin else None,
+        "estimated_cost_shipments": estimated_count(db, target_date, target_date) if can_view_cost else None,
         "shipments_count": len(shipments),
         "courier_counts": courier_counts,
-        "total_sales": sales_total,
-        "total_sales_with_gst": billed_total,
-        "gst_total": gst_total,
-        "invoice_total": billed_total,
-        "total_collected": collected_total,
-        "credit_sales": credit_total,
-        "pending_collection": max(0.0, pending),
-        "gross_profit": gross_profit if can_view_fin else None,
-        "gross_profit_with_gst": round(gross_profit + gst_total, 2) if can_view_fin else None,
-        "refunds_amount": refunds_amt if can_view_fin else None,
-        "net_profit": net_profit if can_view_fin else None,
-        "net_profit_with_gst": round(net_profit + gst_total, 2) if can_view_fin else None,
-        "collections_by_method": by_method,
-        "collections_by_employee": by_employee,
+        "total_sales": sales_total if can_view_price else None,
+        "total_sales_with_gst": billed_total if can_view_price else None,
+        "gst_total": gst_total if can_view_price else None,
+        "invoice_total": billed_total if can_view_price else None,
+        "total_collected": collected_total if can_view_price else None,
+        "credit_sales": credit_total if can_view_price else None,
+        "pending_collection": max(0.0, pending) if can_view_price else None,
+        "gross_profit": gross_profit if can_view_profit else None,
+        "gross_profit_with_gst": round(gross_profit + gst_total, 2) if can_view_profit else None,
+        "refunds_amount": refunds_amt if can_view_profit else None,
+        "net_profit": net_profit if can_view_profit else None,
+        "net_profit_with_gst": round(net_profit + gst_total, 2) if can_view_profit else None,
+        "collections_by_method": by_method if can_view_price else {},
+        "collections_by_employee": by_employee if can_view_price else {},
         "shipments": formatted_shipments
     }
 
 @reports_router.get("/monthly")
 def get_monthly_pl_report(
     month: Optional[str] = None,
-    ctx: Dict[str, Any] = Depends(require_permission(PermissionCode.REPORTS_VIEW)),
+    ctx: Dict[str, Any] = Depends(require_permission("reports.monthly_pnl")),
     db: Session = Depends(get_db)
 ):
     target_month = month or business_today().strftime("%Y-%m")
@@ -283,32 +282,34 @@ def get_monthly_pl_report(
         postpaid_payments_breakdown = {}
 
     net_profit = round(gross_profit - refunds_total - expenses, 2)
-    can_view_fin = bool(ctx.get("is_super_admin") or ctx.get("permissions", {}).get("*") or ctx.get("permissions", {}).get(PermissionCode.REPORTS_VIEW_FINANCIAL))
+    can_view_price = can_view_customer_price(ctx)
+    can_view_cost = can_view_costs(ctx)
+    can_view_profit = can_view_values(ctx) and can_view_cost and can_view_price
 
     gst_total = round(sum(shipment_billed_total(s) - float(s.price or 0) for s in shipments), 2)
     invoice_total = round(sum(shipment_billed_total(s) for s in shipments), 2)
 
     return {
         "month": target_month,
-        "estimated_cost_shipments": sum(not s.cost_reconciled or s.actual_provider_cost is None for s in shipments) if can_view_fin else None,
+        "estimated_cost_shipments": sum(not s.cost_reconciled or s.actual_provider_cost is None for s in shipments) if can_view_cost else None,
         "shipments_count": len(shipments),
-        "revenue": revenue,
-        "total_revenue": revenue,
-        "revenue_with_gst": invoice_total,
-        "gst_total": gst_total,
-        "invoice_total": invoice_total,
-        "provider_cost_breakdown": provider_breakdown if can_view_fin else {},
-        "postpaid_carrier_payments": postpaid_carrier_payments if can_view_fin else None,
-        "postpaid_payments_breakdown": postpaid_payments_breakdown if can_view_fin else {},
-        "total_predicted_cost": predicted_cost if can_view_fin else None,
-        "total_actual_cost": actual_cost if can_view_fin else None,
-        "cost_variance": round(actual_cost - predicted_cost, 2) if can_view_fin else None,
-        "gross_profit": gross_profit if can_view_fin else None,
-        "gross_profit_with_gst": round(gross_profit + gst_total, 2) if can_view_fin else None,
-        "refunds_total": refunds_total if can_view_fin else None,
-        "operational_expenses": expenses if can_view_fin else None,
-        "expense_breakdown": expense_breakdown if can_view_fin else {},
-        "net_profit": net_profit if can_view_fin else None,
-        "net_profit_with_gst": round(net_profit + gst_total, 2) if can_view_fin else None,
-        "net_profit_margin": (round((net_profit / revenue) * 100, 1) if revenue > 0 else 0.0) if can_view_fin else None
+        "revenue": revenue if can_view_price else None,
+        "total_revenue": revenue if can_view_price else None,
+        "revenue_with_gst": invoice_total if can_view_price else None,
+        "gst_total": gst_total if can_view_price else None,
+        "invoice_total": invoice_total if can_view_price else None,
+        "provider_cost_breakdown": provider_breakdown if can_view_cost else {},
+        "postpaid_carrier_payments": postpaid_carrier_payments if can_view_cost else None,
+        "postpaid_payments_breakdown": postpaid_payments_breakdown if can_view_cost else {},
+        "total_predicted_cost": predicted_cost if can_view_cost else None,
+        "total_actual_cost": actual_cost if can_view_cost else None,
+        "cost_variance": round(actual_cost - predicted_cost, 2) if can_view_profit else None,
+        "gross_profit": gross_profit if can_view_profit else None,
+        "gross_profit_with_gst": round(gross_profit + gst_total, 2) if can_view_profit else None,
+        "refunds_total": refunds_total if can_view_profit else None,
+        "operational_expenses": expenses if can_view_cost else None,
+        "expense_breakdown": expense_breakdown if can_view_cost else {},
+        "net_profit": net_profit if can_view_profit else None,
+        "net_profit_with_gst": round(net_profit + gst_total, 2) if can_view_profit else None,
+        "net_profit_margin": (round((net_profit / revenue) * 100, 1) if revenue > 0 else 0.0) if (can_view_profit and revenue > 0) else None
     }

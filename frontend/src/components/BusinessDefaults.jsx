@@ -1,3 +1,4 @@
+import { ButtonSpinner } from './LoadingSpinner';
 import { paymentOptions, supportedPaymentMethods } from '../utils/businessOptions';
 import React, { useState } from 'react';
 const defaults = { companyName: 'Fly My Cart Logistics', centerAddress: '', gstin: '', companyPhone: '', companyEmail: '', invoicePrefix: 'FMC-', defaultGstRate: 18, gstRates: [0, 5, 12, 14, 18], serviceTypes: ['International Priority', 'Express', 'Economy', 'Cargo'], defaultB2BCreditLimit: 100000, defaultB2BCreditDays: 30 };
@@ -38,7 +39,7 @@ export default function BusinessDefaults({ settings, onSave, canManage }) {
             <fieldset style={{marginBottom: 12}}><legend>Enabled Payment Methods</legend>
                 {supportedPaymentMethods.map(method => <label key={method} style={{display: 'inline-flex', gap: 6, margin: 8}}><input type="checkbox" checked={form.paymentMethods.includes(method)} onChange={e => setForm({...form, paymentMethods: e.target.checked ? [...form.paymentMethods, method] : form.paymentMethods.filter(value => value !== method)})} />{method}</label>)}
             </fieldset>
-            {canManage && <button className="btn btn-primary-blue" type="submit">{saving ? 'Saving...' : 'Save Business Defaults'}</button>}
+            {canManage && <button className="btn btn-primary-blue" type="submit">{saving ? <ButtonSpinner text="Saving..." /> : 'Save Business Defaults'}</button>}
         </fieldset>
         {message && <p role="status">{message}</p>}
     </form>;

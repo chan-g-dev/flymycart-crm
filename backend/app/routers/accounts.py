@@ -25,6 +25,7 @@ from app.auth import create_audit_log
 from app.dependencies import require_permission, require_super_admin
 from app.permissions import PermissionCode
 from app.wallets import rebuild_wallet_balances
+from app.cache import cache_engine
 
 accounts_router = APIRouter(prefix="/api/accounts", tags=["Accounts"])
 
@@ -49,6 +50,9 @@ def receipt_query(db, start, end, account=None, center=None):
 def get_receipts(date_from: datetime.date, date_to: datetime.date, account: Optional[str] = None,
                  center: Optional[str] = None, limit: int = Query(50, ge=1, le=500), offset: int = Query(0, ge=0),
                  ctx=Depends(require_permission(PermissionCode.ACCOUNTS_VIEW)), db: Session = Depends(get_db)):
+    from app.access_policy import can_view_customer_price
+    if not can_view_customer_price(ctx):
+        raise HTTPException(403, 'Customer price access is required to view collection amounts')
     query = receipt_query(db, date_from, date_to, account, center)
     count, total = query.with_entities(func.count(PaymentCollection.id), func.coalesce(func.sum(PaymentCollection.amount), 0)).one()
     rows = query.add_columns(Shipment.awb, Shipment.customer_name, Shipment.center).order_by(
@@ -185,9 +189,29 @@ def record_accounting_entry(payload: AccountingEntryCreate, request: Request, ct
     entry = AccountingEntry(**{**payload.model_dump(), "date": payload.date.isoformat()}, created_by=ctx["user_id"])
     db.add(entry)
     db.flush()
+
+    if payload.kind == "provider_payment" and payload.provider:
+        p_name = payload.provider.strip().lower()
+        total_p = float(db.query(func.sum(AccountingEntry.amount)).filter(
+            AccountingEntry.kind == "provider_payment",
+            func.lower(AccountingEntry.provider) == p_name
+        ).scalar() or 0)
+        total_rec = float(db.query(func.sum(case((Shipment.cost_reconciled.is_(True), Shipment.actual_provider_cost), else_=0))).filter(
+            or_(func.lower(Shipment.provider_name) == p_name, func.lower(Shipment.courier) == p_name),
+            Shipment.provider_type == "postpaid"
+        ).scalar() or 0)
+        if total_p >= total_rec and total_rec > 0:
+            db.query(Shipment).filter(
+                or_(func.lower(Shipment.provider_name) == p_name, func.lower(Shipment.courier) == p_name),
+                Shipment.provider_type == "postpaid",
+                Shipment.cost_reconciled.is_(True)
+            ).update({"carrier_payment_status": "Paid"}, synchronize_session=False)
+
     finish_payment_request(claim, entry.id)
     create_audit_log(db, ctx["user_id"], ctx["display_name"], "accounts.entry", "accounting_entry", "create", resource_id=entry.id, after_data={"kind": entry.kind, "category": entry.category, "amount": entry.amount, "reference": entry.reference, "account": entry.account, "transfer_to": entry.transfer_to, "center": entry.center, "shipment_id": entry.shipment_id}, auto_commit=False)
     db.commit()
+    cache_engine.invalidate_prefix("shipments:")
+    cache_engine.invalidate_prefix("dashboard_summary")
     return {"id": entry.id, "status": "recorded"}
 
 def log_accounts_audit(db: Session, user_name: str, entity_id: str, action: str, before_val=None, after_val=None):
@@ -229,7 +253,10 @@ def get_accounts_summary(
             bank += amount
         elif any(term in method for term in ("upi", "phonepe", "gpay", "google", "qr")):
             upi += amount
-    can_view_financials = bool(ctx.get("is_super_admin") or ctx.get("permissions", {}).get("*") or ctx.get("permissions", {}).get("reports.view_financial"))
+    from app.access_policy import can_view_costs, can_view_values, can_view_customer_price
+    can_view_price = can_view_customer_price(ctx)
+    can_view_cost = can_view_costs(ctx)
+    can_view_profit = can_view_values(ctx) and can_view_cost and can_view_price
 
     # Prepaid Wallets
     wallets_data = []
@@ -303,20 +330,20 @@ def get_accounts_summary(
 
     return {
         "expense_categories": sorted({row[0] or "General" for row in db.query(AccountingEntry.category).filter(AccountingEntry.kind == "expense").distinct().all()}, key=str.casefold),
-        "expenses_by_category": {category or "General": money(amount) for category, amount in db.query(AccountingEntry.category, func.sum(AccountingEntry.amount)).filter(AccountingEntry.kind == "expense").group_by(AccountingEntry.category).all()} if can_view_financials else None,
-        "total_courier_cost": money(db.query(func.coalesce(func.sum(case((Shipment.cost_reconciled.is_(True), Shipment.actual_provider_cost), else_=Shipment.provider_cost)), 0)).scalar()) if can_view_financials else None,
-        "total_sales": total_sales,
-        "total_sales_with_gst": total_sales_with_gst,
-        "gst_total": gst_total,
-        "total_collected": total_collected,
-        "pending_collection": max(0.0, total_sales_with_gst - total_collected - b2b_credit),
-        "cash_collected": cash,
-        "upi_collected": upi,
-        "bank_collected": bank,
-        "b2b_credit_sales": b2b_credit,
-        "collections_by_account": by_account,
-        "prepaid_wallets": wallets_data if can_view_financials else [],
-        "postpaid_accounts": postpaid_data if can_view_financials else []
+        "expenses_by_category": {category or "General": money(amount) for category, amount in db.query(AccountingEntry.category, func.sum(AccountingEntry.amount)).filter(AccountingEntry.kind == "expense").group_by(AccountingEntry.category).all()} if can_view_cost else None,
+        "total_courier_cost": money(db.query(func.coalesce(func.sum(case((Shipment.cost_reconciled.is_(True), Shipment.actual_provider_cost), else_=Shipment.provider_cost)), 0)).scalar()) if can_view_cost else None,
+        "total_sales": total_sales if can_view_price else None,
+        "total_sales_with_gst": total_sales_with_gst if can_view_price else None,
+        "gst_total": gst_total if can_view_price else None,
+        "total_collected": total_collected if can_view_price else None,
+        "pending_collection": max(0.0, total_sales_with_gst - total_collected - b2b_credit) if can_view_price else None,
+        "cash_collected": cash if can_view_price else None,
+        "upi_collected": upi if can_view_price else None,
+        "bank_collected": bank if can_view_price else None,
+        "b2b_credit_sales": b2b_credit if can_view_price else None,
+        "collections_by_account": by_account if can_view_price else {},
+        "prepaid_wallets": wallets_data if can_view_cost else [],
+        "postpaid_accounts": postpaid_data if can_view_cost else []
     }
 
 @accounts_router.get("/wallets/{wallet_name}/transactions", response_model=List[WalletTransactionOut])
@@ -325,7 +352,7 @@ def get_wallet_transactions(
     ctx: Dict[str, Any] = Depends(require_permission(PermissionCode.ACCOUNTS_VIEW)),
     db: Session = Depends(get_db)
 ):
-    if not (ctx.get("is_super_admin") or ctx.get("permissions", {}).get("*") or ctx.get("permissions", {}).get("reports.view_financial")):
+    if not (ctx.get("is_super_admin") or ctx.get("permissions", {}).get("*") or ctx.get("permissions", {}).get("costs.carrier_cost") or ctx.get("permissions", {}).get("costs.view") or ctx.get("permissions", {}).get("reports.view_financial")):
         raise HTTPException(status_code=403, detail="Financial clearance is required to view provider wallet transactions")
     return db.query(WalletTransaction).filter(
         func.lower(WalletTransaction.wallet) == wallet_name.lower().strip()

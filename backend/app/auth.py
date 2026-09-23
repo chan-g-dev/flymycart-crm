@@ -1,4 +1,4 @@
-from app.access_policy import can_view_costs, can_view_values
+from app.access_policy import can_view_costs, can_view_values, can_view_customer_price
 # ================================================================
 # FLY MY CART CRM - AUTH, TOTP, SESSION & SECURITY ENGINE (app/auth.py)
 # ================================================================
@@ -443,9 +443,13 @@ def require_permission(perm_key: str):
 
 
 def mask_shipment_financials(shipment_dict: Dict[str, Any], user_ctx: Dict[str, Any]) -> Dict[str, Any]:
+    if not can_view_customer_price(user_ctx):
+        shipment_dict['price'] = None
+        shipment_dict['total_amount'] = None
+        shipment_dict['gst_amount'] = None
     if not can_view_costs(user_ctx):
         shipment_dict['provider_cost'] = None
         shipment_dict['actual_provider_cost'] = None
-    if not can_view_values(user_ctx):
+    if not can_view_values(user_ctx) or not can_view_costs(user_ctx) or not can_view_customer_price(user_ctx):
         shipment_dict['gross_profit'] = None
     return shipment_dict

@@ -1,3 +1,4 @@
+import { LoadingSpinner } from './LoadingSpinner';
 ﻿import React, { useEffect, useState } from 'react';
 import { apiClient } from '../api/client';
 import './UserAccessEditor.css';
@@ -21,7 +22,7 @@ export default function MemberActivity({ user, onClose }) {
     return <div className="modal-overlay"><section className="modal modal-lg employee-access" role="dialog" aria-modal="true" aria-labelledby="member-activity-title">
         <header className="modal-header"><div><h3 id="member-activity-title">Activity: {user.name}</h3><p>{user.email} · Recorded actions by this member</p></div><button type="button" className="btn btn-outline" onClick={onClose}>Close</button></header>
         <p className="access-note">Shows available audit records. Actions that were not logged cannot be reconstructed.</p>
-        <div className="access-groups" aria-live="polite">{loading ? <p>Loading activity...</p> : error ? <p role="alert">{error}</p> : !logs.length ? <p>No recorded activity for this member.</p> : logs.slice(0, 20).map(log => <article className="member-log" key={log.id}>
+        <div className="access-groups" aria-live="polite">{loading ? <LoadingSpinner text="Loading activity..." /> : error ? <p role="alert">{error}</p> : !logs.length ? <p>No recorded activity for this member.</p> : logs.slice(0, 20).map(log => <article className="member-log" key={log.id}>
             <div className="member-log-heading"><strong>{readable(log.action)}</strong><time>{dateLabel(log.timestamp)}</time></div>
             <p>{readable(log.resource_type)}{log.resource_id ? ` · ${log.resource_id}` : ''} · {log.result || 'Recorded'}</p>
             <small>{readable(log.event_type)}</small>

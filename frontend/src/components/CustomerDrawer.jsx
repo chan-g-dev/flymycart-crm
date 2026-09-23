@@ -1,6 +1,7 @@
 import { formatRecordTime } from '../utils/businessDates';
 import { apiClient } from '../api/client';
 import React, { useState } from 'react';
+import { useAuth } from '../context/authSession';
 import {
     X,
     Phone,
@@ -26,6 +27,8 @@ const CustomerDrawer = ({
     onPreviewInvoice,
     isLoading = false
 }) => {
+    const { hasPermission } = useAuth();
+    const canViewCustomerPrice = hasPermission('costs.customer_price');
     const [activeTab, setActiveTab] = useState('shipments');
 
     if (!isOpen) return null;
@@ -109,21 +112,25 @@ const CustomerDrawer = ({
                 {/* Body */}
                 <div className="drawer-content" style={{ flex: 1, overflowY: 'auto', padding: '16px' }}>
                     {/* Top KPI Cards */}
-                    <div className="cards-grid" style={{ gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px', marginBottom: '16px' }}>
+                    <div className="cards-grid" style={{ gridTemplateColumns: canViewCustomerPrice ? 'repeat(3, 1fr)' : '1fr', gap: '10px', marginBottom: '16px' }}>
                         <div className="dash-mini-card" style={{ padding: '10px 12px' }}>
                             <span className="card-label">Total Bookings</span>
                             <div className="card-value" style={{ fontSize: '18px', color: 'var(--primary-blue)' }}>{total_bookings}</div>
                         </div>
-                        <div className="dash-mini-card" style={{ padding: '10px 12px' }}>
-                            <span className="card-label">Lifetime Spend (LTV)</span>
-                            <div className="card-value" style={{ fontSize: '18px', color: 'var(--emerald)' }}>{formatCurrency(total_spent)}</div>
-                        </div>
-                        <div className="dash-mini-card" style={{ padding: '10px 12px' }}>
-                            <span className="card-label">Outstanding Balance</span>
-                            <div className="card-value" style={{ fontSize: '18px', color: outstanding_balance > 0 ? 'var(--rose)' : 'var(--emerald)' }}>
-                                {formatCurrency(outstanding_balance)}
-                            </div>
-                        </div>
+                        {canViewCustomerPrice && (
+                            <>
+                                <div className="dash-mini-card" style={{ padding: '10px 12px' }}>
+                                    <span className="card-label">Lifetime Spend (LTV)</span>
+                                    <div className="card-value" style={{ fontSize: '18px', color: 'var(--emerald)' }}>{formatCurrency(total_spent)}</div>
+                                </div>
+                                <div className="dash-mini-card" style={{ padding: '10px 12px' }}>
+                                    <span className="card-label">Outstanding Balance</span>
+                                    <div className="card-value" style={{ fontSize: '18px', color: outstanding_balance > 0 ? 'var(--rose)' : 'var(--emerald)' }}>
+                                        {formatCurrency(outstanding_balance)}
+                                    </div>
+                                </div>
+                            </>
+                        )}
                     </div>
 
                     {/* Profile Information Box */}
@@ -174,9 +181,11 @@ const CustomerDrawer = ({
                         <button className="btn btn-sm btn-outline" onClick={() => onOpenCommModal(customer.name)} style={{ flex: 1 }}>
                             <MessageSquare size={13} /> Log Interaction
                         </button>
-                        <button className="btn btn-sm btn-outline" onClick={handlePrintStatement}>
-                            <Printer size={13} /> Statement
-                        </button>
+                        {hasPermission('customers.statement') && (
+                            <button className="btn btn-sm btn-outline" onClick={handlePrintStatement}>
+                                <Printer size={13} /> Statement
+                            </button>
+                        )}
                     </div>
 
                     {/* Navigation Tabs */}
@@ -240,7 +249,9 @@ const CustomerDrawer = ({
                                             <span>({s.service_type || 'Express'}) &rarr; To: {s.receiver_city || s.receiver_country} ({s.chargeable_weight} kg)</span>
                                         </div>
                                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '11.5px', borderTop: '1px dashed var(--card-border)', paddingTop: '4px', marginTop: '4px' }}>
-                                            <span style={{ fontWeight: 800, color: 'var(--text-main)' }}>Price: {formatCurrency(s.price)}</span>
+                                            {canViewCustomerPrice ? (
+                                                <span style={{ fontWeight: 800, color: 'var(--text-main)' }}>Price: {formatCurrency(s.price)}</span>
+                                            ) : <span />}
                                             <span className={`status-pill ${s.payment_status === 'Paid' ? 'delivered' : 'delayed'}`} style={{ fontSize: '10px' }}>
                                                 {s.payment_status}
                                             </span>
@@ -264,16 +275,20 @@ const CustomerDrawer = ({
                                                 <strong style={{ color: 'var(--primary-blue)', fontSize: '13px' }}>{i.invoice_no}</strong>
                                                 <span style={{ fontSize: '11px', color: 'var(--text-muted)', marginLeft: '6px' }}>({formatDate(i.date)})</span>
                                             </div>
-                                            <button className="btn btn-sm btn-outline" style={{ fontSize: '11px', padding: '2px 8px' }} onClick={() => onPreviewInvoice(i)}>
-                                                View
-                                            </button>
+                                            {(hasPermission('invoices.print') || hasPermission('invoices.view')) && (
+                                                <button className="btn btn-sm btn-outline" style={{ fontSize: '11px', padding: '2px 8px' }} onClick={() => onPreviewInvoice(i)}>
+                                                    View
+                                                </button>
+                                            )}
                                         </div>
-                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '11.5px', marginTop: '6px' }}>
-                                            <span>Total: <strong>{formatCurrency(i.total)}</strong></span>
-                                            <span>Paid: <strong style={{ color: 'var(--emerald)' }}>{formatCurrency(i.paid)}</strong></span>
-                                            <span>Balance: <strong style={{ color: i.balance > 0 ? 'var(--rose)' : 'var(--text-muted)' }}>{formatCurrency(i.balance)}</strong></span>
-                                            <span className={`status-pill ${i.status === 'Paid' ? 'delivered' : 'delayed'}`} style={{ fontSize: '10px' }}>{i.status}</span>
-                                        </div>
+                                        {canViewCustomerPrice && (
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '11.5px', marginTop: '6px' }}>
+                                                <span>Total: <strong>{formatCurrency(i.total)}</strong></span>
+                                                <span>Paid: <strong style={{ color: 'var(--emerald)' }}>{formatCurrency(i.paid)}</strong></span>
+                                                <span>Balance: <strong style={{ color: i.balance > 0 ? 'var(--rose)' : 'var(--text-muted)' }}>{formatCurrency(i.balance)}</strong></span>
+                                                <span className={`status-pill ${i.status === 'Paid' ? 'delivered' : 'delayed'}`} style={{ fontSize: '10px' }}>{i.status}</span>
+                                            </div>
+                                        )}
                                     </div>
                                 ))
                             )}

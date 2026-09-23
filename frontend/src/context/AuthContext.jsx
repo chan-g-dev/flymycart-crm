@@ -207,8 +207,41 @@ export const AuthProvider = ({ children }) => {
             }
         }
 
-        const aliases = { viewFinancials: 'reports.view_financial', viewCostMargins: 'reports.view_financial', addShipment: 'shipments.add', editShipment: 'shipments.edit', deleteShipment: 'shipments.delete', approveRefunds: 'refunds.approve', manageAccounts: 'accounts.edit', runReconciliation: 'reconciliation.run', exportReports: 'reports.export', manageSettings: 'settings.manage', manageUsers: 'users.manage_permissions' };
-        return !!currentUser?.permissions?.[aliases[permKey]];
+        const aliases = {
+            viewFinancials: 'reports.view_financial',
+            viewCostMargins: 'costs.margins',
+            customerPrice: 'costs.customer_price',
+            carrierCost: 'costs.carrier_cost',
+            netValue: 'costs.net_value',
+            margins: 'costs.margins',
+            addShipment: 'shipments.add',
+            editShipment: 'shipments.edit',
+            deleteShipment: 'shipments.delete',
+            approveRefunds: 'refunds.approve',
+            manageAccounts: 'accounts.edit',
+            runReconciliation: 'reconciliation.run',
+            exportReports: 'reports.export',
+            manageSettings: 'settings.manage',
+            manageUsers: 'users.manage_permissions'
+        };
+
+        const key = aliases[permKey] || permKey;
+        if (key === 'costs.carrier_cost' || key === 'costs.view') {
+            return !!(currentUser?.permissions?.['costs.carrier_cost'] || currentUser?.permissions?.['costs.view']);
+        }
+        if (key === 'costs.net_value') {
+            return !!(currentUser?.permissions?.['costs.net_value']);
+        }
+        if (key === 'costs.margins' || key === 'costs.margin') {
+            return !!(currentUser?.permissions?.['costs.margins'] || currentUser?.permissions?.['costs.margin']);
+        }
+        if (key === 'reports.view_financial') {
+            return !!(currentUser?.permissions?.['reports.view_financial'] || currentUser?.permissions?.['costs.net_value']);
+        }
+        if (key === 'costs.customer_price') {
+            return !!(currentUser?.permissions?.['costs.customer_price'] || currentUser?.permissions?.['pricing.customer_price']);
+        }
+        return !!currentUser?.permissions?.[key];
     };
 
     // Direct Self-Registration & Immediate Login

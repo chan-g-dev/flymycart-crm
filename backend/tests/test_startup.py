@@ -9,6 +9,30 @@ from unittest.mock import patch
 
 
 class StartupTests(unittest.TestCase):
+    def test_production_cors_only_accepts_trusted_origins(self):
+        env = {**os.environ, 'DATABASE_URL': 'sqlite:///:memory:',
+               'ENVIRONMENT': 'production', 'REMINDERS_ENABLED': 'false',
+               'FRONTEND_URL': 'https://flymycart-crm.vercel.app'}
+        code = """
+from fastapi.testclient import TestClient
+from app.main import app
+# No lifespan: test middleware without opening a production database.
+client = TestClient(app)
+for origin, expected in [('https://flymycart-crm.vercel.app', 200),
+                         ('https://untrusted-review-example.vercel.app', 400),
+                         ('https://untrusted-review-example.pages.dev', 400),
+                         ('http://localhost:5173', 400)]:
+    response = client.options('/api/customers', headers={
+        'Origin': origin, 'Access-Control-Request-Method': 'POST',
+        'Access-Control-Request-Headers': 'content-type'})
+    assert response.status_code == expected, (origin, response.status_code)
+    assert response.headers.get('access-control-allow-origin') == (origin if expected == 200 else None)
+"""
+        result = subprocess.run([sys.executable, '-c', code],
+            cwd=Path(__file__).resolve().parents[1], env=env,
+            capture_output=True, text=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_fresh_database_startup_and_health(self):
         with tempfile.TemporaryDirectory() as directory:
             database = Path(directory, 'startup.db').as_posix()

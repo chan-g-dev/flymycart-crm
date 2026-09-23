@@ -1,3 +1,4 @@
+import { ButtonSpinner } from './LoadingSpinner';
 import { entryKindForCategory } from '../utils/accountEntry';
 import { paymentOptions } from '../utils/businessOptions';
 import PaymentDetails from './PaymentDetails';
@@ -80,7 +81,7 @@ export function ExpenseEntry({ settings, accounts, providers = [], profiles = []
             </fieldset>
             {entryKind === 'expense' && <label>Upload Bill (Optional)<input ref={fileInput} type="file" accept=".pdf,.png,.jpg,.jpeg" onChange={e => setFile(e.target.files?.[0] || null)} /><small>PDF, PNG or JPEG · Up to 5 MB</small></label>}
             <label>Remarks<textarea disabled={saving || !!savedId} maxLength={150} rows={3} placeholder="Add remarks or bill reference…" value={entry.payment_details.remarks || ''} onChange={e => change('payment_details', { ...entry.payment_details, remarks: e.target.value })} /></label>
-            <button className="ao-button primary" disabled={saving}>{saving ? 'Saving…' : savedId ? 'Retry Bill Upload' : entryKind === 'provider_payment' ? 'Save Courier Payment' : 'Save Expense'}</button>
+            <button className="ao-button primary" disabled={saving}>{saving ? <ButtonSpinner text="Saving…" /> : savedId ? 'Retry Bill Upload' : entryKind === 'provider_payment' ? 'Save Courier Payment' : 'Save Expense'}</button>
             {message && <p className="ao-form-message" role="status">{message}</p>}
         </form>
         <h3>Expense Categories</h3>
@@ -116,7 +117,7 @@ export function TransactionDialog({ settings, accounts, providers, profiles = []
                 <label>Payment Mode<select aria-label="Payment Mode" value={entry.payment_mode} onChange={e => change('payment_mode', e.target.value)}>{paymentOptions(settings).map(mode => <option key={mode}>{mode}</option>)}</select></label>
                 <PaymentDetails onAccountChange={value => change("account", value)} profiles={profiles} method={entry.payment_mode} value={entry.payment_details} onChange={value => change("payment_details", value)} reference={entry.reference} onReferenceChange={value => change("reference", value)} />
                 {entry.kind === 'transfer' && <p className="ao-muted">This records an internal transfer. It does not initiate a bank payment.</p>}
-                {error && <p role="alert">{error}</p>}<button className="ao-button primary" disabled={saving}>{saving ? 'Saving…' : 'Record Transaction'}</button>
+                {error && <p role="alert">{error}</p>}<button className="ao-button primary" disabled={saving}>{saving ? <ButtonSpinner text="Saving…" /> : 'Record Transaction'}</button>
             </form>
         </dialog>
     </>;

@@ -1,3 +1,4 @@
+import { ButtonSpinner } from './LoadingSpinner';
 import React, { useState } from 'react';
 import PaymentDetails from './PaymentDetails';
 
@@ -56,7 +57,7 @@ export default function PaymentAccounts({ settings, onUpdateSettings, canManage 
             <label className="form-group">Account display name *<input required maxLength={100} value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Proprietor Ravi UPI" /></label>
             <label className="form-group">Payment mode<select value={method} onChange={e => { setMethod(e.target.value); setDetails({}); }}>{['UPI', 'Bank Transfer', 'Cash', 'Cheque', 'Card', 'Other'].map(m => <option key={m}>{m}</option>)}</select></label>
             <PaymentDetails method={method} value={details} onChange={setDetails} profile />
-            <button className="btn btn-primary-blue" type="submit">{saving ? 'Saving…' : 'Save account details'}</button>
+            <button className="btn btn-primary-blue" type="submit">{saving ? <ButtonSpinner text="Saving…" /> : 'Save account details'}</button>
             {error && <p role="alert">{typeof error === 'string' ? error : 'Unable to save account details'}</p>}
         </fieldset></form>}
     </section>;

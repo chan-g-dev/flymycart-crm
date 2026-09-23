@@ -4,6 +4,9 @@
 
 import time
 import os
+from contextlib import asynccontextmanager, suppress
+import asyncio
+import logging
 from fastapi import FastAPI, Request, status, Depends
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -28,16 +31,12 @@ from app.routers import (
     refunds_router,
     followups_router,
     reports_router,
-    settings_router
+    settings_router,
+    attendance_router
 )
 from app.auth import get_current_user_context
 from app.dependencies import get_current_session_context
 from app.routers.bookings import bookings_router
-
-from contextlib import asynccontextmanager
-import asyncio
-import logging
-from contextlib import suppress
 from app.reminders import generate_reminders
 
 @asynccontextmanager
@@ -186,13 +185,12 @@ base_allowed_origins = [
 allowed_origins = []
 
 if settings.ENVIRONMENT == "production":
-    # Production: allow deployment URLs plus local development convenience
+    # Production: only explicitly trusted application origins.
     allowed_origins = [
         os.getenv("FRONTEND_URL", "https://crm.flymycart.in"),
         "https://crm.flymycart.in",
         "https://www.crm.flymycart.in",
         "https://flymycart-crm.vercel.app",
-        *base_allowed_origins,
     ]
 elif settings.ENVIRONMENT == "staging":
     # Staging: allow staging frontend plus local development convenience
@@ -215,7 +213,7 @@ allowed_origins = list(dict.fromkeys([origin for origin in allowed_origins if or
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins,
-    allow_origin_regex=r"https://.*\.vercel\.app|https://.*\.pages\.dev|https://.*\.render\.com",
+    allow_origin_regex=None if settings.ENVIRONMENT == "production" else r"https://.*\.vercel\.app|https://.*\.pages\.dev|https://.*\.render\.com",
     allow_credentials=True,  # Required for HttpOnly cookies
     allow_methods=["*"],
     allow_headers=["*"],
@@ -291,6 +289,9 @@ app.include_router(reports_router, prefix="/api")
 
 app.include_router(settings_router)
 app.include_router(settings_router, prefix="/api")
+
+app.include_router(attendance_router)
+app.include_router(attendance_router, prefix="/api")
 
 @app.get("/", include_in_schema=False)
 def root():

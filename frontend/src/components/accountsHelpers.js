@@ -21,7 +21,7 @@ export function resolveTab(section) {
     if (section === 'transactions') return 'expenses';
     return section;
 }
-export function useAccountRequest(method, params, revision) {
+export function useAccountRequest(method, params, revision, refreshSource) {
     const [result, setResult] = useState(null);
     const encoded = JSON.stringify(params);
     const key = `${method}:${encoded}:${revision}`;
@@ -34,7 +34,7 @@ export function useAccountRequest(method, params, revision) {
             if (current) setResult({ key: requestKey, data: null, loading: false, error: typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Unable to load accounts. Please retry.' });
         });
         return () => { current = false; };
-    }, [method, encoded, revision]);
+    }, [method, encoded, revision, refreshSource]);
     return result?.key === key ? result : { data: null, loading: true, error: '' };
 }
 export function exportRows(rows, name) {

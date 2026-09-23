@@ -1,4 +1,4 @@
-from app.access_policy import can_view_costs, can_view_values
+from app.access_policy import can_view_costs, can_view_values, can_view_customer_price
 from app.payment_requests import claim_payment_request, finish_payment_request
 from app.payment_details import validate_payment, validate_amount, payment_kind
 # ================================================================
@@ -12,13 +12,13 @@ from app.business_dates import business_today
 from typing import List, Optional, Dict, Any
 from fastapi import APIRouter, Depends, HTTPException, Request, Query, Response
 from sqlalchemy.orm import Session
-from sqlalchemy import desc, func, or_
+from sqlalchemy import desc, func, or_, case
 from sqlalchemy.exc import IntegrityError
 
 from app.database import get_db
 from app.models import (
     Customer, Shipment, Invoice, WalletTransaction,
-    Refund, AuditLog, SystemSettings
+    Refund, AuditLog, SystemSettings, AccountingEntry
 )
 from app.schemas import ShipmentCreate, ShipmentOut
 from app.finance_engine import (
@@ -83,13 +83,46 @@ def get_shipments(
     query = query.limit(limit).offset(offset)
     shipments = query.all()
 
+    provider_costs = dict(
+        db.query(
+            func.lower(Shipment.provider_name),
+            func.sum(case((Shipment.cost_reconciled.is_(True), func.coalesce(Shipment.actual_provider_cost, Shipment.provider_cost)), else_=Shipment.provider_cost))
+        )
+        .filter(Shipment.provider_type == "postpaid")
+        .group_by(func.lower(Shipment.provider_name))
+        .all()
+    )
+    provider_payments = dict(
+        db.query(func.lower(AccountingEntry.provider), func.sum(AccountingEntry.amount))
+        .filter(AccountingEntry.kind == "provider_payment", AccountingEntry.provider.isnot(None))
+        .group_by(func.lower(AccountingEntry.provider))
+        .all()
+    )
+
     out = [ShipmentOut.model_validate(s) for s in shipments]
     for row, shipment in zip(out, shipments):
         row.gross_profit = calculate_gross_profit(shipment.price, shipment.provider_cost, shipment.actual_provider_cost, shipment.cost_reconciled)
+        p_name = (shipment.provider_name or shipment.courier or "").lower().strip()
+        p_cost = float(provider_costs.get(p_name, 0) or 0)
+        p_paid = float(provider_payments.get(p_name, 0) or 0)
+        is_carrier_settled = (p_paid >= p_cost) and (p_cost > 0)
+
+        if shipment.provider_type == "prepaid":
+            row.carrier_payment_status = "Paid"
+        elif is_carrier_settled or getattr(shipment, "carrier_payment_status", None) == "Paid":
+            row.carrier_payment_status = "Paid"
+        elif shipment.cost_reconciled:
+            row.carrier_payment_status = "Reconciled"
+        else:
+            row.carrier_payment_status = "Pending"
     for s_out in out:
+        if not can_view_customer_price(ctx):
+            s_out.price = None
+            s_out.total_amount = None
+            s_out.gst_amount = None
         if not can_view_costs(ctx):
             s_out.provider_cost = s_out.actual_provider_cost = None
-        if not can_view_values(ctx):
+        if not can_view_values(ctx) or not can_view_costs(ctx) or not can_view_customer_price(ctx):
             s_out.gross_profit = None
 
     return out
@@ -108,10 +141,14 @@ def create_shipment(
         if not existing:
             raise HTTPException(404, "Shipment not found")
         output = ShipmentOut.model_validate(existing)
-        if not (ctx.get("is_super_admin") or "*" in ctx.get("permissions", {}) or ctx.get("permissions", {}).get("viewCostMargins") or ctx.get("permissions", {}).get("reports.view_financial")):
-            output.gross_profit = None
+        if not can_view_customer_price(ctx):
+            output.price = None
+            output.total_amount = None
+            output.gst_amount = None
         if not can_view_costs(ctx):
             output.provider_cost = output.actual_provider_cost = None
+        if not can_view_values(ctx) or not can_view_costs(ctx) or not can_view_customer_price(ctx):
+            output.gross_profit = None
         return output
     if not can_view_costs(ctx) and payload.provider_cost:
         raise HTTPException(403, 'Courier purchase costs require additional access')
@@ -191,7 +228,7 @@ def create_shipment(
     if paid_amt > 0:
         paid_amt = validate_amount(paid_amt)
         payload.payment_reference = (payload.payment_reference or "").strip()
-        payload.paid_to = "Cash in Hand" if payment_kind(payload.payment_method) == "Cash" else payload.paid_to.strip()
+        payload.paid_to = payload.paid_to.strip() or ("Cash in Hand" if payment_kind(payload.payment_method) == "Cash" else "")
         payload.payment_details = validate_payment(payload.payment_method, payload.paid_to, payload.payment_reference, payload.payment_details, db=db, resolve_account=True)
         if not payload.collected_by.strip():
             raise HTTPException(400, "Collector name is required")
@@ -305,6 +342,7 @@ def create_shipment(
 
         # Dual employee audit logging
         payment_status=payload.payment_status,
+        carrier_payment_status="Paid" if payload.provider_type == "prepaid" else "Pending",
         payment_method=payload.payment_method,
         paid_to=payload.paid_to,
         collected_by=payload.collected_by,
@@ -398,9 +436,14 @@ def create_shipment(
         or ctx.get("permissions", {}).get("reports.view_financial")
     )
     s_out = ShipmentOut.model_validate(new_shipment)
+    s_out.gross_profit = calculate_gross_profit(new_shipment.price, new_shipment.provider_cost, new_shipment.actual_provider_cost, new_shipment.cost_reconciled)
+    if not can_view_customer_price(ctx):
+        s_out.price = None
+        s_out.total_amount = None
+        s_out.gst_amount = None
     if not can_view_costs(ctx):
         s_out.provider_cost = s_out.actual_provider_cost = None
-    if not can_view_values(ctx):
+    if not can_view_values(ctx) or not can_view_costs(ctx) or not can_view_customer_price(ctx):
         s_out.gross_profit = None
     return s_out
 

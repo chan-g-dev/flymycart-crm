@@ -295,6 +295,7 @@ class Shipment(Base):
 
     # Payment details (Rule 8: store BOTH collected_by AND paid_to)
     payment_status = Column(String(20), default="Paid", index=True)  # Paid, Partial, Unpaid, B2B Credit
+    carrier_payment_status = Column(String(20), default="Pending", index=True)  # Paid, Reconciled, Pending
     payment_method = Column(String(50), default="PhonePe")
     paid_to = Column(String(100), default="Office QR")
     collected_by = Column(String(100), default="Nawaz")
@@ -759,3 +760,20 @@ class ProfileAuditLog(Base):
 
     profile = relationship("UserProfile", foreign_keys=[profile_id])
     changer = relationship("UserProfile", foreign_keys=[changed_by])
+
+
+class AttendanceRecord(Base):
+    __tablename__ = "attendance_records"
+
+    id = Column(String(50), primary_key=True, default=lambda: f"att_{uuid.uuid4().hex[:16]}")
+    user_id = Column(String(50), nullable=True, index=True)
+    staff_name = Column(String(150), nullable=False, index=True)
+    staff_email = Column(String(255), nullable=True)
+    date = Column(String(10), nullable=False, index=True)  # YYYY-MM-DD
+    event = Column(String(30), nullable=False, index=True)  # LOGIN, LOGOUT, LUNCH START, LUNCH END, BREAK START, BREAK END
+    time = Column(String(20), nullable=False)  # e.g. "09:17 AM"
+    timestamp = Column(DateTime, default=datetime.datetime.utcnow, index=True)
+    photo_url = Column(Text, nullable=True)
+    ip_address = Column(String(60), nullable=True)
+    notes = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)

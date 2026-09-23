@@ -73,6 +73,34 @@ export const SreeMaruthiLogo = ({ height = 16 }) => (
     </svg>
 );
 
+export const DTDCLogo = ({ height = 16 }) => (
+    <svg height={height} viewBox="0 0 85 24" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ verticalAlign: 'middle', display: 'inline-block' }}>
+        <rect width="85" height="24" rx="4" fill="#1E3A8A" />
+        <text x="42.5" y="16.5" fontFamily="'Arial Black', sans-serif" fontSize="13" fontWeight="900" fill="#EF4444" textAnchor="middle" letterSpacing="1">DTDC</text>
+    </svg>
+);
+
+export const TrackonLogo = ({ height = 16 }) => (
+    <svg height={height} viewBox="0 0 95 24" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ verticalAlign: 'middle', display: 'inline-block' }}>
+        <rect width="95" height="24" rx="4" fill="#B91C1C" />
+        <text x="47.5" y="16.5" fontFamily="'Arial Black', sans-serif" fontSize="12" fontWeight="900" fill="#FFFFFF" textAnchor="middle" letterSpacing="0.5">TRACKON</text>
+    </svg>
+);
+
+export const ShadowfaxLogo = ({ height = 16 }) => (
+    <svg height={height} viewBox="0 0 105 24" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ verticalAlign: 'middle', display: 'inline-block' }}>
+        <rect width="105" height="24" rx="4" fill="#0F172A" />
+        <text x="52.5" y="16.5" fontFamily="'Arial Black', sans-serif" fontSize="11" fontWeight="900" fill="#38BDF8" textAnchor="middle" letterSpacing="0.5">SHADOWFAX</text>
+    </svg>
+);
+
+export const EcomExpressLogo = ({ height = 16 }) => (
+    <svg height={height} viewBox="0 0 115 24" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ verticalAlign: 'middle', display: 'inline-block' }}>
+        <rect width="115" height="24" rx="4" fill="#047857" />
+        <text x="57.5" y="16.5" fontFamily="'Arial Black', sans-serif" fontSize="10.5" fontWeight="900" fill="#FFFFFF" textAnchor="middle" letterSpacing="0.5">ECOM EXPRESS</text>
+    </svg>
+);
+
 // Official WhatsApp Vector Icon
 export const WhatsAppIcon = ({ size = 15, color = '#25D366' }) => (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ verticalAlign: 'middle', display: 'inline-block' }}>
@@ -80,18 +108,69 @@ export const WhatsAppIcon = ({ size = 15, color = '#25D366' }) => (
     </svg>
 );
 
-// Map courier string strictly to the required logos
-export const CourierLogo = ({ courier, height = 17, showLabel = false }) => {
-    const c = (courier || '').toLowerCase();
+// Built-in presets map
+export const PRESET_CARRIER_LOGOS = [
+    { name: 'FedEx', component: FedExLogo },
+    { name: 'Aramex', component: AramexLogo },
+    { name: 'DHL', component: DHLLogo },
+    { name: 'Blue Dart', component: BlueDartLogo },
+    { name: 'Delhivery', component: DelhiveryLogo },
+    { name: 'UPS', component: UPSLogo },
+    { name: 'ICL', component: ICLLogo },
+    { name: 'BRV', component: BRVLogo },
+    { name: 'Sree Maruthi', component: SreeMaruthiLogo },
+    { name: 'DTDC', component: DTDCLogo },
+    { name: 'Trackon', component: TrackonLogo },
+    { name: 'Shadowfax', component: ShadowfaxLogo },
+    { name: 'Ecom Express', component: EcomExpressLogo }
+];
+
+// Map courier string strictly to the required logos or custom stored logo
+export const CourierLogo = ({ courier, height = 17, showLabel = false, logoUrl = null, customLogos = null }) => {
+    const raw = (courier || '').trim();
+    const c = raw.toLowerCase();
+
+    // Check custom logo if provided in prop or stored in window / localStorage
+    let storedLogo = logoUrl;
+    if (!storedLogo && customLogos && customLogos[raw]) {
+        storedLogo = customLogos[raw];
+    }
+    if (!storedLogo && typeof window !== 'undefined' && window.__FMC_SETTINGS__?.courierLogos?.[raw]) {
+        storedLogo = window.__FMC_SETTINGS__.courierLogos[raw];
+    }
+    if (!storedLogo && typeof localStorage !== 'undefined') {
+        try {
+            const cached = JSON.parse(localStorage.getItem('fmc_courier_logos') || '{}');
+            if (cached[raw]) storedLogo = cached[raw];
+        } catch {
+            // ignore cache parse errors
+        }
+    }
+
     let logoComponent = null;
 
-    if (c.includes('fedex')) {
+    if (storedLogo && typeof storedLogo === 'string' && (storedLogo.startsWith('data:image') || storedLogo.startsWith('http://') || storedLogo.startsWith('https://') || storedLogo.startsWith('blob:'))) {
+        logoComponent = (
+            <img 
+                src={storedLogo} 
+                alt={raw} 
+                style={{ 
+                    height: `${height}px`, 
+                    maxHeight: `${height}px`, 
+                    maxWidth: '120px', 
+                    objectFit: 'contain', 
+                    verticalAlign: 'middle',
+                    display: 'inline-block' 
+                }} 
+            />
+        );
+    } else if (c.includes('fedex')) {
         logoComponent = <FedExLogo height={height} />;
     } else if (c.includes('aramex')) {
         logoComponent = <AramexLogo height={height} />;
     } else if (c.includes('delhivery')) {
         logoComponent = <DelhiveryLogo height={height} />;
-    } else if (c.includes('blue dart')) {
+    } else if (c.includes('blue dart') || c.includes('bluedart')) {
         logoComponent = <BlueDartLogo height={height} />;
     } else if (c.includes('dhl')) {
         logoComponent = <DHLLogo height={height} />;
@@ -103,21 +182,30 @@ export const CourierLogo = ({ courier, height = 17, showLabel = false }) => {
         logoComponent = <ICLLogo height={height} />;
     } else if (c.includes('brv')) {
         logoComponent = <BRVLogo height={height} />;
-
+    } else if (c.includes('dtdc')) {
+        logoComponent = <DTDCLogo height={height} />;
+    } else if (c.includes('trackon')) {
+        logoComponent = <TrackonLogo height={height} />;
+    } else if (c.includes('shadowfax')) {
+        logoComponent = <ShadowfaxLogo height={height} />;
+    } else if (c.includes('ecom express') || c.includes('ecomexpress')) {
+        logoComponent = <EcomExpressLogo height={height} />;
     } else {
         logoComponent = (
             <span style={{ 
-                background: '#475569', 
-                color: 'white', 
+                background: 'linear-gradient(135deg, #1e293b, #334155)', 
+                color: '#f8fafc', 
                 fontWeight: 800, 
                 fontSize: '11px', 
                 padding: '2px 8px', 
                 borderRadius: '4px',
                 display: 'inline-flex',
                 alignItems: 'center',
-                height: `${height}px`
+                height: `${height}px`,
+                letterSpacing: '0.3px',
+                border: '1px solid rgba(255,255,255,0.1)'
             }}>
-                {courier || 'Express'}
+                {raw || 'Express'}
             </span>
         );
     }

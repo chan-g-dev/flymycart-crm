@@ -705,7 +705,6 @@ export const Users = ({ settings, onDataMutated }) => {
                                             <th>Operating Hub</th>
                                             <th>Role Level</th>
                                             <th>Account Status</th>
-                                            <th>Authorized By</th>
                                             <th style={{ textAlign: 'center' }}>Management Actions</th>
                                         </tr>
                                     </thead>
@@ -786,23 +785,6 @@ export const Users = ({ settings, onDataMutated }) => {
                                                             <span className="status-bullet" />
                                                             {isPending ? 'Pending' : (isUserActive ? 'Active' : staff.status)}
                                                         </span>
-                                                    </td>
-
-                                                    <td>
-                                                        <div className="approval-cell">
-                                                            {staff.approved_by ? (
-                                                                <>
-                                                                    <div className="approved-by-name">{staff.approved_by}</div>
-                                                                    {staff.approval_date && (
-                                                                        <div className="approved-date">
-                                                                            {new Date(staff.approval_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
-                                                                        </div>
-                                                                    )}
-                                                                </>
-                                                            ) : (
-                                                                <span className="approval-pending-text">⏳ Needs Approval</span>
-                                                            )}
-                                                        </div>
                                                     </td>
 
                                                     <td>

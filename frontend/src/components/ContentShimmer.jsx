@@ -3,7 +3,7 @@ import { Loader2 } from 'lucide-react';
 
 export const ContentShimmer = ({ message = 'Loading financial records...' }) => {
     return (
-        <div className="fmc-content-shimmer-container">
+        <div className="fmc-content-shimmer-container" role="status" aria-label={message} aria-busy="true">
             {/* Header Banner Loader */}
             <div className="fmc-shimmer-header">
                 <div className="fmc-shimmer-spinner">
@@ -11,7 +11,7 @@ export const ContentShimmer = ({ message = 'Loading financial records...' }) => 
                 </div>
                 <div className="fmc-shimmer-text">
                     <strong>{message}</strong>
-                    <span>Extracting real-time records from single-entry database...</span>
+                    <span>Please wait while your records load.</span>
                 </div>
             </div>
 

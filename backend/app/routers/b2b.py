@@ -18,6 +18,7 @@ from app.finance_engine import calculate_b2b_aging_buckets
 from app.auth import create_audit_log
 from app.dependencies import require_permission
 from app.permissions import PermissionCode
+from app.access_policy import can_view_customer_price
 
 b2b_router = APIRouter(prefix="/api/b2b", tags=["B2B / Credit"])
 
@@ -141,6 +142,12 @@ def get_b2b_summary(
 
         companies_table.sort(key=lambda item: (item["company"] or "").lower())
         companies_total = len(companies_table)
+        if not can_view_customer_price(ctx):
+            total_credit_sales = collected = outstanding = due_this_week = overdue = None
+            aging = {key: None for key in aging}
+            for company in companies_table:
+                for key in ('total_billed', 'total_paid', 'outstanding', 'credit_utilized_percent'):
+                    company[key] = None
         return {
             "total_credit_sales": total_credit_sales,
             "collected": collected,

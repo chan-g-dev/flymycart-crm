@@ -1,3 +1,4 @@
+import { ButtonSpinner } from './LoadingSpinner';
 ﻿import React, { useEffect, useRef, useState } from 'react';
 import { Palette, Check, X } from 'lucide-react';
 import { useAuth } from '../context/authSession';
@@ -59,7 +60,7 @@ export default function InvoiceLogo() {
                     <img src={source(id)} alt={`${name} logo`} /><span>{name}{draft === id && <Check size={13} />}</span><small>{description}</small>
                 </button>)}
             </div>
-            <div className="invoice-logo-picker-footer"><button type="button" disabled={saving} onClick={() => setDraft('original')} aria-pressed={draft === 'original'}>Restore original{draft === 'original' ? ' ✓' : ''}</button><div><button type="button" disabled={saving} onClick={close}>Cancel</button><button type="button" className="invoice-logo-save" disabled={saving || draft === saved} onClick={save}>{saving ? 'Saving…' : 'Save logo'}</button></div></div>
+            <div className="invoice-logo-picker-footer"><button type="button" disabled={saving} onClick={() => setDraft('original')} aria-pressed={draft === 'original'}>Restore original{draft === 'original' ? ' ✓' : ''}</button><div><button type="button" disabled={saving} onClick={close}>Cancel</button><button type="button" className="invoice-logo-save" disabled={saving || draft === saved} onClick={save}>{saving ? <ButtonSpinner text="Saving…" /> : 'Save logo'}</button></div></div>
             {draft === 'original' && <img className="invoice-logo-original-preview" src={source('original')} alt="Original Fly My Cart logo selected" />}
             {message && <p role="status">{message}</p>}
         </section>}

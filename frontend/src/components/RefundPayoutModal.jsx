@@ -1,3 +1,4 @@
+import { ButtonSpinner } from './LoadingSpinner';
 import { paymentOptions } from '../utils/businessOptions';
 import React, { useState } from 'react';
 import PaymentDetails from './PaymentDetails';
@@ -26,7 +27,7 @@ export default function RefundPayoutModal({ settings, id, onClose, onSaved }) {
             <label className="form-group">Payout mode<select value={method} onChange={e => { setMethod(e.target.value); setDetails({}); setReference(''); }}>{paymentOptions(settings).map(m => <option key={m}>{m}</option>)}</select></label>
             <PaymentDetails method={method} value={details} onChange={setDetails} reference={reference} onReferenceChange={setReference} />
             {error && <p role="alert">{typeof error === 'string' ? error : 'Invalid payout details'}</p>}
-            <div className="form-actions"><button type="button" className="btn btn-outline" onClick={onClose}>Cancel</button><button className="btn btn-primary-blue" type="submit">{saving ? 'Saving…' : 'Record payout'}</button></div>
+            <div className="form-actions"><button type="button" className="btn btn-outline" onClick={onClose}>Cancel</button><button className="btn btn-primary-blue" type="submit">{saving ? <ButtonSpinner text="Saving…" /> : 'Record payout'}</button></div>
         </fieldset></form>
     </section></div>;
 }

@@ -32,3 +32,102 @@
 .dash-bottom-grid .dashboard-summary-card .donut-center-label small { position: absolute; bottom: 8px; left: 0; width: 100%; font-size: 9px; line-height: 1.3; text-transform: none; letter-spacing: 0; font-weight: 500; color: #64748b; }
 .dash-bottom-grid .dashboard-summary-card .donut-legend { padding-top: 10px; gap: 8px; }
 .dash-bottom-grid .carrier-value-card .dashboard-value-summary { padding: 7px 9px; gap: 4px; margin-top: 2px; }
+
+/* Restricted Financial State Cards */
+.dashboard-restricted-panel {
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+}
+
+.restricted-badge-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 11px;
+    font-weight: 600;
+    color: #64748b;
+    background: #f1f5f9;
+    padding: 3px 8px;
+    border-radius: 6px;
+    border: 1px solid #e2e8f0;
+}
+
+.restricted-panel-content {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: 36px 20px;
+    margin: auto 0;
+}
+
+.restricted-icon-circle {
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    background: #f1f5f9;
+    border: 1px solid #e2e8f0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 12px;
+}
+
+.restricted-panel-content h4 {
+    font-size: 14px;
+    font-weight: 700;
+    color: #1e293b;
+    margin: 0 0 6px;
+}
+
+.restricted-panel-content p {
+    font-size: 12px;
+    color: #64748b;
+    margin: 0 0 10px;
+    max-width: 320px;
+    line-height: 1.5;
+}
+
+.restricted-hint {
+    font-size: 11px;
+    color: #94a3b8;
+    background: #f8fafc;
+    padding: 4px 10px;
+    border-radius: 6px;
+    border: 1px dashed #cbd5e1;
+}
+
+.dashboard-restricted-card {
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-start;
+}
+
+.restricted-card-body {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: 24px 12px;
+    margin: auto 0;
+    gap: 6px;
+}
+
+.restricted-icon-circle-sm {
+    width: 38px;
+    height: 38px;
+    border-radius: 50%;
+    background: #f1f5f9;
+    border: 1px solid #e2e8f0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 4px;
+}
+

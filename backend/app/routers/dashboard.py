@@ -84,7 +84,12 @@ def get_dashboard_summary(
     in_transit_count = int(totals["in_transit_count"])
     delivered_count = int(totals["delivered_count"])
     active_volume = int(totals["active_volume"])
-    can_view_financials = bool(ctx.get("is_super_admin") or ctx.get("permissions", {}).get("*") or ctx.get("permissions", {}).get(PermissionCode.REPORTS_VIEW_FINANCIAL))
+    from app.access_policy import can_view_costs, can_view_values, can_view_customer_price
+
+    can_view_price = can_view_customer_price(ctx)
+    can_view_cost = can_view_costs(ctx)
+    can_view_profit = can_view_values(ctx) and can_view_cost and can_view_price
+
     courier_counts = dict(db.query(Shipment.courier, func.count(Shipment.id)).filter(today).group_by(Shipment.courier).all())
     active_courier_counts = dict(db.query(Shipment.courier, func.count(Shipment.id)).filter(Shipment.courier.isnot(None), active | (Shipment.status == "Delayed")).group_by(Shipment.courier).all())
     courier_breakdown = " | ".join(f"{courier} {count}" for courier, count in courier_counts.items()) or "No bookings today yet"
@@ -135,10 +140,16 @@ def get_dashboard_summary(
         }
         recent_shipments.append(mask_shipment_financials(s_dict, ctx))
 
-    if not can_view_financials:
-        for values in centers.values():
+    for values in centers.values():
+        if not can_view_cost:
             values["total_provider_cost"] = None
+        if not can_view_profit:
             values["total_gross_profit"] = None
+        if not can_view_price:
+            values["total_sales"] = None
+            values["today_sales"] = None
+            for key in ('total_sales_with_gst', 'today_sales_with_gst', 'pending_collection', 'total_collected', 'today_collected', 'b2b_outstanding'):
+                values[key] = None
 
     billed = func.coalesce(Shipment.total_amount, Shipment.price + func.coalesce(Shipment.gst_amount, 0))
     today_sales_with_gst, total_sales_with_gst = db.query(
@@ -157,20 +168,20 @@ def get_dashboard_summary(
         "in_transit_count": in_transit_count,
         "delivered_count": delivered_count,
         "active_volume": active_volume,
-        "total_sales": total_sales,
-        "total_sales_with_gst": total_sales_with_gst,
-        "total_gst": total_gst,
-        "total_collected": total_collected,
-        "total_provider_cost": totals["total_provider_cost"] if can_view_financials else None,
-        "total_gross_profit": totals["total_gross_profit"] if can_view_financials else None,
-        "today_sales": today_sales,
-        "today_sales_with_gst": today_sales_with_gst,
-        "today_gst": today_gst,
-        "today_collected": today_collected,
-        "collections_by_center": daily_collections["by_center"],
-        "pending_collection": totals["pending_collection"],
+        "total_sales": total_sales if can_view_price else None,
+        "total_sales_with_gst": total_sales_with_gst if can_view_price else None,
+        "total_gst": total_gst if can_view_price else None,
+        "total_collected": total_collected if can_view_price else None,
+        "total_provider_cost": totals["total_provider_cost"] if can_view_cost else None,
+        "total_gross_profit": totals["total_gross_profit"] if can_view_profit else None,
+        "today_sales": today_sales if can_view_price else None,
+        "today_sales_with_gst": today_sales_with_gst if can_view_price else None,
+        "today_gst": today_gst if can_view_price else None,
+        "today_collected": today_collected if can_view_price else None,
+        "collections_by_center": daily_collections["by_center"] if can_view_price else {},
+        "pending_collection": totals["pending_collection"] if can_view_price else None,
         "center_summaries": centers,
-        "b2b_outstanding": b2b_outstanding,
+        "b2b_outstanding": b2b_outstanding if can_view_price else None,
         "b2b_overdue_count": b2b_overdue_count,
         "followups_due": followups_due,
         "refunds_pending": refunds_pending,

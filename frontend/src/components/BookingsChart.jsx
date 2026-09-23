@@ -1,3 +1,4 @@
+import { LoadingSpinner } from './LoadingSpinner';
 import React, { useState } from 'react';
 import { businessDate, formatBusinessDate } from '../utils/businessDates';
 import './BookingsChart.css';
@@ -27,7 +28,7 @@ export default function BookingsChart({ trend, selectedCenter, isLoading }) {
             </div>
         </div>
         </div>
-        {!trend ? <p role="status">{isLoading ? 'Loading bookings…' : 'Booking trend unavailable. Refresh to try again.'}</p> : <>
+        {!trend ? <p role="status">{isLoading ? <LoadingSpinner inline text="Loading bookings…" /> : 'Booking trend unavailable. Refresh to try again.'}</p> : <>
             <div className="bookings-chart-total"><strong>{total.toLocaleString('en-IN')}</strong> bookings <span>· {selectedCenter || 'All Centers'}</span></div>
             {chartType !== 'bar' ? <ChartVisualization title="Bookings by day" type={chartType} data={days.map(day => ({ label: formatBusinessDate(day.date, { weekday: 'short' }), value: day.count }))} /> : <div className="bookings-chart-plot" role="list" aria-label="Booking counts by date">
                 {days.map(day => <div key={day.date} className={`bookings-chart-column ${day.date === today ? 'is-today' : ''}`} role="listitem" aria-label={`${formatBusinessDate(day.date)}: ${day.count} bookings${day.date === today ? ', today' : ''}`}>

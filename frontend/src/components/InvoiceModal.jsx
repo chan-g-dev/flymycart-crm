@@ -228,7 +228,7 @@ const InvoiceModal = ({ isOpen, onClose, invoice, onPaymentRecorded, settings })
                         <div className="form-grid invoice-payment-grid" style={{ gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '8px' }}>
                             <div className="form-group">
                                 <label>Amount (₹)</label>
-                                <input type="number" min="1" max={invoice.balance} value={paymentAmount} onChange={e => setPaymentAmount(e.target.value)} placeholder={`Max ${invoice.balance}`} required />
+                                <input type="number" min="0.01" step="0.01" max={invoice.balance} value={paymentAmount} onChange={e => setPaymentAmount(e.target.value)} placeholder={`Max ${invoice.balance}`} required />
                             </div>
                             <div className="form-group">
                                 <label>Payment Mode</label>

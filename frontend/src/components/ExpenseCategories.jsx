@@ -1,3 +1,4 @@
+import { ButtonSpinner } from './LoadingSpinner';
 import React, { useState } from 'react';
 import { useAuth } from '../context/authSession';
 import { apiClient } from '../api/client';
@@ -28,7 +29,7 @@ export default function ExpenseCategories({ categories, onSaved, disabled }) {
             </div>)}
             <button type="button" className="ao-button" disabled={draft.length >= 100} onClick={() => setDraft(old => [...old, ''])}>+ Add category</button>
             <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
-                <button type="button" className="ao-button primary" onClick={save}>{saving ? 'Saving...' : 'Save categories'}</button>
+                <button type="button" className="ao-button primary" onClick={save}>{saving ? <ButtonSpinner text="Saving..." /> : 'Save categories'}</button>
                 <button type="button" className="ao-button" onClick={() => { setDraft(null); setError(''); }}>Cancel</button>
             </div>
         </fieldset>}
