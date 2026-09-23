@@ -1,4 +1,4 @@
-import { ButtonSpinner } from '../components/LoadingSpinner';
+import { ButtonSpinner, LoadingSpinner } from '../components/LoadingSpinner';
 import React, { useState, useEffect, useCallback } from 'react';
 import { 
     Clock, 
@@ -313,6 +313,7 @@ export function Attendance({ settings }) {
 
     return (
         <div className="attendance-page-container">
+            {loading && <LoadingSpinner inline text="Loading attendance..." />}
             {/* Header */}
             <div className="attendance-header">
                 <div className="attendance-title-area">
@@ -345,7 +346,7 @@ export function Attendance({ settings }) {
                         onClick={fetchData}
                         title="Refresh data"
                     >
-                        <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
+                        <RefreshCw size={16} />
                     </button>
                 </div>
             </div>

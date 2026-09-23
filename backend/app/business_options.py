@@ -6,6 +6,9 @@ import re
 
 def validate_business_options(payload):
     result = dict(payload)
+    if 'customerTypes' in result:
+        from app.customer_types import normalize_customer_types
+        result['customerTypes'] = normalize_customer_types(result['customerTypes'])
     for key, maximum in {'companyName': 150, 'centerAddress': 1000, 'gstin': 30, 'companyPhone': 50, 'companyEmail': 150, 'invoicePrefix': 20}.items():
         if key in result:
             value = result[key]

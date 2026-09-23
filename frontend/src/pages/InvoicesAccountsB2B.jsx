@@ -665,10 +665,7 @@ export const B2B = ({ b2bData, onOpenCustomerDrawer, onOpenB2BModal, onRefresh }
                         <p className="page-subtitle">Manage corporate credit limits, payment terms, and 5-bucket aging schedule</p>
                     </div>
                 </div>
-                <ContentShimmer type="cards" count={5} />
-                <div style={{ marginTop: '16px' }}>
-                    <ContentShimmer type="table" rows={6} />
-                </div>
+                <ContentShimmer message="Loading corporate accounts..." />
             </div>
         );
     }

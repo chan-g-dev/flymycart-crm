@@ -1,3 +1,4 @@
+from app.customer_types import resolve_customer_type
 from app.finance_engine import calculate_gross_profit
 # ================================================================
 # FLY MY CART CRM - CUSTOMERS ROUTER (routers/customers.py)
@@ -279,6 +280,7 @@ def create_customer(
     if existing:
         raise HTTPException(status_code=400, detail=f"Customer with mobile {payload.mobile} already exists: {existing.name}")
 
+    payload.customer_type = resolve_customer_type(db, payload.customer_type)
     cust_id = f"cust_{uuid.uuid4().hex[:16]}"
     new_customer = Customer(
         id=cust_id,
@@ -326,6 +328,7 @@ def update_customer(
     if not customer:
         raise HTTPException(status_code=404, detail="Customer not found")
 
+    payload.customer_type = resolve_customer_type(db, payload.customer_type, customer.customer_type)
     before_val = {"name": customer.name, "mobile": customer.mobile, "company": customer.company}
 
     customer.name = payload.name.strip()

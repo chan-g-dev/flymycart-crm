@@ -1,3 +1,4 @@
+import { customerTypeOptions } from '../utils/customerTypes';
 import React, { useState } from 'react';
 import { X, UserPlus, Save, Loader2 } from 'lucide-react';
 import { apiClient } from '../api/client';
@@ -16,7 +17,7 @@ const INITIAL_FORM = {
     source: 'Walk-in'
 };
 
-const CustomerModalForm = ({ isOpen, onClose, onCreated }) => {
+const CustomerModalForm = ({ isOpen, onClose, onCreated, settings }) => {
     const [form, setForm] = useState(INITIAL_FORM);
     const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -81,9 +82,7 @@ const CustomerModalForm = ({ isOpen, onClose, onCreated }) => {
                         <div className="form-group">
                             <label>Customer Type <span className="required">*</span></label>
                             <select value={form.customer_type} onChange={e => setForm({ ...form, customer_type: e.target.value })}>
-                                <option value="C2C">C2C (Individual Walk-in)</option>
-                                <option value="B2C">B2C (Commercial Business)</option>
-                                <option value="B2B">B2B (Corporate Monthly Credit)</option>
+                                {customerTypeOptions(settings).map(type => <option key={type} value={type}>{type}</option>)}
                             </select>
                         </div>
                         <div className="form-group" style={{ gridColumn: '1 / -1' }}>

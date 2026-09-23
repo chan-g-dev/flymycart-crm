@@ -16,7 +16,7 @@ function setup() {
 }
 const tick = () => new Promise(resolve => setImmediate(resolve));
 
-test('activity stays visible until all concurrent requests complete', async () => {
+test('global action feedback clears when only screen-owned reads remain', async () => {
     const { client, activity, waiting } = setup();
     const read = client.get('/records');
     const save = client.post('/records', {});
@@ -24,7 +24,7 @@ test('activity stays visible until all concurrent requests complete', async () =
     assert.deepEqual(activity.getSnapshot(), { count: 2, message: 'Saving changes...' });
     waiting[1].resolve();
     await save;
-    assert.deepEqual(activity.getSnapshot(), { count: 1, message: 'Loading data...' });
+    assert.deepEqual(activity.getSnapshot(), { count: 1, message: '' });
     waiting[0].resolve();
     await read;
     assert.equal(activity.getSnapshot().count, 0);

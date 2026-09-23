@@ -126,6 +126,9 @@ def migrate_database_schema(db: Session):
             created_by VARCHAR(50) NOT NULL,
             created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT (NOW() AT TIME ZONE 'UTC')
         );""",
+        "ALTER TABLE customers ALTER COLUMN customer_type TYPE VARCHAR(50);",
+        "ALTER TABLE shipments ALTER COLUMN customer_type TYPE VARCHAR(50);",
+        "ALTER TABLE booking_requests ALTER COLUMN customer_type TYPE VARCHAR(50);",
         "ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS event_type VARCHAR(100) DEFAULT 'audit';",
         "ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS result VARCHAR(20) DEFAULT 'success';",
         "ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS reason TEXT;",

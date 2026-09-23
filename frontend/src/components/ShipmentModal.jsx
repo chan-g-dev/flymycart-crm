@@ -1,3 +1,4 @@
+import { customerTypeOptions } from '../utils/customerTypes';
 import GstValuePair from './GstValuePair';
 import { resolveWeightRule, calculateWeights, parcelsInCm } from '../utils/weightRules';
 import { businessDate } from '../utils/businessDates';
@@ -482,7 +483,7 @@ const ShipmentModalForm = ({ isOpen, onClose, onCreated, settings }) => {
 
                             <div className="booking-fields" style={{ marginTop: '14px' }}>
                                 {field('customer_name', 'Customer / Company Name', { required: true, placeholder: 'Full Name / Company' })}
-                                {field('customer_type', 'Customer Category', { items: ['C2C', 'B2C', 'B2B'] })}
+                                {field('customer_type', 'Customer Category', { items: customerTypeOptions(settings, [form.customer_type]) })}
                             </div>
                         </div>
 

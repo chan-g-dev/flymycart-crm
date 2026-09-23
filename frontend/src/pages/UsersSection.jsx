@@ -408,7 +408,7 @@ export const Users = ({ settings, onDataMutated }) => {
                         title="Reload directory data from server"
                     >
                         <RefreshCw size={14} className={isRefreshing ? 'spin' : ''} />
-                        <span>{isRefreshing ? 'Refreshing...' : 'Refresh'}</span>
+                        <span>{isRefreshing ? 'Loading staff...' : 'Refresh'}</span>
                     </button>
 
                     <button 

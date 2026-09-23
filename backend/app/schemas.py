@@ -98,7 +98,7 @@ class CustomerBase(BaseModel):
     email: Optional[str] = None
     address: Optional[str] = None
     id_proof: Optional[str] = None
-    customer_type: str = "C2C"
+    customer_type: str = Field(default="C2C", min_length=1, max_length=50)
     source: Optional[str] = None
     center: Optional[str] = "Main Hub (Bangalore)"
     assigned_employee: Optional[str] = "Nawaz"
@@ -161,7 +161,7 @@ class ShipmentCreate(BaseModel):
     customer_id: Optional[str] = None
     customer_mobile: Optional[str] = None
     customer_name: str
-    customer_type: str = "C2C"
+    customer_type: str = Field(default="C2C", min_length=1, max_length=50)
     b2b_company_id: Optional[str] = None
 
     center: str = "Main Hub (Bangalore)"

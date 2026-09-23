@@ -8848,6 +8848,14 @@ table.data-table.reconciliation-table :is(th, td):last-child {
 }
 .fmc-page-loading { padding: 8px 0 12px; color: var(--text-muted, #64748b); }
 .fmc-form-loading { background: #fff; border-radius: 12px; min-width: 220px; }
+.fmc-workspace-loading {
+    width: 100%;
+    min-height: 100vh;
+    min-height: 100dvh;
+    display: grid;
+    place-items: center;
+    text-align: center;
+}
 @media print { .fmc-request-activity, .fmc-page-loading { display: none !important; } }
 @media (prefers-reduced-motion: reduce) {
     .fmc-spin-icon, .fmc-inline-spinner svg, .fmc-spinner-wrapper svg, [role="status"] > svg {

@@ -99,7 +99,7 @@ class Customer(Base):
     email = Column(String(100), nullable=True)
     address = Column(Text, nullable=True)
     id_proof = Column(String(100), nullable=True)
-    customer_type = Column(String(10), default="C2C", index=True)  # C2C, B2C, B2B
+    customer_type = Column(String(50), default="C2C", index=True)  # C2C, B2C, B2B
     source = Column(String(100), nullable=True)
     center = Column(String(100), default="Main Hub (Bangalore)")
     assigned_employee = Column(String(100), default="Nawaz")
@@ -131,7 +131,7 @@ class BookingRequest(Base):
     customer_name = Column(String(100), nullable=False, index=True)
     customer_phone = Column(String(20), nullable=True)
     customer_email = Column(String(100), nullable=True)
-    customer_type = Column(String(10), default="C2C", index=True)  # C2C, B2C, B2B
+    customer_type = Column(String(50), default="C2C", index=True)  # C2C, B2C, B2B
     b2b_company_id = Column(String(50), ForeignKey("b2b_companies.id"), nullable=True, index=True)
 
     shipment_type = Column(String(20), default="International")  # Domestic, International
@@ -242,7 +242,7 @@ class Shipment(Base):
     booking_request_id = Column(String(50), ForeignKey("booking_requests.id"), nullable=True, index=True)
     customer_id = Column(String(50), ForeignKey("customers.id"), nullable=True)
     customer_name = Column(String(100), nullable=False, index=True)
-    customer_type = Column(String(10), default="C2C", index=True)
+    customer_type = Column(String(50), default="C2C", index=True)
     b2b_company_id = Column(String(50), ForeignKey("b2b_companies.id"), nullable=True)
 
     center = Column(String(100), default="Main Hub (Bangalore)")

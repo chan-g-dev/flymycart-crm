@@ -1,3 +1,4 @@
+from app.customer_types import resolve_customer_type
 from app.access_policy import can_view_costs, can_view_values, can_view_customer_price
 from app.payment_requests import claim_payment_request, finish_payment_request
 from app.payment_details import validate_payment, validate_amount, payment_kind
@@ -244,6 +245,8 @@ def create_shipment(
         customer = db.query(Customer).filter(Customer.mobile == customer_mobile.strip()).first()
     if payload.customer_id and not customer:
         raise HTTPException(status_code=404, detail="Customer not found")
+
+    payload.customer_type = resolve_customer_type(db, payload.customer_type, customer.customer_type if customer else None)
 
     if not customer:
         if not customer_mobile.strip():

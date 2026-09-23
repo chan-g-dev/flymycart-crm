@@ -36,7 +36,7 @@ def get_settings(
     res = rec.config_json if rec else {}
     if not ctx.get('is_super_admin'):
         safe_keys = {'companyName', 'companyPhone', 'companyEmail', 'gstin', 'centerName', 'centerAddress',
-            'centers', 'couriers', 'courierLogos', 'serviceTypes', 'paymentMethods', 'paidToAccounts', 'employees',
+            'customerTypes', 'centers', 'couriers', 'courierLogos', 'serviceTypes', 'paymentMethods', 'paidToAccounts', 'employees',
             'defaultGstRate', 'gstRates', 'weightRules', 'invoicePrefix', 'invoiceLogo', 'shipmentStatuses', 'attendanceSettings'}
         res = {key: value for key, value in res.items() if key in safe_keys}
     return res

@@ -88,6 +88,7 @@ export default function AccountsOverview({ data, selectedCenter, activeSection, 
     };
     const showShipment = shipment => { setSelectedShipment(shipment); shipmentDialog.current.showModal(); };
     return <div className="ao-overview" aria-busy={overview.loading}>
+        {overview.loading && <LoadingSpinner inline text="Loading accounts..." />}
         <div className="ao-heading"><div><span className="ao-eyebrow">FINANCIAL WORKSPACE</span><h2>Accounts Overview</h2><p>Complete financial view of your courier business</p></div>
             <div className="ao-actions">
                 <details ref={dateMenu} className="ao-range"><summary><CalendarDays size={14} />{range.from ? `${dateLabel(range.from)} – ${dateLabel(range.to)}` : 'All time'}<ChevronDown size={12} /></summary>
@@ -108,7 +109,7 @@ export default function AccountsOverview({ data, selectedCenter, activeSection, 
             return <div className={`ao-stat ${key === 'net' ? 'ao-stat-net' : ''}`} key={key} style={{ '--stat-accent': color }}>
                 <div className="ao-stat-heading"><span className="ao-stat-icon"><Icon size={19} strokeWidth={1.8} aria-hidden="true" /></span><h3>{title}</h3></div>
                 {key === 'net' ? <div className="ao-net-values"><div><small>Excluding GST</small><strong>{money(value)}</strong></div><div><small>Including GST</small><strong>{money(overview.loading ? null : totals.net_with_gst)}</strong></div></div> : <strong className="ao-stat-amount" title={money(value)}>{money(value)}</strong>}
-                <small className="ao-stat-description">{overview.loading ? <LoadingSpinner inline text="Loading..." /> : note}</small>
+                <small className="ao-stat-description">{overview.loading ? '\u00a0' : note}</small>
                 {change != null && <div className="ao-stat-comparison"><em className={(key === 'cost' || key === 'expenses') === (change > 0) ? 'negative' : 'positive'}>{change >= 0 ? '+' : '-'}{Math.abs(change).toFixed(0)}%</em><small>vs previous period</small></div>}
             </div>;
 
@@ -119,7 +120,7 @@ export default function AccountsOverview({ data, selectedCenter, activeSection, 
                 <ShipmentLedger report={report} accounts={accounts} filters={filters} setFilters={setFilters} ledger={ledger} page={page} setPage={setPage} refresh={refresh} onViewShipment={showShipment} onAddShipmentExpense={canEdit ? shipment => { setExpenseShipment(shipment); addExpense(); } : undefined} onSearch={e => { e.preventDefault(); setApplied(filters); setPage(1); }} />
                 <AccountsCharts report={report} data={data} range={range} go={go} refresh={refresh} />
             </>}
-            {['expenses', 'transfers'].includes(tab) && (report?.financial_access ? <EntryLedger key={tab + JSON.stringify(params)} params={params} revision={revision} kind={tab === 'transfers' ? 'transfer' : 'expense'} onRefresh={refresh} /> : <p className="ao-panel ao-empty">{overview.loading ? <LoadingSpinner inline text="Loading…" /> : 'Financial access is required to view transactions.'}</p>)}
+            {['expenses', 'transfers'].includes(tab) && (report?.financial_access ? <EntryLedger key={tab + JSON.stringify(params)} params={params} revision={revision} kind={tab === 'transfers' ? 'transfer' : 'expense'} onRefresh={refresh} /> : <p className="ao-panel ao-empty">{overview.loading ? '' : 'Financial access is required to view transactions.'}</p>)}
             {tab === 'banks' && <section className="ao-panel ao-bank-page"><header><h3>Bank Accounts</h3></header><p className="ao-note">Recorded net movement includes receipts and incoming transfers, less expenses, courier payments, deposits, wallet recharges, recorded refund payouts and outgoing transfers. Opening bank balances and refunds without a payment-account record are excluded. These figures are not reconciled bank statement balances.{center ? ' Wallet recharges are organization-wide and excluded from center totals.' : ''}</p><div className="ao-table-scroll"><table className="ao-table"><thead><tr><th>Account</th><th>Recorded Net Movement</th></tr></thead><tbody>{(report?.bank_accounts || []).map(account => <tr key={account.name}><td>{account.name}</td><td>{money(account.recorded_balance)}</td></tr>)}{!report?.bank_accounts?.length && <tr><td colSpan={2} className="ao-empty">No account movements available.</td></tr>}</tbody></table></div></section>}
             {!['overview', 'expenses', 'transfers', 'banks'].includes(tab) && <div className="ao-legacy">{renderSection?.(tab)}</div>}
         </div>

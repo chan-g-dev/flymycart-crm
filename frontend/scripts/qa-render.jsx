@@ -1,3 +1,6 @@
+import CustomerTypesSettings from '../src/components/CustomerTypesSettings';
+import CustomerModal from '../src/components/CustomerModal';
+import ShipmentModal from '../src/components/ShipmentModal';
 import useTablePage from '../src/components/useTablePage';
 ﻿import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
@@ -72,6 +75,19 @@ export function run() {
         renderToStaticMarkup(<PaginationTransitions />);
         results.push({ screen: 'Pagination transitions: next page, new filter, deleted records', passed: true });
     } catch (error) { results.push({ screen: 'Pagination transitions', passed: false, error: error.message }); }
+    const customSettings = { ...data.settings, customerTypes: ['C2C', 'B2C', 'B2B', 'Distributor'] };
+    for (const [name, Component, props] of [
+        ['Custom type settings', CustomerTypesSettings, { settings: customSettings, canManage: true }],
+        ['Custom type customer form', CustomerModal, { isOpen: true, settings: customSettings }],
+        ['Custom type booking form', ShipmentModal, { isOpen: true, settings: customSettings }],
+        ['Custom type directory', Customers, { settings: customSettings, customers: [{ ...data.customers[0], customer_type: 'Distributor' }] }],
+    ]) {
+        try {
+            const html = renderToStaticMarkup(<AuthContext.Provider value={context}><Component {...props} /></AuthContext.Provider>);
+            if (!html.includes('Distributor')) throw new Error('Configured type missing from screen');
+            results.push({ screen: name, passed: true });
+        } catch (error) { results.push({ screen: name, passed: false, error: error.message }); }
+    }
     fs.writeFileSync('../qa-results/frontend-render-results.json',JSON.stringify(results,null,2));
     console.log(JSON.stringify(results,null,2));
     if(results.some(r=>!r.passed)) throw new Error('Frontend rendering checks failed');

@@ -188,13 +188,10 @@ export const Reports = ({ activeTab, refreshKey }) => {
 
             {reportError ? <p role="alert">{reportError}</p> : loading ? (
                 <ContentShimmer
-                    message={
-                        tab === 'eod'
-                            ? `Auditing EOD Cashflow & Operations for ${formatDate(eodDate)}...`
-                            : (tab === 'weekly'
-                                ? 'Compiling 7-Day Courier Logistics & Shipment Breakdown...'
-                                : `Calculating Executive P&L, Carrier Costs & Net Margins for ${monthVal}...`)
-                    }
+                    message={tab === 'eod' ? 'Loading daily report...'
+                        : tab === 'weekly' ? 'Loading weekly report...'
+                        : tab === 'custom' ? 'Loading selected-period report...'
+                        : 'Loading monthly report...'}
                 />
             ) : (
                 <>

@@ -5,7 +5,7 @@ import { LoadingSpinner } from './LoadingSpinner';
 export default function RequestActivity() {
     const { count, message } = useSyncExternalStore(requestActivity.subscribe, requestActivity.getSnapshot, requestActivity.getSnapshot);
     const [visible, setVisible] = useState(false);
-    const busy = count > 0;
+    const busy = count > 0 && Boolean(message);
     useEffect(() => {
         const timer = setTimeout(() => setVisible(busy), busy ? 180 : 120);
         return () => clearTimeout(timer);

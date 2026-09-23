@@ -1,3 +1,4 @@
+import { customerTypeOptions } from '../utils/customerTypes';
 import TablePagination from '../components/TablePagination';
 import useTablePage from '../components/useTablePage';
 import ShipmentPaymentCells from '../components/ShipmentPaymentCells';
@@ -25,6 +26,7 @@ import { TrackingLink } from '../components/TrackingLink';
 
 export const Customers = ({ 
     customers: allCustomers,
+    settings,
     selectedCenter,
     onOpenCustomerModal, 
     onOpenCustomerDrawer, 
@@ -79,9 +81,11 @@ export const Customers = ({
         document.body.removeChild(link);
     };
 
-    const b2bCount = (customers || []).filter(c => c.customer_type === 'B2B').length;
-    const b2cCount = (customers || []).filter(c => c.customer_type === 'B2C').length;
-    const c2cCount = (customers || []).filter(c => c.customer_type === 'C2C').length;
+    const typeOptions = useMemo(() => customerTypeOptions(settings, (allCustomers || []).map(c => c.customer_type)), [settings, allCustomers]);
+    const typeCounts = useMemo(() => customers.reduce((counts, customer) => {
+        counts.set(customer.customer_type, (counts.get(customer.customer_type) || 0) + 1);
+        return counts;
+    }, new Map()), [customers]);
 
     return (
         <div className="customer-directory-page">
@@ -92,11 +96,9 @@ export const Customers = ({
                     <p className="page-subtitle">One customer profile with 360° history of shipments, payments, invoices & follow-ups</p>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <div style={{ display: 'flex', gap: '6px' }}>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
                         <span className="pill-stat">Total: <strong>{customers?.length || 0}</strong></span>
-                        <span className="pill-stat" style={{ background: '#f3e8ff', color: '#6b21a8' }}>B2B: <strong>{b2bCount}</strong></span>
-                        <span className="pill-stat" style={{ background: '#e0f2fe', color: '#0369a1' }}>B2C: <strong>{b2cCount}</strong></span>
-                        <span className="pill-stat" style={{ background: '#dcfce7', color: '#15803d' }}>C2C: <strong>{c2cCount}</strong></span>
+                        {typeOptions.map(type => <span className="pill-stat" key={type}>{type}: <strong>{typeCounts.get(type) || 0}</strong></span>)}
                     </div>
                     <button className="btn btn-outline" onClick={exportToCSV} title="Export Customers to CSV">
                         <Download size={14} /> Export CSV
@@ -121,10 +123,8 @@ export const Customers = ({
                     />
                 </div>
                 <select className="filter-select" value={typeVal} onChange={handleTypeChange}>
-                    <option value="">All Customer Types (C2C, B2C, B2B)</option>
-                    <option value="C2C">C2C (Customer to Customer)</option>
-                    <option value="B2C">B2C (Business to Customer)</option>
-                    <option value="B2B">B2B (Corporate Monthly Credit)</option>
+                    <option value="">All Customer Types</option>
+                    {typeOptions.map(type => <option key={type} value={type}>{type}</option>)}
                 </select>
             </div>
 

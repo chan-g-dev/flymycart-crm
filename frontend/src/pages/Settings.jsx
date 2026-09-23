@@ -1,3 +1,4 @@
+import CustomerTypesSettings from '../components/CustomerTypesSettings';
 import '../components/SettingsWorkspace.css';
 import WeightSettings from '../components/WeightSettings';
 import BusinessDefaults from '../components/BusinessDefaults';
@@ -301,7 +302,7 @@ export const Settings = ({ settings, onUpdateSettings }) => {
                     <button key={key} type="button" aria-pressed={settingsView === key} onClick={() => setSettingsView(key)}><strong>{title}</strong><span>{subtitle}</span></button>
                 ))}
             </nav>
-            <div hidden={settingsView !== 'business'}><BusinessDefaults settings={settings} onSave={onUpdateSettings} canManage={canManageSettings} /></div>
+            <div hidden={settingsView !== 'business'}><CustomerTypesSettings settings={settings} onSave={onUpdateSettings} canManage={canManageSettings} /><BusinessDefaults settings={settings} onSave={onUpdateSettings} canManage={canManageSettings} /></div>
             <div hidden={settingsView !== 'weights'}><WeightSettings settings={settings} onSave={onUpdateSettings} canManage={canManageSettings} /></div>
 
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 320px), 1fr))', gap: '16px', marginBottom: '22px' }}>

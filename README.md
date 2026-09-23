@@ -58,7 +58,7 @@ Charts and summary cards help staff identify workload, pending collections and o
 
 ### Customer Directory
 
-Maintain a customer profile that can be reused across bookings. The directory supports C2C, B2C and B2B customer categories and includes customer names, company information, mobile numbers, email addresses, addresses and center details.
+Maintain a customer profile that can be reused across bookings. The directory includes C2C, B2C and B2B customer categories and supports additional types configured in Settings and includes customer names, company information, mobile numbers, email addresses, addresses and center details.
 
 Staff can search by name, mobile number, company or email, filter by customer type, browse records in pages and export the directory. Booking counts and customer spending are available according to the user's permissions.
 
@@ -260,6 +260,7 @@ Business settings let administrators adapt the application to the courier office
 | --- | --- |
 | Business identity | Company name, address, GSTIN, phone and email used in invoice presentation |
 | Invoice defaults | Invoice-number prefix, default GST rate and selectable GST rates |
+| Customer types | Add customer categories for registration, shipment bookings, directory filters and counts |
 | Courier services | Courier names, logos and service types |
 | Centers and employees | Business centers and employee choices used in operational records |
 | Payment methods and accounts | Enabled payment methods, receiving accounts and reusable account details |

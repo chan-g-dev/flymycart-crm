@@ -37,6 +37,21 @@ const VALID_PAGES = [
     'accounts', 'b2b', 'refunds', 'followups', 'reports', 'attendance', 'users', 'settings'
 ];
 
+const PAGE_LOADING_MESSAGES = {
+    dashboard: 'Loading dashboard...',
+    customers: 'Loading customers...',
+    shipments: 'Loading shipments...',
+    invoices: 'Loading invoices...',
+    accounts: 'Loading accounts...',
+    b2b: 'Loading corporate accounts...',
+    refunds: 'Loading refunds...',
+    followups: 'Loading follow-ups...',
+    reports: 'Loading reports...',
+    attendance: 'Loading attendance...',
+    users: 'Loading staff...',
+    settings: 'Loading settings...',
+};
+
 const getInitialPage = () => {
     try {
         const path = getCurrentPath().toLowerCase();
@@ -474,7 +489,7 @@ export function App() {
         };
     }, [b2bData, dashboardData, filteredShipments, selectedCenter]);
 
-    if (authLoading) return <LoadingSpinner size="lg" text="Loading your workspace..." />;
+    if (authLoading) return <main className="fmc-workspace-loading"><LoadingSpinner size="lg" text="Loading your workspace..." /></main>;
 
     if (!isAuthenticated || !currentUser) {
         return (
@@ -551,9 +566,9 @@ export function App() {
                 />
 
                 <main className="page-content" aria-busy={isLoading}>
-                    {isLoading && <div className="fmc-page-loading"><LoadingSpinner inline size="sm" text="Loading records..." /></div>}
                     {loadError && <div role="alert">{loadError} <button className="btn btn-outline" onClick={() => loadPage()}>Retry</button></div>}
-                    <Suspense fallback={<LoadingSpinner size="lg" text="Loading screen..." />}>
+                    <Suspense fallback={<LoadingSpinner size="lg" text={PAGE_LOADING_MESSAGES[currentPage]} />}>
+                    {isLoading && !['accounts', 'reports', 'attendance', 'users'].includes(currentPage) && !(currentPage === 'b2b' && !b2bData) && <div className="fmc-page-loading"><LoadingSpinner inline size="sm" text={PAGE_LOADING_MESSAGES[currentPage]} /></div>}
                     {currentPage === 'dashboard' && (
                         <Dashboard
                             data={filteredDashboardData}
@@ -575,6 +590,7 @@ export function App() {
                     {currentPage === 'customers' && (
                         <Customers
                             customers={filteredCustomers}
+                            settings={settings}
                             selectedCenter={selectedCenter}
                             onOpenCustomerModal={() => setIsCustomerModalOpen(true)}
                             onOpenCustomerDrawer={handleOpenCustomerDrawer}
@@ -655,6 +671,7 @@ export function App() {
                             followups={filteredFollowups}
                             selectedCenter={selectedCenter}
                             customers={filteredCustomers}
+                            settings={settings}
                             onRefresh={() => refreshAll(false)}
                             onCompleteFollowup={handleCompleteFollowup}
                             onOpenCommModal={handleOpenCommModal}
@@ -714,6 +731,7 @@ export function App() {
             />}
 
             {(isCustomerModalOpen) && <CustomerModal
+                settings={settings}
                 isOpen={isCustomerModalOpen}
                 onClose={() => setIsCustomerModalOpen(false)}
                 onCreated={refreshAll}

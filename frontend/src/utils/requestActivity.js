@@ -5,7 +5,8 @@ export function createRequestActivity() {
     let snapshot = { count: 0, message: '' };
     const notify = () => {
         const messages = [...pending.values()];
-        const message = ['Uploading file...', 'Downloading file...', 'Deleting...', 'Saving changes...', 'Loading data...'].find(value => messages.includes(value)) || '';
+        // Reads use their screen's own loader; only actions need a global indicator.
+        const message = ['Uploading file...', 'Downloading file...', 'Deleting...', 'Saving changes...'].find(value => messages.includes(value)) || '';
         snapshot = { count: pending.size, message };
         listeners.forEach(listener => listener());
     };
@@ -16,7 +17,7 @@ export function createRequestActivity() {
             const id = ++sequence;
             const upload = typeof FormData !== 'undefined' && config.data instanceof FormData;
             const method = (config.method || 'get').toLowerCase();
-            pending.set(id, upload ? 'Uploading file...' : config.responseType === 'blob' ? 'Downloading file...' : method === 'delete' ? 'Deleting...' : ['get', 'head', 'options'].includes(method) ? 'Loading data...' : 'Saving changes...');
+            pending.set(id, upload ? 'Uploading file...' : config.responseType === 'blob' ? 'Downloading file...' : method === 'delete' ? 'Deleting...' : ['get', 'head', 'options'].includes(method) ? '' : 'Saving changes...');
             notify();
             return () => { if (pending.delete(id)) notify(); };
         },
