@@ -2,7 +2,7 @@ import CustomerTypesSettings from '../src/components/CustomerTypesSettings';
 import CustomerModal from '../src/components/CustomerModal';
 import ShipmentModal from '../src/components/ShipmentModal';
 import useTablePage from '../src/components/useTablePage';
-﻿import React from 'react';
+import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { AuthContext } from '../src/context/authSession';
 import { Dashboard } from '../src/pages/Dashboard';

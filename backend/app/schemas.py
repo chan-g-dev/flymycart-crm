@@ -98,6 +98,8 @@ class CustomerBase(BaseModel):
     email: Optional[str] = None
     address: Optional[str] = None
     id_proof: Optional[str] = None
+    id_proof_front: Optional[str] = None
+    id_proof_back: Optional[str] = None
     customer_type: str = Field(default="C2C", min_length=1, max_length=50)
     source: Optional[str] = None
     center: Optional[str] = "Main Hub (Bangalore)"
@@ -143,10 +145,15 @@ class ReceiverInfo(BaseModel):
     city: str
     country: str
     zip: Optional[str] = None
+    id_proof: Optional[str] = None
+    id_proof_front: Optional[str] = None
+    id_proof_back: Optional[str] = None
 
 class SenderInfo(BaseModel):
     email: Optional[str] = None
     id_proof: Optional[str] = None
+    id_proof_front: Optional[str] = None
+    id_proof_back: Optional[str] = None
     name: Optional[str] = None
     phone: Optional[str] = None
     address: Optional[str] = None
@@ -163,6 +170,7 @@ class ShipmentCreate(BaseModel):
     customer_name: str
     customer_type: str = Field(default="C2C", min_length=1, max_length=50)
     b2b_company_id: Optional[str] = None
+    entity: Optional[str] = "Globe Courier"
 
     center: str = "Main Hub (Bangalore)"
     employee: str = "Nawaz"
@@ -174,6 +182,7 @@ class ShipmentCreate(BaseModel):
     courier: str
     domestic_international: str = "International"
     service_type: str = "International Priority"
+    is_ddp: bool = False
     provider_type: str = "postpaid"  # prepaid or postpaid
     provider_name: str
     price: float = Field(ge=0, allow_inf_nan=False)
@@ -186,7 +195,7 @@ class ShipmentCreate(BaseModel):
     payment_status: str = "Paid"
     payment_method: str = Field(default="PhonePe", min_length=1, max_length=100)
     paid_to: str = Field(default="Office QR", min_length=1, max_length=100)
-    collected_by: str = Field(default="Nawaz", min_length=1, max_length=100)
+    collected_by: str = Field(default="", max_length=100)
 
     status: str = "In Transit"
     delay_reason: Optional[str] = None
@@ -194,8 +203,13 @@ class ShipmentCreate(BaseModel):
 class ShipmentOut(BaseModel):
     sender_email: Optional[str] = None
     sender_id_proof: Optional[str] = None
+    id_proof_front: Optional[str] = None
+    id_proof_back: Optional[str] = None
     receiver_email: Optional[str] = None
     receiver_state: Optional[str] = None
+    receiver_id_proof: Optional[str] = None
+    receiver_id_proof_front: Optional[str] = None
+    receiver_id_proof_back: Optional[str] = None
     boxes: List[ParcelBox] = Field(default_factory=list)
     id: str
     awb: str
@@ -207,6 +221,7 @@ class ShipmentOut(BaseModel):
     customer_name: str
     customer_type: str
     b2b_company_id: Optional[str] = None
+    entity: Optional[str] = "Globe Courier"
 
     center: str
     employee: str
@@ -235,6 +250,7 @@ class ShipmentOut(BaseModel):
     courier: str
     domestic_international: str
     service_type: str
+    is_ddp: Optional[bool] = False
     provider_type: str
     provider_name: str
     price: Optional[float] = None
@@ -248,6 +264,7 @@ class ShipmentOut(BaseModel):
     actual_provider_cost: Optional[float] = None
     cost_reconciled: bool
     gross_profit: Optional[float] = None
+    refund_amount: Optional[float] = 0.0
 
     payment_status: str
     carrier_payment_status: Optional[str] = "Pending"
@@ -315,6 +332,7 @@ class InvoiceOut(BaseModel):
     paid: Optional[float] = None
     balance: Optional[float] = None
     status: str
+    is_ddp: Optional[bool] = False
     created_at: Optional[datetime.datetime] = None
 
     model_config = ConfigDict(from_attributes=True)
@@ -676,6 +694,7 @@ class BookingParcelOut(BookingParcelCreate):
 
 class BookingRequestCreate(BaseModel):
     shipment_type: str = "International"  # Domestic, International
+    entity: Optional[str] = "Globe Courier"
     sender_name: str
     sender_phone: str
     sender_email: Optional[str] = None
@@ -702,6 +721,7 @@ class BookingRequestCreate(BaseModel):
     height: float = Field(default=0, ge=0, allow_inf_nan=False)
 
     preferred_service: Optional[str] = "International Priority"
+    is_ddp: Optional[bool] = False
     pickup_date: Optional[str] = None
     pickup_address: Optional[str] = None
     special_instructions: Optional[str] = None
@@ -721,6 +741,8 @@ class BookingConvertToShipmentRequest(BaseModel):
     awb: str
     courier: str
     service_type: str = "International Priority"
+    is_ddp: Optional[bool] = False
+    entity: Optional[str] = "Globe Courier"
     provider_name: str
     provider_type: str = "postpaid"  # prepaid, postpaid
     price: float
@@ -742,6 +764,7 @@ class BookingRequestOut(BaseModel):
     customer_type: str
     b2b_company_id: Optional[str] = None
     shipment_type: str
+    entity: Optional[str] = "Globe Courier"
 
     sender_name: str
     sender_phone: str
@@ -771,6 +794,7 @@ class BookingRequestOut(BaseModel):
     chargeable_weight: float
 
     preferred_service: Optional[str] = None
+    is_ddp: Optional[bool] = False
     pickup_date: Optional[str] = None
     pickup_address: Optional[str] = None
     special_instructions: Optional[str] = None

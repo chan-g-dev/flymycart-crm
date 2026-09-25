@@ -1,15 +1,18 @@
-import GstValuePair from '../components/GstValuePair';
+import { useRemoteData } from '../utils/useRemoteData';
 import { businessDate, formatBusinessDate, shiftCalendarDate } from '../utils/businessDates';
 import { providerCostLabel } from '../utils/costLabels';
-import { useState, useEffect } from 'react';
-import { Printer, Calendar, FileText, TrendingUp, Shield } from 'lucide-react';
+import { useState, useCallback, useMemo } from 'react';
+import { Globe, Plane, Truck, Building2, X } from 'lucide-react';
+import { getEntityOptions, getEntityMeta, DEFAULT_ENTITY } from '../utils/entityConstants';
+import { Printer, Calendar, FileText, TrendingUp } from 'lucide-react';
 import { useAuth } from '../context/authSession';
 import { apiClient } from '../api/client';
 import { CourierLogo } from '../components/CourierLogos';
 import { ContentShimmer } from '../components/ContentShimmer';
 import { CourierDonutChart, ProgressItem, DailyTrendChart, MonthlyWaterfallChart } from '../components/ReportCharts';
+import { printElement } from '../utils/printHelper';
 
-export const Reports = ({ activeTab, refreshKey }) => {
+export const Reports = ({ activeTab, refreshKey, settings, initialScope = '', initialEntity = '', shipments = [] }) => {
     const { hasPermission } = useAuth();
     const canViewFinancials = hasPermission('viewFinancials');
     const canViewNetValue = hasPermission('costs.net_value') || canViewFinancials;
@@ -27,72 +30,223 @@ export const Reports = ({ activeTab, refreshKey }) => {
         canViewMonthly && 'monthly'
     ].filter(Boolean);
 
-    const [tab, setTab] = useState(() => (canViewEod ? 'eod' : availableTabs[0] || ''));
+    const [selection, setSelection] = useState({ source: activeTab, value: activeTab || availableTabs[0] });
+    const requestedTab = selection.source === activeTab ? selection.value : activeTab;
+    const tab = availableTabs.includes(requestedTab) ? requestedTab : availableTabs[0] || '';
+    const setTab = value => setSelection({ source: activeTab, value });
     const [eodDate, setEodDate] = useState(businessDate());
     const [monthVal, setMonthVal] = useState(businessDate().slice(0, 7));
-    const [eodReport, setEodReport] = useState(null);
-    const [weeklyReport, setWeeklyReport] = useState(null);
-    const [monthlyReport, setMonthlyReport] = useState(null);
     const [rangeStart, setRangeStart] = useState(businessDate().slice(0, 7) + '-01');
     const [rangeEnd, setRangeEnd] = useState(businessDate());
-    const [reportError, setReportError] = useState('');
-    const [loading, setLoading] = useState(true);
+    // Local in-section filters for Scope and Operating Entity
+    const [reportScope, setReportScope] = useState(initialScope);
+    const [reportEntity, setReportEntity] = useState(initialEntity);
 
-    useEffect(() => {
-        if (activeTab && availableTabs.includes(activeTab)) {
-            setTab(activeTab);
-        } else if (tab && !availableTabs.includes(tab) && availableTabs.length > 0) {
-            setTab(availableTabs[0]);
-        }
-    }, [activeTab, availableTabs.join(','), tab]);
+    const entityOptions = useMemo(() => getEntityOptions(settings), [settings]);
 
-    const formatCurrency = (n) => '₹' + Number(n || 0).toLocaleString('en-IN');
+    const scopeCounts = useMemo(() => {
+        let total = 0;
+        let intl = 0;
+        let dom = 0;
+        (shipments || []).forEach(s => {
+            const ent = s.entity || DEFAULT_ENTITY;
+            const meta = getEntityMeta(ent, settings);
+            if (reportEntity && reportEntity !== 'all' && meta.name !== reportEntity && ent !== reportEntity) return;
+
+            total += 1;
+            const isDom = s.domestic_international === 'Domestic' || (s.receiver_country && s.receiver_country.toLowerCase() === 'india' && s.domestic_international !== 'International');
+            if (isDom) dom += 1;
+            else intl += 1;
+        });
+        return { all: total, intl, dom };
+    }, [shipments, reportEntity, settings]);
+
+    const entityCounts = useMemo(() => {
+        const counts = { total: 0 };
+        entityOptions.forEach(e => { counts[e.name] = 0; });
+        (shipments || []).forEach(s => {
+            const isDom = s.domestic_international === 'Domestic' || (s.receiver_country && s.receiver_country.toLowerCase() === 'india' && s.domestic_international !== 'International');
+            if (reportScope === 'International' && isDom) return;
+            if (reportScope === 'Domestic' && !isDom) return;
+
+            counts.total += 1;
+            const ent = s.entity || DEFAULT_ENTITY;
+            const meta = getEntityMeta(ent, settings);
+            const key = meta.name;
+            counts[key] = (counts[key] || 0) + 1;
+        });
+        return counts;
+    }, [shipments, reportScope, entityOptions, settings]);
+
+    const loadReport = useCallback(() => {
+        if (!tab) return Promise.resolve(null);
+        const params = {};
+        if (reportScope) params.scope = reportScope;
+        if (reportEntity) params.entity = reportEntity;
+
+        return tab === 'eod' ? apiClient.getEODReport(eodDate, params)
+            : tab === 'weekly' ? apiClient.getWeeklyReport(eodDate, params)
+            : tab === 'custom' ? apiClient.getDateRangeReport(rangeStart, rangeEnd, params)
+            : apiClient.getMonthlyPLReport(monthVal, params);
+    }, [tab, eodDate, monthVal, rangeStart, rangeEnd, reportScope, reportEntity]);
+    // Remount the request when an explicit refresh or financial access changes.
+    const requestReport = useCallback(() => loadReport({ refreshKey, canViewFinancials }), [loadReport, refreshKey, canViewFinancials]);
+    const { data: report, error, loading } = useRemoteData(requestReport);
+    const reportError = error ? (typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Unable to load this report. Check the dates and try again.') : '';
+    const eodReport = tab === 'eod' ? report : null;
+    const weeklyReport = tab === 'weekly' || tab === 'custom' ? report : null;
+    const monthlyReport = tab === 'monthly' ? report : null;
+    const formatCurrency = (n) => '\u20b9' + Number(n || 0).toLocaleString('en-IN');
     const formatDate = formatBusinessDate;
-
-    useEffect(() => {
-        if (!tab || !availableTabs.includes(tab)) {
-            setLoading(false);
-            return;
-        }
-        let current = true;
-        setLoading(true); setReportError('');
-        const request = tab === 'eod' ? apiClient.getEODReport(eodDate)
-            : tab === 'weekly' ? apiClient.getWeeklyReport(eodDate)
-            : tab === 'custom' ? apiClient.getDateRangeReport(rangeStart, rangeEnd)
-            : apiClient.getMonthlyPLReport(monthVal);
-        request.then(data => {
-            if (!current) return;
-            if (tab === 'eod') setEodReport(data);
-            else if (tab === 'monthly') setMonthlyReport(data);
-            else setWeeklyReport(data);
-        }).catch(error => {
-            if (current) setReportError(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Unable to load this report. Check the dates and try again.');
-        }).finally(() => { if (current) setLoading(false); });
-        return () => { current = false; };
-    }, [tab, eodDate, monthVal, rangeStart, rangeEnd, canViewFinancials, refreshKey]);
 
     const expenseReport = tab === 'monthly' ? monthlyReport : tab === 'eod' ? eodReport : weeklyReport;
 
     const handlePrintEOD = () => {
-        window.print();
+        printElement('printable-report-eod', {
+            title: `Fly My Cart - EOD Operations & Cashflow Audit (${eodReport?.date || businessDate()})`,
+            pageSize: 'A4',
+            pageOrientation: 'portrait'
+        });
+    };
+
+    const handlePrintWeekly = () => {
+        printElement('printable-report-weekly', {
+            title: `Fly My Cart - Weekly Trends & Operations (${weeklyReport?.period_start || ''} to ${weeklyReport?.period_end || ''})`,
+            pageSize: 'A4',
+            pageOrientation: 'landscape'
+        });
+    };
+
+    const handlePrintMonthly = () => {
+        printElement('printable-report-monthly', {
+            title: `Fly My Cart - Monthly Executive Financial Statement (${monthlyReport?.month || ''})`,
+            pageSize: 'A4',
+            pageOrientation: 'landscape'
+        });
     };
 
     return (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-            <p style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Value After Courier Cost = sales minus recorded courier costs. Net Value also deducts recorded expenses and refunds. Incl. GST includes sales GST, before GST settlement; input GST credits are not tracked.</p>
-            {/* Executive Header with Live Single-Entry Badge */}
-            <div className="page-header" style={{ marginBottom: '0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
-                <div>
-                    <h2 className="page-title" style={{ fontSize: '21px', fontWeight: 900, display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <span>📊</span> Executive Reports & Financial P&L Engine
-                    </h2>
-                    <p className="page-subtitle" style={{ fontSize: '12.5px', color: 'var(--text-muted)' }}>
-                        Live business reporting pulling directly from Shipments, Customer Payments, Wallets, and Provider Costs.
-                    </p>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            {/* 1. Top Scope & Entity Switcher Bar (Normal Non-sticky) */}
+            <div className="scope-entity-bar dashboard-scope-bar" style={{ marginBottom: '2px' }}>
+                {/* Left: Scope Selection */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '9px', flexWrap: 'wrap' }}>
+                    <span style={{ fontSize: '12px', fontWeight: 800, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                        SCOPE:
+                    </span>
+                    <div style={{ display: 'inline-flex', alignItems: 'center', gap: '7px', flexWrap: 'wrap' }}>
+                        <button
+                            type="button"
+                            className="scope-pill-btn"
+                            onClick={() => setReportScope('')}
+                            style={!reportScope ? {
+                                background: '#eff6ff',
+                                borderColor: '#93c5fd',
+                                color: '#1d4ed8',
+                                fontWeight: 700
+                            } : {}}
+                        >
+                            <Globe size={15} color={!reportScope ? '#1d4ed8' : '#64748b'} />
+                            <span>Both: <strong>{scopeCounts.all}</strong></span>
+                        </button>
+                        <button
+                            type="button"
+                            className="scope-pill-btn"
+                            onClick={() => setReportScope(reportScope === 'International' ? '' : 'International')}
+                            style={reportScope === 'International' ? {
+                                background: '#eff6ff',
+                                borderColor: '#93c5fd',
+                                color: '#1d4ed8',
+                                fontWeight: 700
+                            } : {}}
+                        >
+                            <Plane size={15} color={reportScope === 'International' ? '#1d4ed8' : '#64748b'} />
+                            <span>Intl: <strong>{scopeCounts.intl}</strong></span>
+                        </button>
+                        <button
+                            type="button"
+                            className="scope-pill-btn"
+                            onClick={() => setReportScope(reportScope === 'Domestic' ? '' : 'Domestic')}
+                            style={reportScope === 'Domestic' ? {
+                                background: '#fffbeb',
+                                borderColor: '#fcd34d',
+                                color: '#b45309',
+                                fontWeight: 700
+                            } : {}}
+                        >
+                            <Truck size={15} color={reportScope === 'Domestic' ? '#b45309' : '#64748b'} />
+                            <span>Dom: <strong>{scopeCounts.dom}</strong></span>
+                        </button>
+                    </div>
+                </div>
+
+                {/* Right: Entity Selection */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '9px', flexWrap: 'wrap' }}>
+                    <span style={{ fontSize: '12px', fontWeight: 800, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                        ENTITY:
+                    </span>
+                    <div style={{ display: 'inline-flex', alignItems: 'center', gap: '7px', flexWrap: 'wrap' }}>
+                        <button
+                            type="button"
+                            className="entity-pill-btn"
+                            onClick={() => setReportEntity('')}
+                            style={!reportEntity ? {
+                                background: '#eff6ff',
+                                borderColor: '#93c5fd',
+                                color: '#1d4ed8',
+                                fontWeight: 700
+                            } : {}}
+                        >
+                            <Building2 size={15} color={!reportEntity ? '#1d4ed8' : '#64748b'} />
+                            <span>All: <strong>{entityCounts.total}</strong></span>
+                        </button>
+                        {entityOptions.map(ent => {
+                            const count = entityCounts[ent.name] ?? 0;
+                            const isSelected = reportEntity === ent.name;
+                            const activeStyle = isSelected ? {
+                                background: ent.bg || '#eff6ff',
+                                borderColor: ent.border || ent.color || '#93c5fd',
+                                color: ent.accentColor || ent.color || '#1d4ed8',
+                                fontWeight: 700,
+                                boxShadow: `0 1px 3px ${ent.border || 'rgba(0,0,0,0.08)'}`
+                            } : {};
+                            return (
+                                <button
+                                    key={ent.id}
+                                    type="button"
+                                    className="entity-pill-btn"
+                                    onClick={() => setReportEntity(isSelected ? '' : ent.name)}
+                                    style={activeStyle}
+                                    title={`Filter by ${ent.name}`}
+                                >
+                                    <span>{ent.shortName || ent.name}: <strong>{count}</strong></span>
+                                </button>
+                            );
+                        })}
+                        {(reportScope || reportEntity) && (
+                            <button 
+                                type="button"
+                                className="entity-pill-btn" 
+                                onClick={() => {
+                                    setReportScope('');
+                                    setReportEntity('');
+                                }}
+                                style={{
+                                    borderColor: '#fecdd3',
+                                    background: '#fff1f2',
+                                    color: '#e11d48',
+                                    fontWeight: 600
+                                }}
+                                title="Reset report filters"
+                            >
+                                <X size={13} /> Clear
+                            </button>
+                        )}
+                    </div>
                 </div>
             </div>
 
-            {/* Sub-tabs & Controls Capsule */}
+            {/* 2. Sub-tabs & Controls Capsule (Down below Scope toolbar) */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
                 {availableTabs.length > 0 && (
                     <div className="fmc-segmented-capsule report-tabs">
@@ -101,7 +255,6 @@ export const Reports = ({ activeTab, refreshKey }) => {
                                 className={`fmc-segmented-btn ${tab === 'eod' ? 'active' : ''}`}
                                 onClick={() => {
                                     if (tab !== 'eod') {
-                                        setLoading(true);
                                         setTab('eod');
                                     }
                                 }}
@@ -114,7 +267,6 @@ export const Reports = ({ activeTab, refreshKey }) => {
                                 className={`fmc-segmented-btn ${tab === 'weekly' ? 'active' : ''}`}
                                 onClick={() => {
                                     if (tab !== 'weekly') {
-                                        setLoading(true);
                                         setTab('weekly');
                                     }
                                 }}
@@ -132,7 +284,6 @@ export const Reports = ({ activeTab, refreshKey }) => {
                                 className={`fmc-segmented-btn ${tab === 'monthly' ? 'active' : ''}`}
                                 onClick={() => {
                                     if (tab !== 'monthly') {
-                                        setLoading(true);
                                         setTab('monthly');
                                     }
                                 }}
@@ -196,11 +347,11 @@ export const Reports = ({ activeTab, refreshKey }) => {
             ) : (
                 <>
                     {canViewFinancials && ((tab === 'eod' ? eodReport : tab === 'monthly' ? monthlyReport : weeklyReport)?.estimated_cost_shipments > 0) && <p className="report-estimate-notice" role="status">
-                        Provisional profit: {(tab === 'eod' ? eodReport : tab === 'monthly' ? monthlyReport : weeklyReport).estimated_cost_shipments} shipment(s) still use estimated provider costs. Reconcile their bills to update profit.
+                        Provisional profit: {(tab === 'eod' ? eodReport : tab === 'monthly' ? monthlyReport : weeklyReport).estimated_cost_shipments} shipment(s) still use estimated provider values. Reconcile their bills to update profit.
                     </p>}
                     {/* Tab 1: EOD Operations Audit */}
                     {tab === 'eod' && eodReport && (
-                        <div className="fmc-report-hero-card">
+                        <div className="fmc-report-hero-card" id="printable-report-eod">
                             {/* Card Top Title Row */}
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px', paddingBottom: '16px', borderBottom: '1px solid var(--card-border)', marginBottom: '18px' }}>
                                 <div>
@@ -217,7 +368,7 @@ export const Reports = ({ activeTab, refreshKey }) => {
                                     </div>
                                 </div>
                                 {canPrintReport && (
-                                    <button className="btn btn-primary-blue" onClick={handlePrintEOD} style={{ display: 'inline-flex', alignItems: 'center', gap: '7px', padding: '8px 18px', borderRadius: '8px', fontWeight: 700, boxShadow: '0 4px 14px rgba(37, 99, 235, 0.35)' }}>
+                                    <button className="btn btn-primary-blue no-print" onClick={handlePrintEOD} style={{ display: 'inline-flex', alignItems: 'center', gap: '7px', padding: '8px 18px', borderRadius: '8px', fontWeight: 700, boxShadow: '0 4px 14px rgba(37, 99, 235, 0.35)' }}>
                                         <Printer size={15} /> Print EOD Sheet
                                     </button>
                                 )}
@@ -269,15 +420,15 @@ export const Reports = ({ activeTab, refreshKey }) => {
                                 {canViewNetValue && (
                                     <div className="fmc-kpi-card" style={{ borderTop: '3px solid #10b981', background: 'rgba(16, 185, 129, 0.05)' }}>
                                         <div className="fmc-kpi-card-header">
-                                            <span className="fmc-kpi-tag" style={{ color: '#10b981', fontWeight: 800 }}>Net Value</span>
+                                            <span className="fmc-kpi-tag" style={{ color: '#10b981', fontWeight: 800 }}>Profit (Incl. GST)</span>
                                             <div className="fmc-kpi-badge-icon" style={{ background: 'rgba(16, 185, 129, 0.2)', color: '#10b981' }}>📈</div>
                                         </div>
                                         <div className="fmc-kpi-val" style={{ color: '#10b981' }}>
-                                            <GstValuePair excluding={eodReport.net_profit} including={eodReport.net_profit_with_gst} formatValue={formatCurrency} />
+                                            {formatCurrency(eodReport.net_profit_with_gst ?? eodReport.net_profit)}
                                         </div>
                                         {canViewMargins && (
                                             <div className="fmc-kpi-sub" style={{ color: '#10b981', fontWeight: 700 }}>
-                                                {eodReport.total_sales > 0 ? ((eodReport.net_profit / eodReport.total_sales) * 100).toFixed(1) + '% Margin' : '0% Margin'}
+                                                {Number(eodReport.invoice_total || eodReport.total_sales_with_gst || eodReport.total_sales) > 0 ? (((eodReport.net_profit_with_gst ?? eodReport.net_profit) / Number(eodReport.invoice_total || eodReport.total_sales_with_gst || eodReport.total_sales)) * 100).toFixed(1) + '% Margin' : '0% Margin'}
                                             </div>
                                         )}
                                     </div>
@@ -326,15 +477,14 @@ export const Reports = ({ activeTab, refreshKey }) => {
                                                         total={totalBilled}
                                                         color="#f59e0b"
                                                     />
-                                                    {canViewFinancials && (<>
+                                                    {canViewFinancials && (
                                                         <ProgressItem
-                                                            label="Net Value (Excl. GST)"
-                                                            value={eodReport.net_profit}
+                                                            label="Profit (Incl. GST)"
+                                                            value={eodReport.net_profit_with_gst ?? eodReport.net_profit}
                                                             total={totalBilled}
                                                             color="#10b981"
                                                         />
-                                                        <ProgressItem label="Net Value (Incl. GST)" value={eodReport.net_profit_with_gst} total={totalBilled} color="#0891b2" />
-                                                    </>)}
+                                                    )}
                                                 </>
                                             );
                                         })()}
@@ -397,7 +547,7 @@ export const Reports = ({ activeTab, refreshKey }) => {
 
                     {/* Tab 2 & 3: Weekly Trends & Custom Date Range */}
                     {(tab === 'weekly' || tab === 'custom') && weeklyReport && (
-                        <div className="fmc-report-hero-card weekly-report-card">
+                        <div className="fmc-report-hero-card weekly-report-card" id="printable-report-weekly">
                             <div className="weekly-report-heading">
                                 <div>
                                     <span className="weekly-report-eyebrow">{weeklyReport.period_days || 7}-day operational overview</span>
@@ -409,7 +559,7 @@ export const Reports = ({ activeTab, refreshKey }) => {
                                     </p>
                                 </div>
                                 {canPrintReport && (
-                                    <button className="btn btn-primary-blue" onClick={() => window.print()} style={{ display: 'inline-flex', alignItems: 'center', gap: '7px', padding: '8px 18px', borderRadius: '8px', fontWeight: 700, boxShadow: '0 4px 14px rgba(37, 99, 235, 0.35)' }}>
+                                    <button className="btn btn-primary-blue no-print" onClick={handlePrintWeekly} style={{ display: 'inline-flex', alignItems: 'center', gap: '7px', padding: '8px 18px', borderRadius: '8px', fontWeight: 700, boxShadow: '0 4px 14px rgba(37, 99, 235, 0.35)' }}>
                                         <Printer size={15} /> Print Report
                                     </button>
                                 )}
@@ -466,10 +616,9 @@ export const Reports = ({ activeTab, refreshKey }) => {
                                                         <th style={{ textAlign: 'right', width: '14%' }}>Collections</th>
                                                         {weeklyReport.financials_visible && (
                                                             <>
-                                                                <th style={{ textAlign: 'right', width: '16%' }}>Revenue (Incl. GST)</th>
-                                                                <th style={{ textAlign: 'right', width: '14%' }}>Base Sales</th>
-                                                                <th style={{ textAlign: 'right', width: '14%' }}>Provider cost</th>
-                                                                <th style={{ textAlign: 'right', width: '16%' }}>Value After Courier Cost</th>
+                                                                <th style={{ textAlign: 'right', width: '18%' }}>Revenue (Billed)</th>
+                                                                <th style={{ textAlign: 'right', width: '16%' }}>Provider Cost</th>
+                                                                <th style={{ textAlign: 'right', width: '16%' }}>Profit (Incl. GST)</th>
                                                             </>
                                                         )}
                                                     </tr>
@@ -483,9 +632,12 @@ export const Reports = ({ activeTab, refreshKey }) => {
                                                             {weeklyReport.financials_visible && (
                                                                 <>
                                                                     <td style={{ textAlign: 'right', fontWeight: 700, color: 'var(--primary-blue)' }}>{formatCurrency(day.revenue_with_gst ?? ((day.revenue || 0) + (day.gst_total || 0)))}</td>
-                                                                    <td style={{ textAlign: 'right', color: 'var(--text-muted)' }}>{formatCurrency(day.revenue)}</td>
                                                                     <td style={{ textAlign: 'right', color: 'var(--rose)' }}>{formatCurrency(day.provider_cost)}</td>
-                                                                    <td style={{ textAlign: 'right' }} className="weekly-profit">{<GstValuePair excluding={day.gross_profit} including={day.gross_profit_with_gst} formatValue={formatCurrency} />}</td>
+                                                                    <td style={{ textAlign: 'right' }} className="weekly-profit">
+                                                                        <strong style={{ color: (day.gross_profit_with_gst ?? day.gross_profit) >= 0 ? 'var(--emerald)' : 'var(--rose)' }}>
+                                                                            {formatCurrency(day.gross_profit_with_gst ?? day.gross_profit)}
+                                                                        </strong>
+                                                                    </td>
                                                                 </>
                                                             )}
                                                         </tr>
@@ -519,12 +671,12 @@ export const Reports = ({ activeTab, refreshKey }) => {
 
                     {/* Tab 4: Monthly Executive P&L */}
                     {tab === 'monthly' && monthlyReport && (
-                        <div className="fmc-report-hero-card">
+                        <div className="fmc-report-hero-card" id="printable-report-monthly">
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px', paddingBottom: '16px', borderBottom: '1px solid var(--card-border)', marginBottom: '18px' }}>
                                 <div>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                                         <h3 style={{ color: 'var(--text-main)', fontSize: '18px', fontWeight: 900, margin: 0 }}>
-                                            Monthly Executive Financial Statement
+                                             Monthly Executive Financial Statement
                                         </h3>
                                         <span style={{ fontSize: '10.5px', fontWeight: 800, padding: '2px 8px', borderRadius: '4px', background: 'rgba(16, 185, 129, 0.15)', color: 'var(--emerald)' }}>
                                             EXECUTIVE AUDIT
@@ -535,7 +687,7 @@ export const Reports = ({ activeTab, refreshKey }) => {
                                     </div>
                                 </div>
                                 {canPrintReport && (
-                                    <button className="btn btn-primary-blue" onClick={() => window.print()} style={{ display: 'inline-flex', alignItems: 'center', gap: '7px', padding: '8px 18px', borderRadius: '8px', fontWeight: 700, boxShadow: '0 4px 14px rgba(37, 99, 235, 0.35)' }}>
+                                    <button className="btn btn-primary-blue no-print" onClick={handlePrintMonthly} style={{ display: 'inline-flex', alignItems: 'center', gap: '7px', padding: '8px 18px', borderRadius: '8px', fontWeight: 700, boxShadow: '0 4px 14px rgba(37, 99, 235, 0.35)' }}>
                                         <Printer size={15} /> Print Statement
                                     </button>
                                 )}
@@ -556,7 +708,7 @@ export const Reports = ({ activeTab, refreshKey }) => {
 
                                 <div className="fmc-kpi-card" style={{ borderTop: '3px solid #e11d48' }}>
                                     <div className="fmc-kpi-card-header">
-                                        <span className="fmc-kpi-tag">Provider Costs</span>
+                                        <span className="fmc-kpi-tag">Carrier Cost</span>
                                         <div className="fmc-kpi-badge-icon" style={{ background: 'rgba(225, 29, 72, 0.15)', color: '#e11d48' }}>🚛</div>
                                     </div>
                                     <div className="fmc-kpi-val" style={{ color: '#e11d48' }}>
@@ -567,25 +719,25 @@ export const Reports = ({ activeTab, refreshKey }) => {
 
                                 <div className="fmc-kpi-card" style={{ borderTop: '3px solid #10b981' }}>
                                     <div className="fmc-kpi-card-header">
-                                        <span className="fmc-kpi-tag">Value After Courier Cost</span>
+                                        <span className="fmc-kpi-tag">Gross Profit (Incl. GST)</span>
                                         <div className="fmc-kpi-badge-icon" style={{ background: 'rgba(16, 185, 129, 0.15)', color: '#10b981' }}>📊</div>
                                     </div>
                                     <div className="fmc-kpi-val" style={{ color: '#10b981' }}>
-                                        {<GstValuePair excluding={monthlyReport.gross_profit} including={monthlyReport.gross_profit_with_gst} formatValue={formatCurrency} />}
+                                        {formatCurrency(monthlyReport.gross_profit_with_gst ?? monthlyReport.gross_profit)}
                                     </div>
-                                    <div className="fmc-kpi-sub">Revenue Minus Carrier Costs</div>
+                                    <div className="fmc-kpi-sub">Total Billed Minus Carrier Charges</div>
                                 </div>
 
-                                <div className="fmc-kpi-card" style={{ borderTop: '3px solid #10b981', background: 'rgba(16, 185, 129, 0.05)' }}>
+                                <div className="fmc-kpi-card" style={{ borderTop: '3px solid #059669', background: 'rgba(16, 185, 129, 0.05)' }}>
                                     <div className="fmc-kpi-card-header">
-                                        <span className="fmc-kpi-tag" style={{ color: '#10b981', fontWeight: 800 }}>Net Value</span>
-                                        <div className="fmc-kpi-badge-icon" style={{ background: 'rgba(16, 185, 129, 0.2)', color: '#10b981' }}>📈</div>
+                                        <span className="fmc-kpi-tag" style={{ color: '#059669', fontWeight: 800 }}>Margin (Incl. GST)</span>
+                                        <div className="fmc-kpi-badge-icon" style={{ background: 'rgba(5, 150, 105, 0.2)', color: '#059669' }}>📈</div>
                                     </div>
-                                    <div className="fmc-kpi-val" style={{ color: '#10b981' }}>
-                                        {<GstValuePair excluding={monthlyReport.net_profit} including={monthlyReport.net_profit_with_gst} formatValue={formatCurrency} />}
+                                    <div className="fmc-kpi-val" style={{ color: '#059669', fontSize: '26px', fontWeight: 900 }}>
+                                        {Number(monthlyReport.invoice_total || monthlyReport.revenue_with_gst || monthlyReport.revenue) > 0 ? (((monthlyReport.net_profit_with_gst ?? monthlyReport.net_profit) / Number(monthlyReport.invoice_total || monthlyReport.revenue_with_gst || monthlyReport.revenue)) * 100).toFixed(1) : (monthlyReport.net_profit_margin ?? '0')}%
                                     </div>
-                                    <div className="fmc-kpi-sub" style={{ color: '#10b981', fontWeight: 700 }}>
-                                        {monthlyReport.net_profit_margin || '0'}% Net Value / Base Sales
+                                    <div className="fmc-kpi-sub" style={{ color: 'var(--text-muted)' }}>
+                                        Profit / Gross Sales ({formatCurrency(monthlyReport.net_profit_with_gst ?? monthlyReport.net_profit)})
                                     </div>
                                 </div>
                             </div>
@@ -600,13 +752,12 @@ export const Reports = ({ activeTab, refreshKey }) => {
                                     </div>
                                     <div style={{ padding: '8px 2px' }}>
                                         <MonthlyWaterfallChart
-                                            grossSales={Number(monthlyReport.revenue || 0)}
+                                            grossSales={Number(monthlyReport.invoice_total || monthlyReport.revenue_with_gst || monthlyReport.revenue || 0)}
                                             providerCost={Number(monthlyReport.total_actual_cost || 0)}
-                                            grossProfit={Number(monthlyReport.gross_profit || 0)}
-                                            salesGst={Number(monthlyReport.gst_total || 0)}
+                                            grossProfit={Number(monthlyReport.gross_profit_with_gst ?? monthlyReport.gross_profit ?? 0)}
                                             refunds={Number(monthlyReport.refunds_total || 0)}
                                             operatingExpenses={Number(monthlyReport.operational_expenses || 0)}
-                                            netProfit={Number(monthlyReport.net_profit || 0)}
+                                            netProfit={Number(monthlyReport.net_profit_with_gst ?? monthlyReport.net_profit ?? 0)}
                                         />
                                     </div>
                                 </div>
@@ -614,12 +765,12 @@ export const Reports = ({ activeTab, refreshKey }) => {
                                 {/* Logistics Provider Cost Breakdown by Carrier */}
                                 <div className="fmc-breakdown-box">
                                     <div className="fmc-breakdown-header">
-                                        <span>🚛 Provider Costs by Carrier Partner</span>
+                                        <span>🚛 Carrier Costs by Carrier Partner</span>
                                         <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Carrier Share</span>
                                     </div>
                                     <div className="reports-list-scroll" style={{ padding: '8px 2px', maxHeight: '250px' }}>
                                         {Object.entries(monthlyReport.carrier_costs || monthlyReport.provider_cost_breakdown || {}).length === 0 ? (
-                                            <div style={{ fontSize: '12px', color: 'var(--text-muted)', padding: '24px 0', textAlign: 'center' }}>No carrier provider costs recorded.</div>
+                                             <div style={{ fontSize: '12px', color: 'var(--text-muted)', padding: '24px 0', textAlign: 'center' }}>No carrier costs recorded.</div>
                                         ) : (
                                             Object.entries(monthlyReport.carrier_costs || monthlyReport.provider_cost_breakdown || {}).map(([carrier, cost]) => (
                                                 <ProgressItem
@@ -676,7 +827,7 @@ export const Reports = ({ activeTab, refreshKey }) => {
                                         <strong>{formatCurrency(monthlyReport.gst_total)}</strong>
                                     </div>
                                     <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderTop: '1px dashed var(--card-border)', fontSize: '13px', fontWeight: 700 }}>
-                                        <span>2. Total Logistics Provider Cost (Carrier Invoices)</span>
+                                        <span>2. Total Carrier Cost (Logistics Invoices)</span>
                                         <span style={{ color: 'var(--rose)' }}>- {formatCurrency(monthlyReport.total_actual_cost)}</span>
                                     </div>
                                     {monthlyReport.postpaid_carrier_payments > 0 && (
@@ -686,8 +837,8 @@ export const Reports = ({ activeTab, refreshKey }) => {
                                         </div>
                                     )}
                                     <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderTop: '1px solid var(--card-border)', fontSize: '13.5px', fontWeight: 800 }}>
-                                        <span>3. Value After Courier Cost (Revenue &minus; Carrier Costs)</span>
-                                        <span style={{ color: 'var(--emerald)' }}>{<GstValuePair excluding={monthlyReport.gross_profit} including={monthlyReport.gross_profit_with_gst} formatValue={formatCurrency} />}</span>
+                                        <span>3. Gross Profit (Incl. GST &minus; Carrier Cost)</span>
+                                        <span style={{ color: 'var(--emerald)' }}>{formatCurrency(monthlyReport.gross_profit_with_gst ?? monthlyReport.gross_profit)}</span>
                                     </div>
                                     <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', fontSize: '12px', color: 'var(--text-muted)' }}>
                                         <span>4. Customer Refunds Deducted</span>
@@ -698,8 +849,8 @@ export const Reports = ({ activeTab, refreshKey }) => {
                                         <span style={{ color: 'var(--rose)' }}>- {formatCurrency(monthlyReport.operational_expenses)}</span>
                                     </div>
                                     <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 0 4px', borderTop: '2px solid var(--primary-blue)', fontSize: '16px', fontWeight: 900, color: 'var(--primary-blue)' }}>
-                                        <span>Net Value</span>
-                                        <span style={{ color: '#10b981' }}>{<GstValuePair excluding={monthlyReport.net_profit} including={monthlyReport.net_profit_with_gst} formatValue={formatCurrency} />} ({monthlyReport.net_profit_margin}%)</span>
+                                        <span>6. Profit (Incl. GST)</span>
+                                        <span style={{ color: '#10b981' }}>{formatCurrency(monthlyReport.net_profit_with_gst ?? monthlyReport.net_profit)} ({Number(monthlyReport.invoice_total || monthlyReport.revenue_with_gst || monthlyReport.revenue) > 0 ? (((monthlyReport.net_profit_with_gst ?? monthlyReport.net_profit) / Number(monthlyReport.invoice_total || monthlyReport.revenue_with_gst || monthlyReport.revenue)) * 100).toFixed(1) : (monthlyReport.net_profit_margin ?? '0')}%)</span>
                                     </div>
                                 </div>
                             </div>

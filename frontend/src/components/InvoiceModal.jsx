@@ -10,6 +10,8 @@ import { WhatsAppIcon, CourierLogo } from './CourierLogos';
 import InvoiceLogo from './InvoiceLogo';
 import { TrackingLink } from './TrackingLink';
 import { getTrackingUrl } from '../utils/tracking';
+import { formatTemplate, getDefaultMessageTemplates } from '../utils/communication';
+import { printElement } from '../utils/printHelper';
 
 const InvoiceModal = ({ isOpen, onClose, invoice, onPaymentRecorded, settings }) => {
     const { hasPermission } = useAuth();
@@ -37,7 +39,11 @@ const InvoiceModal = ({ isOpen, onClose, invoice, onPaymentRecorded, settings })
     const formatDate = (d) => d ? new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '-';
 
     const handlePrint = () => {
-        window.print();
+        printElement('printable-invoice', {
+            title: `${docTitle} - ${invoice.invoice_no || invoice.awb}`,
+            pageSize: 'A4',
+            pageOrientation: 'portrait'
+        });
     };
 
     const handleWhatsAppShare = () => {
@@ -50,10 +56,29 @@ const InvoiceModal = ({ isOpen, onClose, invoice, onPaymentRecorded, settings })
             alert('Please add a valid customer WhatsApp or mobile number with country code in the customer or booking details.');
             return;
         }
-        const msg = encodeURIComponent(
-            `Dear ${invoice.customer_name},\n\nThank you for choosing ${settings?.companyName || 'Fly My Cart Logistics'}!\n\n📄 Document: ${docTitle}\n🧾 No: ${invoice.invoice_no}\n📦 AWB: ${invoice.awb}\n💰 Total Amount: ₹${invoice.total}\n💳 Amount Paid: ₹${invoice.paid}\n⚠️ Balance: ₹${invoice.balance}\n\n${getTrackingUrl(invoice.courier) ? `Track your ${invoice.courier} shipment: ${getTrackingUrl(invoice.courier)}` : `Contact ${settings?.companyName || 'Fly My Cart'} for tracking assistance.`}\n\n${settings?.companyName || 'Fly My Cart Logistics'}`
-        );
-        window.open(`https://wa.me/${phone}?text=${msg}`, '_blank', 'noopener,noreferrer');
+
+        const templates = settings?.messageTemplates?.length
+            ? settings.messageTemplates
+            : getDefaultMessageTemplates(settings?.companyName);
+
+        const invoiceTpl = templates.find(t => t.category === 'invoice' || t.id === 'invoice_share') || templates[0];
+
+        const formattedMsg = formatTemplate(invoiceTpl?.body, {
+            customerName: invoice.customer_name,
+            companyName: settings?.companyName || 'Fly My Cart Logistics',
+            docTitle: docTitle,
+            invoiceNo: invoice.invoice_no,
+            awb: invoice.awb,
+            totalAmount: invoice.total,
+            paidAmount: invoice.paid,
+            balance: invoice.balance,
+            dueAmount: invoice.balance,
+            courier: invoice.courier,
+            destination: invoice.destination || '',
+            trackingUrl: getTrackingUrl(invoice.courier)
+        });
+
+        window.open(`https://wa.me/${phone}?text=${encodeURIComponent(formattedMsg)}`, '_blank', 'noopener,noreferrer');
     };
 
     const handleEmailShare = () => {
@@ -62,11 +87,30 @@ const InvoiceModal = ({ isOpen, onClose, invoice, onPaymentRecorded, settings })
             alert('Please add a valid customer email address in the customer or booking details.');
             return;
         }
-        const subject = encodeURIComponent(`${docTitle} - ${invoice.invoice_no} - ${settings?.companyName || 'Fly My Cart Logistics'}`);
-        const body = encodeURIComponent(
-            `Dear ${invoice.customer_name},\n\nHere are your invoice details for shipment AWB ${invoice.awb}.\n\nDocument: ${docTitle}\nTotal: ₹${invoice.total}\nPaid: ₹${invoice.paid}\nBalance: ₹${invoice.balance}\n\nThank you for partnering with ${settings?.companyName || 'Fly My Cart Logistics'}.`
-        );
-        window.open(`mailto:${encodeURIComponent(email)}?subject=${subject}&body=${body}`, '_blank');
+
+        const templates = settings?.messageTemplates?.length
+            ? settings.messageTemplates
+            : getDefaultMessageTemplates(settings?.companyName);
+
+        const invoiceTpl = templates.find(t => t.category === 'invoice' || t.id === 'invoice_share') || templates[0];
+
+        const formattedMsg = formatTemplate(invoiceTpl?.body, {
+            customerName: invoice.customer_name,
+            companyName: settings?.companyName || 'Fly My Cart Logistics',
+            docTitle: docTitle,
+            invoiceNo: invoice.invoice_no,
+            awb: invoice.awb,
+            totalAmount: invoice.total,
+            paidAmount: invoice.paid,
+            balance: invoice.balance,
+            dueAmount: invoice.balance,
+            courier: invoice.courier,
+            destination: invoice.destination || '',
+            trackingUrl: getTrackingUrl(invoice.courier)
+        });
+
+        const subject = encodeURIComponent(`${docTitle} #${invoice.invoice_no} - ${settings?.companyName || 'Fly My Cart Logistics'}`);
+        window.open(`mailto:${encodeURIComponent(email)}?subject=${subject}&body=${encodeURIComponent(formattedMsg)}`, '_blank');
     };
 
     const handleSubmitPayment = async (e) => {
@@ -135,9 +179,12 @@ const InvoiceModal = ({ isOpen, onClose, invoice, onPaymentRecorded, settings })
                             </div>
                             <h3 style={{ fontSize: '16px', fontWeight: 800, color: 'var(--text-main)', marginTop: '2px' }}>{invoice.invoice_no}</h3>
                             <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>Date: <strong>{formatDate(invoice.date)}</strong></div>
-                            <div style={{ marginTop: '6px' }}>
+                            <div style={{ marginTop: '6px', display: 'flex', gap: '6px', justifyContent: 'flex-end', alignItems: 'center' }}>
                                 <span className={`status-pill ${invoice.status === 'Paid' ? 'delivered' : 'delayed'}`}>
                                     {invoice.status}
+                                </span>
+                                <span className={invoice.is_ddp ? 'ddp-tag-paid' : 'ddp-tag-unpaid'} style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '4px' }}>
+                                    {invoice.is_ddp ? '✓ DDP Paid' : 'DDP Not Paid'}
                                 </span>
                             </div>
                         </div>
@@ -151,7 +198,12 @@ const InvoiceModal = ({ isOpen, onClose, invoice, onPaymentRecorded, settings })
                             <div style={{ fontSize: '11.5px', color: 'var(--text-muted)', marginTop: '2px' }}>Billing Mode: {isGst ? `GST Registered (${effectiveTaxRate}%)` : 'Non-GST / Bill of Supply'}</div>
                         </div>
                         <div style={{ background: 'var(--bg-app)', padding: '12px 14px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--card-border)' }}>
-                            <div style={{ fontSize: '10.5px', fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Logistics Consignment:</div>
+                            <div style={{ fontSize: '10.5px', fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <span>Logistics Consignment:</span>
+                                <span className={invoice.is_ddp ? 'ddp-tag-paid' : 'ddp-tag-unpaid'} style={{ fontSize: '9.5px', padding: '1px 6px' }}>
+                                    {invoice.is_ddp ? '✓ DDP Paid' : 'DDP Not Paid'}
+                                </span>
+                            </div>
                             <div style={{ fontSize: '13px', fontWeight: 700, marginTop: '3px' }}>AWB: <TrackingLink awb={invoice.awb} courier={invoice.courier} style={{ fontFamily: 'monospace' }} /></div>
                             <div style={{ fontSize: '11.5px', color: 'var(--text-muted)' }}>Carrier: {invoice.courier} ({invoice.service || 'Express'}) • HSN/SAC: 996812</div>
                         </div>

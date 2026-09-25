@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { apiClient } from '../api/client';
 import { businessDate } from '../utils/businessDates';
+import { exportToExcel } from '../utils/excelExport';
 
 export const money = value => value == null ? '—' : '₹ ' + Number(value).toLocaleString('en-IN', { maximumFractionDigits: 2 });
 export const dateLabel = value => value ? new Date(value + 'T00:00:00').toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : 'All time';
@@ -38,8 +39,8 @@ export function useAccountRequest(method, params, revision, refreshSource) {
     return result?.key === key ? result : { data: null, loading: true, error: '' };
 }
 export function exportRows(rows, name) {
-    const cell = value => '"' + String(value ?? '').replace(/^[=+@-]/, "'$&").replaceAll('"', '""') + '"';
-    const url = URL.createObjectURL(new Blob(['\uFEFF' + rows.map(row => row.map(cell).join(',')).join('\r\n')], { type: 'text/csv;charset=utf-8;' }));
-    const link = document.createElement('a'); link.href = url; link.download = name; link.click();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    if (!rows || rows.length < 1) return;
+    const headers = rows[0] || [];
+    const dataRows = rows.slice(1);
+    exportToExcel(headers, dataRows, name.replace(/\.csv$/, '.xlsx'), 'Accounts');
 }

@@ -32,13 +32,13 @@ import { apiClient } from '../api/client';
 
 const normalizeStaffRole = (value) => {
     const raw = String(value || '').trim().toLowerCase().replace(/\s+/g, '_');
-    if (['manager', 'team_leader', 'operations_executive'].includes(raw)) return raw;
+    if (['super_admin', 'manager', 'supervisor', 'account_executive', 'operation_executive'].includes(raw)) return raw;
+    if (raw === 'superadmin' || raw === 'admin') return 'super_admin';
     if (raw === 'center_manager') return 'manager';
-    if (!raw) return 'operations_executive';
-    if (raw === 'superadmin' || raw === 'super_admin' || raw === 'admin') return 'super_admin';
-    if (raw === 'operations_staff' || raw === 'ops' || raw === 'operations') return 'operations_executive';
-    if (raw === 'counter_staff' || raw === 'counter' || raw === 'front_desk') return 'counter_staff';
-    return 'operations_executive';
+    if (raw === 'team_leader' || raw === 'teamleader' || raw === 'team_lead') return 'supervisor';
+    if (raw === 'counter_staff' || raw === 'counter' || raw === 'accounts_staff' || raw === 'accounts_executive' || raw === 'front_desk') return 'account_executive';
+    if (raw === 'operations_executive' || raw === 'operations_staff' || raw === 'ops' || raw === 'operations') return 'operation_executive';
+    return 'operation_executive';
 };
 
 const normalizeStaffStatus = (value) => {
@@ -89,30 +89,53 @@ const getRoleConfig = (roleKey) => {
                 summary: 'Full access to financials, margins, reconciliations, refunds & staff authorization.'
             };
         case 'manager':
+            return {
+                label: 'Manager',
+                badgeClass: 'badge-manager',
+                gradient: 'linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)',
+                bgLight: 'rgba(37, 99, 235, 0.09)',
+                border: 'rgba(37, 99, 235, 0.25)',
+                color: '#2563eb',
+                icon: '👔',
+                summary: 'Branch management, refund approvals, B2B corporate credit & team supervision.'
+            };
+        case 'supervisor':
         case 'team_leader':
+            return {
+                label: 'Supervisor',
+                badgeClass: 'badge-supervisor',
+                gradient: 'linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%)',
+                bgLight: 'rgba(124, 58, 237, 0.09)',
+                border: 'rgba(124, 58, 237, 0.25)',
+                color: '#7c3aed',
+                icon: '🛡️',
+                summary: 'Operations supervision, dispatch routing, team escalations & daily EOD tracking.'
+            };
+        case 'account_executive':
+        case 'counter_staff':
+            return {
+                label: 'Account Executive',
+                badgeClass: 'badge-account-executive',
+                gradient: 'linear-gradient(135deg, #059669 0%, #047857 100%)',
+                bgLight: 'rgba(5, 150, 105, 0.09)',
+                border: 'rgba(5, 150, 105, 0.25)',
+                color: '#059669',
+                icon: '📊',
+                summary: 'Invoicing, carrier settlement, payment reconciliation & financial ledgers.'
+            };
+        case 'operation_executive':
         case 'operations_executive':
         case 'operations_staff':
-            return {
-                label: roleKey === 'manager' ? 'Manager' : roleKey === 'team_leader' ? 'Team Leader' : 'Operations Executive',
-                badgeClass: 'badge-ops',
-                gradient: 'linear-gradient(135deg, #1e64f0 0%, #1551c9 100%)',
-                bgLight: 'rgba(30, 100, 240, 0.09)',
-                border: 'rgba(30, 100, 240, 0.25)',
-                color: '#1e64f0',
-                icon: '💼',
-                summary: 'Full shipment booking, Customer 360, tracking & label generation. Financial margins masked.'
-            };
-        case 'counter_staff':
         default:
             return {
-                label: 'Counter Staff',
-                badgeClass: 'badge-counter',
-                gradient: 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)',
-                bgLight: 'rgba(245, 158, 11, 0.09)',
-                border: 'rgba(245, 158, 11, 0.25)',
-                color: '#d97706',
-                icon: '📝',
-                summary: 'Counter walk-in shipments entry, receipts & immediate weight booking.'
+                label: 'Operation Executive',
+                badgeClass: 'badge-ops',
+                gradient: 'linear-gradient(135deg, #0284c7 0%, #0369a1 100%)',
+                bgLight: 'rgba(2, 132, 199, 0.09)',
+                border: 'rgba(2, 132, 199, 0.25)',
+                color: '#0284c7',
+                icon: '💼',
+                summary: 'Counter shipment entry, volumetric weighing, AWB tracking & label generation.'
             };
     }
 };
@@ -124,7 +147,7 @@ export const Users = ({ settings, onDataMutated }) => {
     const [accessUser, setAccessUser] = useState(null);
     const [activityUser, setActivityUser] = useState(null);
     const [accessEditing, setAccessEditing] = useState(false);
-    const [isRefreshing, setIsRefreshing] = useState(false);
+    const [isRefreshing, setIsRefreshing] = useState(true);
     
     // Filters & view modes
     const [activeTab, setActiveTab] = useState('all'); // 'all' | 'pending' | 'active' | 'suspended' | 'matrix'
@@ -178,7 +201,13 @@ export const Users = ({ settings, onDataMutated }) => {
     };
 
     useEffect(() => {
-        fetchUsers();
+        let active = true;
+        apiClient.getUsers().then(data => {
+            if (active) setStaffList((Array.isArray(data) ? data : data?.data || []).map(normalizeStaffRecord));
+        }).catch(() => {
+            if (active) setFeedbackMessage({ text: 'Unable to load staff. Please refresh.', type: 'error' });
+        }).finally(() => { if (active) setIsRefreshing(false); });
+        return () => { active = false; };
     }, []);
 
     const showFeedback = (text, type = 'success') => {
@@ -617,9 +646,11 @@ export const Users = ({ settings, onDataMutated }) => {
                                 onChange={(e) => setRoleFilter(e.target.value)}
                             >
                                 <option value="ALL">All Role Levels</option>
-                                <option value="super_admin">Super Admin (Master)</option>
-                                <option value="manager">Manager</option><option value="team_leader">Team Leader</option><option value="operations_executive">Operations Executive</option>
-                                <option value="counter_staff">Counter Staff</option>
+                                <option value="super_admin">Super Admin</option>
+                                <option value="manager">Manager</option>
+                                <option value="supervisor">Supervisor</option>
+                                <option value="account_executive">Account Executive</option>
+                                <option value="operation_executive">Operation Executive</option>
                             </select>
                         </div>
 
@@ -766,9 +797,11 @@ export const Users = ({ settings, onDataMutated }) => {
                                                                 disabled={actionLoadingId === staff.id}
                                                                 onChange={(e) => handleRoleChange(staff.id, e.target.value)}
                                                             >
-                                                                <option value="counter_staff">Counter Staff</option>
-                                                                <option value="manager">Manager</option><option value="team_leader">Team Leader</option><option value="operations_executive">Operations Executive</option>
                                                                 <option value="super_admin">Super Admin</option>
+                                                                <option value="manager">Manager</option>
+                                                                <option value="supervisor">Supervisor</option>
+                                                                <option value="account_executive">Account Executive</option>
+                                                                <option value="operation_executive">Operation Executive</option>
                                                             </select>
                                                         ) : (
                                                             <span 

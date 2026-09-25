@@ -49,17 +49,33 @@ def migrate_database_schema(db: Session):
     shipment_columns = {column["name"] for column in inspect(db.bind).get_columns("shipments")}
     for name, definition in {
         "sender_email": "VARCHAR(150)", "sender_id_proof": "VARCHAR(100)",
+        "id_proof_front": "TEXT", "id_proof_back": "TEXT",
         "receiver_email": "VARCHAR(150)", "receiver_state": "VARCHAR(100)",
         "boxes": "JSON DEFAULT '[]'",
         "weight_rule": "JSON",
         "is_gst_applicable": "BOOLEAN DEFAULT TRUE",
+        "is_ddp": "BOOLEAN DEFAULT FALSE",
         "gst_rate": "FLOAT DEFAULT 18.0",
         "gst_amount": "FLOAT DEFAULT 0.0",
         "total_amount": "FLOAT",
         "carrier_payment_status": "VARCHAR(20) DEFAULT 'Pending'",
+        "entity": "VARCHAR(100) DEFAULT 'Globe Courier'",
     }.items():
         if name not in shipment_columns:
             db.execute(text(f"ALTER TABLE shipments ADD COLUMN {optional}{name} {definition}"))
+    booking_columns = {column["name"] for column in inspect(db.bind).get_columns("booking_requests")}
+    for name, definition in {
+        "entity": "VARCHAR(100) DEFAULT 'Globe Courier'",
+        "is_ddp": "BOOLEAN DEFAULT FALSE",
+    }.items():
+        if name not in booking_columns:
+            db.execute(text(f"ALTER TABLE booking_requests ADD COLUMN {optional}{name} {definition}"))
+    customer_columns = {column["name"] for column in inspect(db.bind).get_columns("customers")}
+    for name, definition in {
+        "id_proof_front": "TEXT", "id_proof_back": "TEXT",
+    }.items():
+        if name not in customer_columns:
+            db.execute(text(f"ALTER TABLE customers ADD COLUMN {optional}{name} {definition}"))
     invoice_columns = {column["name"] for column in inspect(db.bind).get_columns("invoices")}
     for name, definition in {
         "is_gst_invoice": "BOOLEAN DEFAULT TRUE",
@@ -78,7 +94,21 @@ def migrate_database_schema(db: Session):
             "ALTER TABLE user_profiles ADD COLUMN customer_id VARCHAR(50);",
             "ALTER TABLE user_profiles ADD COLUMN b2b_company_id VARCHAR(50);",
             "ALTER TABLE shipments ADD COLUMN booking_request_id VARCHAR(50);",
+            "ALTER TABLE shipments ADD COLUMN id_proof_front TEXT;",
+            "ALTER TABLE shipments ADD COLUMN id_proof_back TEXT;",
+            "ALTER TABLE shipments ADD COLUMN is_ddp BOOLEAN DEFAULT FALSE;",
+            "ALTER TABLE shipments ADD COLUMN receiver_id_proof VARCHAR(100);",
+            "ALTER TABLE shipments ADD COLUMN receiver_id_proof_front TEXT;",
+            "ALTER TABLE shipments ADD COLUMN receiver_id_proof_back TEXT;",
+            "ALTER TABLE shipments ADD COLUMN entity VARCHAR(100) DEFAULT 'Globe Courier';",
+            "ALTER TABLE booking_requests ADD COLUMN is_ddp BOOLEAN DEFAULT FALSE;",
+            "ALTER TABLE booking_requests ADD COLUMN receiver_id_proof VARCHAR(100);",
+            "ALTER TABLE booking_requests ADD COLUMN receiver_id_proof_front TEXT;",
+            "ALTER TABLE booking_requests ADD COLUMN receiver_id_proof_back TEXT;",
+            "ALTER TABLE booking_requests ADD COLUMN entity VARCHAR(100) DEFAULT 'Globe Courier';",
             "ALTER TABLE customers ADD COLUMN documents JSON DEFAULT '[]';",
+            "ALTER TABLE customers ADD COLUMN id_proof_front TEXT;",
+            "ALTER TABLE customers ADD COLUMN id_proof_back TEXT;",
         ]
         for sql in sqlite_sqls:
             try:
@@ -143,7 +173,17 @@ def migrate_database_schema(db: Session):
         "ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS customer_id VARCHAR(50);",
         "ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS b2b_company_id VARCHAR(50);",
         "ALTER TABLE shipments ADD COLUMN IF NOT EXISTS booking_request_id VARCHAR(50);",
+        "ALTER TABLE shipments ADD COLUMN IF NOT EXISTS id_proof_front TEXT;",
+        "ALTER TABLE shipments ADD COLUMN IF NOT EXISTS id_proof_back TEXT;",
+        "ALTER TABLE shipments ADD COLUMN IF NOT EXISTS receiver_id_proof VARCHAR(100);",
+        "ALTER TABLE shipments ADD COLUMN IF NOT EXISTS receiver_id_proof_front TEXT;",
+        "ALTER TABLE shipments ADD COLUMN IF NOT EXISTS receiver_id_proof_back TEXT;",
+        "ALTER TABLE booking_requests ADD COLUMN IF NOT EXISTS receiver_id_proof VARCHAR(100);",
+        "ALTER TABLE booking_requests ADD COLUMN IF NOT EXISTS receiver_id_proof_front TEXT;",
+        "ALTER TABLE booking_requests ADD COLUMN IF NOT EXISTS receiver_id_proof_back TEXT;",
         "ALTER TABLE customers ADD COLUMN IF NOT EXISTS documents JSONB DEFAULT '[]'::jsonb;",
+        "ALTER TABLE customers ADD COLUMN IF NOT EXISTS id_proof_front TEXT;",
+        "ALTER TABLE customers ADD COLUMN IF NOT EXISTS id_proof_back TEXT;",
         "CREATE INDEX IF NOT EXISTS idx_customers_center_created ON customers (center, created_at);",
         "CREATE INDEX IF NOT EXISTS idx_customers_center_type ON customers (center, customer_type);",
         "CREATE INDEX IF NOT EXISTS idx_shipments_center_created ON shipments (center, created_at);",
@@ -154,12 +194,15 @@ def migrate_database_schema(db: Session):
         "CREATE INDEX IF NOT EXISTS idx_pay_collections_inv ON payment_collections (invoice_id);",
         "CREATE INDEX IF NOT EXISTS idx_pay_collections_ship ON payment_collections (shipment_id);",
     ]
-    for sql in migration_sqls:
-        try:
+    # PostgreSQL statements are idempotent. Any error must stop startup rather
+    # than serving requests against a partially upgraded schema.
+    try:
+        for sql in migration_sqls:
             db.execute(text(sql))
-            db.commit()
-        except Exception:
-            db.rollback()
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
 
 SUPERADMIN_EMAIL = "admin@flymycart.com"
 SUPERADMIN_NAME = "Fly My Cart"
@@ -174,6 +217,15 @@ def bootstrap_password_hash():
     return hash_password(password)
 
 STANDARD_PERMISSIONS = [
+    # Dashboard
+    ("dashboards", "view", "dashboards.view", "Dashboard", False, "View KPI summary cards and key stats"),
+    ("dashboards", "booking_trends", "dashboards.booking_trends", "Dashboard", False, "View booking trends chart"),
+    ("dashboards", "recent_bookings", "dashboards.recent_bookings", "Dashboard", False, "View recent bookings list"),
+    ("dashboards", "fleet_volume", "dashboards.fleet_volume", "Dashboard", False, "View courier volume breakdown"),
+    ("dashboards", "accounts_snapshot", "dashboards.accounts_snapshot", "Dashboard", True, "View accounts and wallets snapshot"),
+    ("dashboards", "financial_analytics", "dashboards.financial_analytics", "Dashboard", True, "View financial charts and analytics"),
+    ("dashboards", "followups", "dashboards.followups", "Dashboard", False, "View follow-ups widget"),
+    ("dashboards", "quick_actions", "dashboards.quick_actions", "Dashboard", False, "Use quick actions"),
     # Customers
     ("customers", "view", "customers.view", "Customers", False, "View customer directory and contact details"),
     ("customers", "add", "customers.add", "Customers", False, "Create new customers and KYC records"),
@@ -239,12 +291,10 @@ STANDARD_PERMISSIONS = [
 
 STANDARD_ROLES = [
     ("SUPER_ADMIN", "Protected System Super Administrator with complete system authority", True),
-    ("Center Manager", "Branch manager overseeing assigned center shipments, staff, and customer accounts", False),
-    ("Operations Staff", "Operations team handling shipment booking, customer creation, and dispatch", False),
-    ("Front Counter Staff", "Counter shipment entry and receipt operations", False),
-    ("Accounts Staff", "Finance personnel managing invoices, reconciliations, and payment records", False),
-    ("Refund Approver", "Authorized manager with approval rights over customer refunds and credits", False),
-    ("Report Viewer", "Read-only analytics access for operational tracking", False),
+    ("Manager", "Branch manager overseeing assigned center shipments, staff, and customer accounts", False),
+    ("Supervisor", "Operational supervisor managing center workflow, bookings, and customer issues", False),
+    ("Account Executive", "Finance and billing executive managing invoices, ledgers, accounts, and reconciliations", False),
+    ("Operation Executive", "Operations team handling shipment booking, customer creation, tracking, and dispatch", False),
 ]
 
 
@@ -280,9 +330,15 @@ def seed_permissions_and_roles(db: Session):
     if not config:
         config = SystemSettings(id=1, config_json={})
         db.add(config)
-    initialized = (config.config_json or {}).get('companyRolePolicyV2', False)
+    # A policy version bump must not overwrite administrator-customized roles.
+    initialized = any((config.config_json or {}).get(key, False) for key in
+                      ('companyRolePolicyV2', 'companyRolePolicyV3', 'companyRolePolicyV4'))
     legacy = {'Manager': 'Center Manager', 'Counter Staff': 'Front Counter Staff', 'Operations Executive': 'Operations Staff'}
-    for code, name in ROLE_NAMES.items():
+    seen_roles = set()
+    for code, name in list(ROLE_NAMES.items()):
+        if name in seen_roles:
+            continue
+        seen_roles.add(name)
         role = db.query(Role).filter_by(name=name).first()
         if not role and name in legacy:
             role = db.query(Role).filter_by(name=legacy[name]).first()
@@ -302,7 +358,7 @@ def seed_permissions_and_roles(db: Session):
                 if not db.query(RolePermission).filter_by(role_id=role.id, permission_id=permission.id).first():
                     db.add(RolePermission(role_id=role.id, permission_id=permission.id,
                                           scope='all' if code == 'super_admin' else 'center'))
-    config.config_json = {**(config.config_json or {}), 'companyRolePolicyV2': True}
+    config.config_json = {**(config.config_json or {}), 'companyRolePolicyV4': True}
     db.commit()
 
 
@@ -398,7 +454,7 @@ def seed_super_admin(db: Session):
 
 def seed_system_settings(db: Session):
     """Seeds baseline system settings and provider configurations."""
-    default_couriers = ["FedEx", "Aramex", "DHL", "Blue Dart", "Delhivery", "UPS", "Sree Maruthi"]
+    default_couriers = ["FedEx", "Aramex", "DHL", "Blue Dart", "Delhivery", "UPS", "Sree Maruthi", "ICL", "BRV"]
     default_centers = [
         "Main Hub (Bangalore)",
         "Delhi Regional Hub",

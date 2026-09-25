@@ -248,15 +248,21 @@ def get_shipment_ledger(date_from: dt.date | None = None, date_to: dt.date | Non
     return {'items': result, 'total_count': count}
 
 @workspace_router.get('/entries')
-def get_account_entries(kind: str | None = None, date_from: dt.date | None = None, date_to: dt.date | None = None,
+def get_account_entries(kind: str | None = None, provider: str | None = None, date_from: dt.date | None = None, date_to: dt.date | None = None,
                         center: str | None = None, limit: int = Query(50, ge=1, le=500), offset: int = Query(0, ge=0),
                         ctx=Depends(require_permission('accounts.view')), db: Session = Depends(get_db)):
     if not financial_access(ctx): raise HTTPException(403, 'Financial access required')
     dates(date_from, date_to)
     query = window(entry_query(db, center), AccountingEntry.date, date_from, date_to)
-    if kind: query = query.filter(AccountingEntry.kind == kind)
+    if kind:
+        if ',' in kind:
+            query = query.filter(AccountingEntry.kind.in_([k.strip() for k in kind.split(',')]))
+        else:
+            query = query.filter(AccountingEntry.kind == kind)
+    if provider:
+        query = query.filter(func.lower(AccountingEntry.provider) == provider.strip().lower())
     return {'total_count': query.count(), 'items': [{key: getattr(entry, key) for key in (
-        'id', 'date', 'kind', 'category', 'vendor', 'payment_mode', 'account', 'transfer_to', 'amount', 'reference', 'payment_details', 'bill_name', 'shipment_id'
+        'id', 'date', 'kind', 'category', 'vendor', 'provider', 'payment_mode', 'account', 'transfer_to', 'amount', 'reference', 'payment_details', 'bill_name', 'shipment_id'
     )} for entry in query.order_by(AccountingEntry.date.desc(), AccountingEntry.created_at.desc(), AccountingEntry.id).offset(offset).limit(limit)]}
 
 @workspace_router.post('/entries/{entry_id}/bill')

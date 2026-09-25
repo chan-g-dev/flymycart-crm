@@ -109,6 +109,23 @@ class AttendanceTests(unittest.TestCase):
         self.client.close()
         self.engine.dispose()
 
+    def test_explicit_manage_denial_cannot_read_or_punch_for_other_staff(self):
+        restricted = {**CTX, 'is_super_admin': False, 'display_name': 'Restricted Staff',
+                      'permissions': {'attendance.view': True, 'attendance.punch': True, 'attendance.manage': False}}
+        for endpoint in (get_attendance_summary, get_attendance_events, get_daily_breakdown, record_punch, get_staff_list):
+            dependency = inspect.signature(endpoint).parameters['ctx'].default.dependency
+            self.app.dependency_overrides[dependency] = lambda: restricted
+        self.assertEqual(self.client.get('/api/attendance/staff-list').json()['staff'], ['Restricted Staff'])
+        params = {'date_from': '2026-09-21', 'date_to': '2026-09-21'}
+        self.assertEqual(self.client.get('/api/attendance/events', params=params).json()['events'], [])
+        self.assertEqual(self.client.get('/api/attendance/daily-breakdown', params=params).json()['entries'], [])
+        self.assertEqual(self.client.get('/api/attendance/summary', params=params).json()['total_staff_count'], 1)
+        response = self.client.post('/api/attendance/punch', json={
+            'staff_name': 'Deepthi M N', 'event': 'LOGIN', 'date': '2026-09-21', 'time': '09:00 AM'})
+        self.assertEqual(response.status_code, 201, response.text)
+        with self.sessions() as db:
+            self.assertEqual(db.get(AttendanceRecord, response.json()['id']).staff_name, 'Restricted Staff')
+
     def test_staff_list(self):
         res = self.client.get("/api/attendance/staff-list")
         self.assertEqual(res.status_code, 200)

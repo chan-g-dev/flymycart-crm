@@ -1,27 +1,60 @@
 """One effective-permission resolver for login, API requests and access previews."""
 from app.models import UserPermissionOverride
 
-ROLE_NAMES = {'super_admin': 'SUPER_ADMIN', 'manager': 'Manager', 'team_leader': 'Team Leader',
-              'counter_staff': 'Counter Staff', 'operations_executive': 'Operations Executive'}
-ROLE_ALIASES = {'operations_staff': 'operations_executive', 'operations staff': 'operations_executive',
-                'front counter staff': 'counter_staff', 'center manager': 'manager'}
+ROLE_NAMES = {
+    'super_admin': 'SUPER_ADMIN',
+    'manager': 'Manager',
+    'supervisor': 'Supervisor',
+    'account_executive': 'Account Executive',
+    'operation_executive': 'Operation Executive',
+    'team_leader': 'Team Leader',
+    'counter_staff': 'Counter Staff',
+    'operations_executive': 'Operations Executive',
+}
+
+ROLE_ALIASES = {
+    'supervisor': 'supervisor',
+    'team_leader': 'supervisor',
+    'team leader': 'supervisor',
+    'account_executive': 'account_executive',
+    'account executive': 'account_executive',
+    'accounts_executive': 'account_executive',
+    'accounts executive': 'account_executive',
+    'counter_staff': 'counter_staff',
+    'counter staff': 'counter_staff',
+    'front counter staff': 'counter_staff',
+    'operation_executive': 'operation_executive',
+    'operation executive': 'operation_executive',
+    'operations_executive': 'operation_executive',
+    'operations executive': 'operation_executive',
+    'operations_staff': 'operation_executive',
+    'operations staff': 'operation_executive',
+    'center manager': 'manager',
+}
+
 SUPER_ONLY = set()
-COMMON = {'dashboards.view', 'customers.view', 'shipments.view', 'invoices.view', 'search.global',
+COMMON = {'dashboards.view', 'dashboards.booking_trends', 'dashboards.recent_bookings',
+          'dashboards.fleet_volume', 'dashboards.followups', 'dashboards.quick_actions',
+          'customers.view', 'shipments.view', 'invoices.view', 'search.global',
           'followups.view', 'followups.add', 'followups.edit', 'refunds.view', 'refunds.request', 'settings.view',
           'attendance.view', 'attendance.punch'}
 
+from app.permissions import PermissionCode
+
 ROLE_DEFAULTS = {
-    'manager': COMMON | {
-        'customers.add', 'customers.edit', 'customers.export', 'customers.delete', 'customers.statement',
-        'shipments.add', 'shipments.edit', 'shipments.cancel', 'shipments.export', 'shipments.delete',
+    'manager': {
+        p.value for p in PermissionCode if p.value not in {'costs.net_value', 'costs.margins', 'reports.view_financial'}
+    },
+    'supervisor': COMMON | {
+        'customers.add', 'customers.edit', 'customers.export', 'customers.statement',
+        'shipments.add', 'shipments.edit', 'shipments.cancel', 'shipments.export',
         'invoices.add', 'invoices.edit', 'invoices.export', 'invoices.print',
-        'accounts.view', 'accounts.edit', 'accounts.reconcile', 'accounts.export',
-        'refunds.approve', 'refunds.process',
+        'refunds.approve',
         'reports.view', 'reports.eod', 'reports.weekly', 'reports.custom_range', 'reports.print', 'reports.export',
-        'b2b.view', 'b2b.add', 'b2b.edit', 'b2b.manage_credit', 'b2b.export',
-        'users.view', 'users.invite', 'users.edit', 'users.suspend',
-        'settings.manage',
-        'reconciliation.view', 'reconciliation.run',
+        'b2b.view', 'b2b.add', 'b2b.edit',
+        'accounts.view', 'accounts.reconcile',
+        'reconciliation.view',
+        'users.view',
     },
     'team_leader': COMMON | {
         'customers.add', 'customers.edit', 'customers.export', 'customers.statement',
@@ -34,12 +67,29 @@ ROLE_DEFAULTS = {
         'reconciliation.view',
         'users.view',
     },
+    'account_executive': COMMON | {
+        'dashboards.accounts_snapshot', 'dashboards.financial_analytics',
+        'customers.add', 'customers.edit', 'customers.export', 'customers.statement',
+        'shipments.add', 'shipments.edit', 'shipments.cancel', 'shipments.export',
+        'invoices.add', 'invoices.edit', 'invoices.export', 'invoices.print',
+        'accounts.view', 'accounts.edit', 'accounts.reconcile', 'accounts.export',
+        'reports.view', 'reports.eod', 'reports.weekly', 'reports.export',
+        'b2b.view', 'b2b.add', 'b2b.edit', 'b2b.manage_credit', 'b2b.export',
+        'reconciliation.view',
+    },
     'counter_staff': COMMON | {
         'customers.add', 'customers.edit', 'customers.statement',
         'shipments.add', 'shipments.edit', 'shipments.cancel', 'shipments.export',
         'invoices.add', 'invoices.edit', 'invoices.export', 'invoices.print',
         'reports.eod',
         'b2b.view',
+    },
+    'operation_executive': COMMON | {
+        'customers.add', 'customers.edit', 'customers.statement',
+        'shipments.add', 'shipments.edit', 'shipments.cancel', 'shipments.export',
+        'invoices.add', 'invoices.edit', 'invoices.print',
+        'reports.view', 'reports.eod', 'reports.weekly', 'reports.print', 'reports.export',
+        'reconciliation.view',
     },
     'operations_executive': COMMON | {
         'customers.add', 'customers.edit',
@@ -54,11 +104,15 @@ def role_code(profile):
     if profile.role == 'super_admin' or 'SUPER_ADMIN' in names:
         return 'super_admin'
     for name in names + [profile.role]:
+        if not name:
+            continue
         key = name.lower().replace(' ', '_')
         if key in ROLE_NAMES:
             return key
         if name.lower() in ROLE_ALIASES:
             return ROLE_ALIASES[name.lower()]
+        if key in ROLE_ALIASES:
+            return ROLE_ALIASES[key]
     return profile.role
 
 def resolve_permissions(db, profile, include_overrides=True):
@@ -155,5 +209,3 @@ def can_view_margins(ctx):
         return False
     perms = ctx.get('permissions', {})
     return bool(ctx.get('is_super_admin') or '*' in perms or perms.get('costs.margins') or perms.get('costs.margin'))
-
-

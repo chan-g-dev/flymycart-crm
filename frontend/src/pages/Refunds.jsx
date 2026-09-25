@@ -1,3 +1,4 @@
+import { exportToExcel } from '../utils/excelExport';
 import PaymentDetailsSummary from '../components/PaymentDetailsSummary';
 import { businessDate, formatBusinessDate } from '../utils/businessDates';
 import { useState } from 'react';
@@ -32,23 +33,16 @@ export const Refunds = ({ refunds = [], onOpenRefundModal, onApproveRefund, onPr
         if (!refunds || refunds.length === 0) return;
         const headers = ['Customer Name', 'AWB Number', 'Refund Amount (INR)', 'Reason', 'Status', 'Request Date', 'Approved By'];
         const rows = refunds.map(r => [
-            `"${r.customer || ''}"`,
-            `"${r.awb || ''}"`,
-            r.amount || 0,
-            `"${(r.reason || '').replace(/"/g, '""')}"`,
-            `"${r.status || ''}"`,
-            `"${r.request_date || ''}"`,
-            `"${r.approved_by || ''}"`
+            r.customer || '',
+            r.awb || '',
+            Number(r.amount || 0),
+            r.reason || '',
+            r.status || '',
+            r.request_date || '',
+            r.approved_by || ''
         ]);
 
-        const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map(e => e.join(','))].join('\n');
-        const encodedUri = encodeURI(csvContent);
-        const link = document.createElement('a');
-        link.setAttribute('href', encodedUri);
-        link.setAttribute('download', `FMC_Refunds_${businessDate()}.csv`);
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
+        exportToExcel(headers, rows, `FMC_Refunds_${businessDate()}.xlsx`, 'Refunds');
     };
 
     return (
@@ -58,7 +52,7 @@ export const Refunds = ({ refunds = [], onOpenRefundModal, onApproveRefund, onPr
                 <div>
                     <h2 className="page-title" style={{ fontSize: '20px', fontWeight: 800 }}>🔄 Customer Refunds & Adjustments</h2>
                     <p className="page-subtitle" style={{ fontSize: '12.5px', color: 'var(--text-muted)' }}>
-                        5-state permission-gated lifecycle (Requested &rarr; Approved &rarr; Refunded / Rejected). Deducts automatically from Net Value.
+                        5-state permission-gated lifecycle (Requested &rarr; Approved &rarr; Refunded / Rejected). Deducts automatically from Profit.
                     </p>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
@@ -69,8 +63,8 @@ export const Refunds = ({ refunds = [], onOpenRefundModal, onApproveRefund, onPr
                         <span className="pill-stat" style={{ background: '#dcfce7', color: '#15803d' }}>Settled: <strong>{refundedCount}</strong></span>
                         <span className="pill-stat" style={{ background: '#ffe4e6', color: '#be123c' }}>Amount: <strong>{formatCurrency(totalAmount)}</strong></span>
                     </div>
-                    <button className="btn btn-outline" onClick={exportToCSV} title="Export Refunds to CSV">
-                        <Download size={14} /> Export CSV
+                    <button className="btn btn-outline" onClick={exportToCSV} title="Export Refunds to Excel">
+                        <Download size={14} /> Export Excel
                     </button>
                     <button className="btn btn-primary-blue" onClick={onOpenRefundModal}>
                         <Plus size={15} /> New Refund Request

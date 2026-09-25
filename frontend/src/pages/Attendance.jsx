@@ -1,285 +1,100 @@
-import { ButtonSpinner, LoadingSpinner } from '../components/LoadingSpinner';
-import React, { useState, useEffect, useCallback } from 'react';
-import { 
-    Clock, 
-    Calendar, 
-    User, 
-    Search, 
-    Filter, 
-    CheckCircle2, 
-    AlertCircle, 
-    Clock3, 
-    Zap, 
-    Camera, 
-    X, 
-    RefreshCw, 
-    ChevronRight,
-    ArrowUpRight,
-    ArrowDownRight,
-    Users,
-    LogIn,
-    LogOut,
-    Utensils,
-    Coffee,
-    PauseCircle,
-    PlayCircle,
-    Save
-} from 'lucide-react';
+import { useRemoteData } from '../utils/useRemoteData';
+import { LoadingSpinner } from '../components/LoadingSpinner';
+import React, { useState, useCallback, useMemo } from 'react';
+import { Users, CheckCircle2, XCircle, Clock, Calendar, LogIn, LogOut, Coffee, Play, Search, Eye, Plus, X, TrendingUp } from 'lucide-react';
 import { apiClient } from '../api/client';
-import { businessDate } from '../utils/businessDates';
+import { businessDate, formatBusinessDate } from '../utils/businessDates';
 import { useAuth } from '../context/authSession';
 
-export function Attendance({ settings }) {
+const STAFF_DEPARTMENTS = {
+    'Umesh': 'Operations',
+    'Asma': 'Accounts',
+    'Ravi': 'Sales',
+    'Suresh': 'Operations',
+    'Praveen': 'Customer Support',
+    'Naseer': 'Logistics',
+    'Karthik': 'Admin',
+    'Nawaz': 'Management',
+    'Lata': 'Finance',
+    'Uma': 'Operations',
+    'Akash': 'Logistics'
+};
+
+const AVATAR_COLORS = [
+    { bg: '#3b82f6', text: '#ffffff' }, // Blue
+    { bg: '#10b981', text: '#ffffff' }, // Green
+    { bg: '#8b5cf6', text: '#ffffff' }, // Purple
+    { bg: '#f43f5e', text: '#ffffff' }, // Rose
+    { bg: '#0ea5e9', text: '#ffffff' }, // Sky
+    { bg: '#f97316', text: '#ffffff' }, // Orange
+    { bg: '#6366f1', text: '#ffffff' }, // Indigo
+];
+
+export function Attendance() {
     const todayStr = businessDate();
     const { currentUser, hasPermission } = useAuth();
     const isSuperAdmin = Boolean(currentUser?.isSuperAdmin || currentUser?.is_superuser);
     const canManageAttendance = Boolean(isSuperAdmin || hasPermission('attendance.manage'));
     const userName = currentUser?.name || currentUser?.display_name || 'Staff';
-    
-    // Filters & Config State
-    const [datePreset, setDatePreset] = useState('Today'); // 'Today', 'This Week', 'This Month', 'Custom'
-    const [dateFrom, setDateFrom] = useState(todayStr);
-    const [dateTo, setDateTo] = useState(todayStr);
-    const [selectedStaff, setSelectedStaff] = useState(canManageAttendance ? 'All Staff' : userName);
-    const [expectedLogin, setExpectedLogin] = useState(settings?.attendanceSettings?.expectedLogin || '09:00 AM');
-    const [expectedLogout, setExpectedLogout] = useState(settings?.attendanceSettings?.expectedLogout || '06:00 PM');
-    const [expectedWorkHours, setExpectedWorkHours] = useState(
-        settings?.attendanceSettings?.expectedWorkHours ?? 
-        (settings?.attendanceSettings?.expectedWorkMin ? settings.attendanceSettings.expectedWorkMin / 60 : 8)
-    );
-    const [gracePeriodMin, setGracePeriodMin] = useState(settings?.attendanceSettings?.gracePeriodMin ?? 15);
-    const [savingDefaults, setSavingDefaults] = useState(false);
-    const [saveFeedback, setSaveFeedback] = useState('');
 
-    useEffect(() => {
-        if (settings?.attendanceSettings) {
-            if (settings.attendanceSettings.expectedLogin) setExpectedLogin(settings.attendanceSettings.expectedLogin);
-            if (settings.attendanceSettings.expectedLogout) setExpectedLogout(settings.attendanceSettings.expectedLogout);
-            if (settings.attendanceSettings.expectedWorkHours !== undefined) {
-                setExpectedWorkHours(settings.attendanceSettings.expectedWorkHours);
-            } else if (settings.attendanceSettings.expectedWorkMin !== undefined) {
-                setExpectedWorkHours(settings.attendanceSettings.expectedWorkMin / 60);
-            }
-            if (settings.attendanceSettings.gracePeriodMin !== undefined) setGracePeriodMin(settings.attendanceSettings.gracePeriodMin);
-        }
-    }, [settings]);
+    // Date & Filters State
+    const [selectedDate, setSelectedDate] = useState(todayStr);
+    const [searchTerm, setSearchTerm] = useState('');
+    const [selectedDept, setSelectedDept] = useState('All');
+    const [summaryPeriod, setSummaryPeriod] = useState('today'); // 'today' or 'month'
 
-    const handleSaveDefaultTimings = async () => {
-        setSavingDefaults(true);
-        try {
-            const workHoursNum = parseFloat(expectedWorkHours) || 8;
-            const workMin = Math.round(workHoursNum * 60);
-            const graceMin = parseInt(gracePeriodMin) ?? 15;
-            const currentConfig = settings || {};
-            const updatedConfig = {
-                ...currentConfig,
-                attendanceSettings: {
-                    expectedLogin,
-                    expectedLogout,
-                    expectedWorkHours: workHoursNum,
-                    expectedWorkMin: workMin,
-                    gracePeriodMin: graceMin
-                }
-            };
-            await apiClient.saveSettings(updatedConfig);
-            setSaveFeedback('✓ Saved default timings!');
-            setTimeout(() => setSaveFeedback(''), 4000);
-            await fetchData();
-        } catch (err) {
-            alert(err.message || 'Failed to save default shift timings');
-        } finally {
-            setSavingDefaults(false);
-        }
-    };
-    
-    // Active Tab
-    const [activeTab, setActiveTab] = useState('overview'); // 'overview', 'events', 'analysis'
-    
     // Data States
-    const [loading, setLoading] = useState(true);
-    const [staffList, setStaffList] = useState(canManageAttendance ? [] : [userName]);
-    const [summaryData, setSummaryData] = useState(null);
-    const [eventsData, setEventsData] = useState([]);
-    const [breakdownData, setBreakdownData] = useState([]);
-    const [eventsCount, setEventsCount] = useState(0);
-    const [eventsSearch, setEventsSearch] = useState('');
-    const [breakdownSearch, setBreakdownSearch] = useState('');
-    
-    // Modals
-    const [isPunchModalOpen, setIsPunchModalOpen] = useState(false);
+
+
+    // Modal States
+    const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+    const [viewStaffData, setViewStaffData] = useState(null);
     const [punchStaff, setPunchStaff] = useState(userName);
     const [punchEvent, setPunchEvent] = useState('LOGIN');
+    const [punchTime, setPunchTime] = useState('');
     const [punchNotes, setPunchNotes] = useState('');
     const [punchLoading, setPunchLoading] = useState(false);
-    const [previewPhoto, setPreviewPhoto] = useState(null);
-
-    // Handle Preset Changes
-    const handlePresetChange = (preset) => {
-        setDatePreset(preset);
-        const now = new Date();
-        if (preset === 'Today') {
-            const t = businessDate();
-            setDateFrom(t);
-            setDateTo(t);
-        } else if (preset === 'This Week') {
-            const curr = new Date();
-            const dayOfWeek = curr.getDay(); // 0 is Sunday
-            const distanceToMonday = (dayOfWeek === 0 ? -6 : 1) - dayOfWeek;
-            const monday = new Date(curr);
-            monday.setDate(curr.getDate() + distanceToMonday);
-            const sunday = new Date(monday);
-            sunday.setDate(monday.getDate() + 6);
-            setDateFrom(monday.toISOString().split('T')[0]);
-            setDateTo(sunday.toISOString().split('T')[0]);
-        } else if (preset === 'This Month') {
-            const year = now.getFullYear();
-            const month = String(now.getMonth() + 1).padStart(2, '0');
-            const lastDayNum = new Date(year, now.getMonth() + 1, 0).getDate();
-            setDateFrom(`${year}-${month}-01`);
-            setDateTo(`${year}-${month}-${String(lastDayNum).padStart(2, '0')}`);
-        }
-    };
-
-    // Load Staff List
-    useEffect(() => {
-        const fetchStaff = async () => {
-            try {
-                const res = await apiClient.getAttendanceStaffList();
-                if (res && res.staff && res.staff.length > 0) {
-                    setStaffList(res.staff);
-                    setPunchStaff(prev => prev || res.staff[0]);
-                }
-            } catch (err) {
-                console.error("Failed to load staff list", err);
-            }
-        };
-        fetchStaff();
-    }, []);
-
-    // Fetch Summary & Data
-    const fetchData = useCallback(async () => {
-        setLoading(true);
-        try {
-            const workHoursNum = parseFloat(expectedWorkHours) || 8;
-            const params = {
-                date_from: dateFrom,
-                date_to: dateTo,
-                staff_name: selectedStaff,
-                expected_work_min: Math.round(workHoursNum * 60),
-                grace_period_min: parseInt(gracePeriodMin) || 15,
-                expected_login: expectedLogin,
-                expected_logout: expectedLogout
-            };
-
-            // Summary
-            const summaryRes = await apiClient.getAttendanceSummary(params);
-            setSummaryData(summaryRes);
-
-            // Events Log
-            const eventsRes = await apiClient.getAttendanceEvents({ ...params, search: eventsSearch });
-            if (eventsRes) {
-                setEventsData(eventsRes.events || []);
-                setEventsCount(eventsRes.total_count || 0);
-            }
-
-            // Daily Breakdown
-            const breakdownRes = await apiClient.getAttendanceDailyBreakdown({ ...params, search: breakdownSearch });
-            if (breakdownRes) {
-                setBreakdownData(breakdownRes.entries || []);
-            }
-        } catch (err) {
-            console.error("Error fetching attendance data:", err);
-        } finally {
-            setLoading(false);
-        }
-    }, [dateFrom, dateTo, selectedStaff, expectedWorkHours, gracePeriodMin, expectedLogin, expectedLogout, eventsSearch, breakdownSearch]);
-
-    useEffect(() => {
-        fetchData();
-    }, [fetchData]);
-
-    // Handle Quick Punch
-    const handleRecordPunch = async (e) => {
-        e.preventDefault();
-        if (!punchStaff) return;
-        setPunchLoading(true);
-        try {
-            const now = new Date();
-            const timeStr = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true });
-            await apiClient.recordAttendancePunch({
-                staff_name: punchStaff,
-                event: punchEvent,
-                time: timeStr,
-                notes: punchNotes,
-                photo_url: '/api/placeholder/120/120'
-            });
-            setIsPunchModalOpen(false);
-            setPunchNotes('');
-            await fetchData();
-        } catch (err) {
-            alert(err.message || "Failed to record punch");
-        } finally {
-            setPunchLoading(false);
-        }
-    };
-
-    const getEventBadge = (event) => {
-        switch (event) {
-            case 'LOGIN':
-                return <span className="att-badge att-badge-login"><LogIn size={13} /> LOGIN</span>;
-            case 'LOGOUT':
-                return <span className="att-badge att-badge-logout"><LogOut size={13} /> LOGOUT</span>;
-            case 'LUNCH START':
-                return <span className="att-badge att-badge-lunch"><Utensils size={13} /> LUNCH START</span>;
-            case 'LUNCH END':
-                return <span className="att-badge att-badge-lunch-end"><Coffee size={13} /> LUNCH END</span>;
-            case 'BREAK START':
-                return <span className="att-badge att-badge-break"><PauseCircle size={13} /> BREAK START</span>;
-            case 'BREAK END':
-                return <span className="att-badge att-badge-break-end"><PlayCircle size={13} /> BREAK END</span>;
-            default:
-                return <span className="att-badge att-badge-neutral">{event}</span>;
-        }
-    };
-
-    const getStatusPill = (status) => {
-        switch (status) {
-            case 'On Time':
-                return <span className="att-status-pill on-time">On Time</span>;
-            case 'Late':
-                return <span className="att-status-pill late">Late</span>;
-            case 'Half Day':
-                return <span className="att-status-pill half-day">Half Day</span>;
-            case 'No Logout':
-            default:
-                return <span className="att-status-pill no-logout">No Logout</span>;
-        }
-    };
-
-    // Clock & Live Shift State
-    const [currentTime, setCurrentTime] = useState(new Date());
     const [actionMsg, setActionMsg] = useState('');
 
-    useEffect(() => {
-        const timer = setInterval(() => setCurrentTime(new Date()), 1000);
-        return () => clearInterval(timer);
-    }, []);
+    const requestData = useCallback(async () => {
+        const params = { date_from: selectedDate, date_to: selectedDate };
+        const [staff, breakdown, events, summary] = await Promise.all([
+            apiClient.getAttendanceStaffList(),
+            apiClient.getAttendanceDailyBreakdown(params),
+            apiClient.getAttendanceEvents(params),
+            apiClient.getAttendanceSummary({ ...params, date_from: summaryPeriod === 'month' ? selectedDate.slice(0, 8) + '01' : selectedDate }),
+        ]);
+        return { staff: staff.staff || [], breakdown: breakdown.entries || [], events: events.events || [], summary };
+    }, [selectedDate, summaryPeriod]);
+    const { data, loading, error, reload: fetchData } = useRemoteData(requestData);
+    const staffList = useMemo(() => data?.staff || [], [data]);
+    const breakdownData = useMemo(() => data?.breakdown || [], [data]);
+    const eventsData = data?.events || [];
+    const summary = data?.summary;
+    const periodKpis = {
+        total: summary?.total_staff_days || 0,
+        present: summary?.present_days || 0,
+        absent: summary?.absent_days || 0,
+        late: summary?.late_days || 0,
+        onLeave: 0,
+    };
+    const canPunch = hasPermission('attendance.punch');
 
-    // Direct 1-Click Punch for logged in staff
-    const handleDirectPunch = async (eventType) => {
+    // Handle Direct Punch (Punch In, Break, Resume, Punch Out)
+    const handleDirectAction = async (eventType) => {
         setPunchLoading(true);
         try {
             const now = new Date();
-            const timeStr = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true });
+            const timeStr = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' });
             await apiClient.recordAttendancePunch({
                 staff_name: userName,
                 event: eventType,
                 time: timeStr,
-                notes: `1-Click Quick Punch from Portal`,
-                photo_url: '/api/placeholder/120/120'
+                date: todayStr,
+                notes: `Quick action: ${eventType}`
             });
             setActionMsg(`✓ ${eventType} recorded successfully at ${timeStr}`);
-            setTimeout(() => setActionMsg(''), 4500);
+            setTimeout(() => setActionMsg(''), 4000);
             await fetchData();
         } catch (err) {
             alert(err.message || `Failed to record ${eventType}`);
@@ -288,632 +103,1041 @@ export function Attendance({ settings }) {
         }
     };
 
-    // Calculate today's latest shift status for this staff member
-    const myTodayEvents = eventsData.filter(e => e.date === todayStr && (e.staff_name === userName || !canManageAttendance));
-    const latestTodayEvent = myTodayEvents[0]?.event;
-
-    const getShiftStatusMeta = () => {
-        switch (latestTodayEvent) {
-            case 'LOGIN':
-            case 'LUNCH END':
-            case 'BREAK END':
-                return { label: 'Active on Shift', class: 'active', sub: `Last recorded: ${latestTodayEvent} at ${myTodayEvents[0]?.time}` };
-            case 'LUNCH START':
-                return { label: 'On Lunch Break', class: 'lunch', sub: `Started at ${myTodayEvents[0]?.time}` };
-            case 'BREAK START':
-                return { label: 'On Break', class: 'break', sub: `Started at ${myTodayEvents[0]?.time}` };
-            case 'LOGOUT':
-                return { label: 'Shift Completed / Logged Out', class: 'logged-out', sub: `Logged out at ${myTodayEvents[0]?.time}` };
-            default:
-                return { label: 'Not Checked In Yet Today', class: 'none', sub: 'Ready to start your shift' };
+    // Handle Add Attendance Modal Submission
+    const handleAddAttendanceSubmit = async (e) => {
+        e.preventDefault();
+        if (!punchStaff) return;
+        setPunchLoading(true);
+        try {
+            const timeToRecord = punchTime || new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' });
+            await apiClient.recordAttendancePunch({
+                staff_name: punchStaff,
+                event: punchEvent,
+                time: timeToRecord,
+                date: selectedDate,
+                notes: punchNotes || 'Manual entry'
+            });
+            setIsAddModalOpen(false);
+            setPunchNotes('');
+            setPunchTime('');
+            setActionMsg(`✓ Attendance logged for ${punchStaff}`);
+            setTimeout(() => setActionMsg(''), 4000);
+            await fetchData();
+        } catch (err) {
+            alert(err.message || "Failed to add attendance");
+        } finally {
+            setPunchLoading(false);
         }
     };
 
-    const shiftStatus = getShiftStatusMeta();
+    // Build unified table rows combining all staff and breakdown data
+    const allStaffMembers = useMemo(() => {
+        const set = new Set(staffList);
+        breakdownData.forEach(b => {
+            if (b.staff_name) set.add(b.staff_name);
+        });
+        return Array.from(set);
+    }, [staffList, breakdownData]);
+
+    const tableRows = useMemo(() => {
+        return allStaffMembers.map((name, idx) => {
+            const entry = breakdownData.find(b => b.staff_name === name);
+            const dept = STAFF_DEPARTMENTS[name] || 'Operations';
+            const dateFmt = formatBusinessDate(selectedDate);
+
+            // Determine status
+            let status = 'Absent';
+            let loginTime = '-';
+            let logoutTime = '-';
+            let workingHours = '-';
+
+            if (entry && entry.login_time && entry.login_time !== '—' && entry.login_time !== '-') {
+                loginTime = entry.login_time;
+                logoutTime = entry.logout_time !== '—' ? entry.logout_time : '-';
+                workingHours = entry.work_time_str !== '—' && entry.work_time_str !== '0h 0m' ? entry.work_time_str : (logoutTime !== '-' ? '0h 0m' : 'In Progress');
+                status = entry.login_status === 'late' ? 'Late' : 'Present';
+            }
+
+            return {
+                id: idx + 1,
+                name,
+                dept,
+                date: dateFmt,
+                rawDate: selectedDate,
+                loginTime,
+                logoutTime,
+                workingHours,
+                status,
+                rawEntry: entry
+            };
+        });
+    }, [allStaffMembers, breakdownData, selectedDate]);
+
+    // Filter table rows by search and department
+    const filteredRows = useMemo(() => {
+        return tableRows.filter(row => {
+            const matchesSearch = !searchTerm || 
+                row.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
+                row.dept.toLowerCase().includes(searchTerm.toLowerCase());
+            const matchesDept = selectedDept === 'All' || row.dept === selectedDept;
+            return matchesSearch && matchesDept;
+        });
+    }, [tableRows, searchTerm, selectedDept]);
+
+    // KPI Metrics calculation
+    const kpis = useMemo(() => {
+        const total = tableRows.length;
+        const present = tableRows.filter(r => r.status === 'Present').length;
+        const late = tableRows.filter(r => r.status === 'Late').length;
+        const absent = tableRows.filter(r => r.status === 'Absent').length;
+        const onLeave = tableRows.filter(r => r.status === 'On Leave').length;
+        return { total, present, late, absent, onLeave };
+    }, [tableRows]);
+
+    // Late Coming Staff List
+    const lateStaffList = useMemo(() => {
+        return tableRows.filter(r => r.status === 'Late').map(r => {
+            return {
+                name: r.name,
+                loginTime: r.loginTime,
+                delay: r.rawEntry?.login_diff?.replace('+', '')?.replace(' late', '') || '-'
+            };
+        });
+    }, [tableRows]);
+
+    // Early Leaving Staff List
+    const earlyLeavingList = useMemo(() => {
+        return tableRows.filter(r => r.rawEntry?.logout_status === 'early').map(r => {
+            return {
+                name: r.name,
+                logoutTime: r.logoutTime,
+                leftEarly: r.rawEntry?.logout_diff?.replace('-', '') || '-'
+            };
+        });
+    }, [tableRows]);
+
+    // Available Departments for dropdown
+    const availableDepts = useMemo(() => {
+        const set = new Set(Object.values(STAFF_DEPARTMENTS));
+        return ['All', ...Array.from(set)];
+    }, []);
 
     return (
-        <div className="attendance-page-container">
-            {loading && <LoadingSpinner inline text="Loading attendance..." />}
-            {/* Header */}
-            <div className="attendance-header">
-                <div className="attendance-title-area">
-                    <div className="attendance-icon-badge">
-                        <Clock size={24} className="text-white" />
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', paddingBottom: '30px' }}>
+            
+            {loading && <LoadingSpinner text="Loading attendance" />}
+            {error && <p role="alert">Unable to load attendance. <button onClick={fetchData}>Retry</button></p>}
+            {/* Header: Title, Date Picker, Add Attendance */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <div style={{
+                        width: '38px',
+                        height: '38px',
+                        borderRadius: '9px',
+                        background: '#1d4ed8',
+                        color: '#ffffff',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        boxShadow: '0 2px 8px rgba(29, 78, 216, 0.25)'
+                    }}>
+                        <Users size={20} />
                     </div>
                     <div>
-                        <h1 className="attendance-title">
-                            {canManageAttendance ? 'Staff Attendance & Timings' : 'My Attendance & Timings'}
+                        <h1 style={{ fontSize: '22px', fontWeight: 800, margin: 0, color: 'var(--text-main)' }}>
+                            Staff Attendance
                         </h1>
-                        <p className="attendance-subtitle">
-                            {canManageAttendance 
-                                ? 'Track company-wide staff attendance, shift timings & performance' 
-                                : `Welcome, ${userName}! Mark your daily shift, breaks & view your time summary.`}
-                        </p>
                     </div>
                 </div>
 
-                <div className="attendance-header-actions">
-                    <button 
-                        type="button" 
-                        className="btn-quick-punch"
-                        onClick={() => setIsPunchModalOpen(true)}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                    {/* Date Selector */}
+                    <div style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px',
+                        background: 'var(--card-bg, #ffffff)',
+                        border: '1px solid var(--card-border, #e2e8f0)',
+                        borderRadius: '8px',
+                        padding: '6px 12px',
+                        boxShadow: '0 1px 3px rgba(0,0,0,0.04)'
+                    }}>
+                        <Calendar size={15} color="#2563eb" />
+                        <input
+                            type="date"
+                            value={selectedDate}
+                            onChange={e => setSelectedDate(e.target.value)}
+                            style={{
+                                border: 'none',
+                                background: 'transparent',
+                                color: 'var(--text-main)',
+                                fontSize: '12.5px',
+                                fontWeight: 700,
+                                outline: 'none',
+                                cursor: 'pointer'
+                            }}
+                        />
+                        <span style={{ fontSize: '11.5px', color: 'var(--text-muted)', fontWeight: 600 }}>
+                            {selectedDate === todayStr ? '(Today)' : ''}
+                        </span>
+                    </div>
+
+                    {/* + Add Attendance Button */}
+                    <button
+                        type="button"
+                        disabled={!canManageAttendance || !canPunch}
+                        onClick={() => { setPunchStaff(staffList[0] || userName); setIsAddModalOpen(true); }}
+                        style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '6px',
+                            background: '#10b981',
+                            color: '#ffffff',
+                            border: 'none',
+                            borderRadius: '8px',
+                            padding: '7px 16px',
+                            fontSize: '13px',
+                            fontWeight: 700,
+                            cursor: 'pointer',
+                            boxShadow: '0 2px 6px rgba(16, 185, 129, 0.25)',
+                            transition: 'all 0.15s ease'
+                        }}
                     >
-                        <Zap size={16} /> Detailed Punch
-                    </button>
-                    <button 
-                        type="button" 
-                        className="btn-refresh-icon"
-                        onClick={fetchData}
-                        title="Refresh data"
-                    >
-                        <RefreshCw size={16} />
+                        <Plus size={16} /> Add Attendance
                     </button>
                 </div>
             </div>
 
-            {/* Shift Hero Station for Individual Staff (Super Admin does not need attendance punch card) */}
-            {!isSuperAdmin && (
-                <div className="att-staff-hero-card">
-                    <div className="att-hero-clock-box">
-                        <div className="att-live-date">
-                            📅 {currentTime.toLocaleDateString('en-US', { weekday: 'long', day: '2-digit', month: 'short', year: 'numeric' })}
-                        </div>
-                        <div className="att-live-clock">
-                            {currentTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true })}
-                        </div>
-                        <div className={`att-current-status-pill ${shiftStatus.class}`}>
-                            <span>● {shiftStatus.label}</span>
-                        </div>
-                        <small style={{ color: '#94a3b8', marginTop: '2px' }}>{shiftStatus.sub}</small>
-                        {actionMsg && <div style={{ color: '#4ade80', fontSize: '12.5px', fontWeight: 600, marginTop: '4px' }}>{actionMsg}</div>}
-                    </div>
-
-                    <div className="att-hero-actions-panel">
-                        <div className="att-hero-actions-title">
-                            ⚡ Quick 1-Click Punch ({userName})
-                        </div>
-                        <div className="att-direct-punch-grid">
-                            <button
-                                type="button"
-                                className="att-direct-btn btn-login"
-                                onClick={() => handleDirectPunch('LOGIN')}
-                                disabled={punchLoading}
-                            >
-                                <LogIn size={15} /> Login
-                            </button>
-                            <button
-                                type="button"
-                                className="att-direct-btn btn-lunch"
-                                onClick={() => handleDirectPunch('LUNCH START')}
-                                disabled={punchLoading}
-                            >
-                                <Utensils size={15} /> Lunch Start
-                            </button>
-                            <button
-                                type="button"
-                                className="att-direct-btn btn-lunch"
-                                onClick={() => handleDirectPunch('LUNCH END')}
-                                disabled={punchLoading}
-                            >
-                                <Coffee size={15} /> Lunch End
-                            </button>
-                            <button
-                                type="button"
-                                className="att-direct-btn btn-break"
-                                onClick={() => handleDirectPunch('BREAK START')}
-                                disabled={punchLoading}
-                            >
-                                <PauseCircle size={15} /> Break Start
-                            </button>
-                            <button
-                                type="button"
-                                className="att-direct-btn btn-break"
-                                onClick={() => handleDirectPunch('BREAK END')}
-                                disabled={punchLoading}
-                            >
-                                <PlayCircle size={15} /> Break End
-                            </button>
-                            <button
-                                type="button"
-                                className="att-direct-btn btn-logout"
-                                onClick={() => handleDirectPunch('LOGOUT')}
-                                disabled={punchLoading}
-                            >
-                                <LogOut size={15} /> Logout
-                            </button>
-                        </div>
-                    </div>
+            {/* Action Feedback Banner */}
+            {actionMsg && (
+                <div style={{
+                    background: '#f0fdf4',
+                    border: '1px solid #bbf7d0',
+                    color: '#166534',
+                    padding: '8px 14px',
+                    borderRadius: '8px',
+                    fontSize: '12.5px',
+                    fontWeight: 600
+                }}>
+                    {actionMsg}
                 </div>
             )}
 
-            {/* Filter & Config Toolbar */}
-            <div className="attendance-config-card">
-                <div className="attendance-filter-row">
-                    {/* Presets */}
-                    <div className="att-preset-group">
-                        {['Today', 'This Week', 'This Month', 'Custom'].map(preset => (
-                            <button
-                                key={preset}
-                                type="button"
-                                className={`att-preset-btn ${datePreset === preset ? 'active' : ''}`}
-                                onClick={() => handlePresetChange(preset)}
-                            >
-                                {preset}
-                            </button>
+            {/* 5 KPI Summary Cards Grid */}
+            <div style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+                gap: '12px'
+            }}>
+                {/* 1. Total Staff */}
+                <div style={{
+                    background: 'var(--card-bg, #ffffff)',
+                    border: '1px solid var(--card-border, #e2e8f0)',
+                    borderRadius: '12px',
+                    padding: '14px 18px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '14px',
+                    boxShadow: '0 1px 3px rgba(0,0,0,0.03)'
+                }}>
+                    <div style={{
+                        width: '42px',
+                        height: '42px',
+                        borderRadius: '10px',
+                        background: '#dcfce7',
+                        color: '#15803d',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center'
+                    }}>
+                        <Users size={22} />
+                    </div>
+                    <div>
+                        <div style={{ fontSize: '22px', fontWeight: 800, color: 'var(--text-main)', lineHeight: 1.1 }}>{kpis.total}</div>
+                        <div style={{ fontSize: '12px', color: 'var(--text-muted)', fontWeight: 600, marginTop: '2px' }}>Total Staff</div>
+                    </div>
+                </div>
+
+                {/* 2. Present */}
+                <div style={{
+                    background: 'var(--card-bg, #ffffff)',
+                    border: '1px solid var(--card-border, #e2e8f0)',
+                    borderRadius: '12px',
+                    padding: '14px 18px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '14px',
+                    boxShadow: '0 1px 3px rgba(0,0,0,0.03)'
+                }}>
+                    <div style={{
+                        width: '42px',
+                        height: '42px',
+                        borderRadius: '10px',
+                        background: '#dcfce7',
+                        color: '#16a34a',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center'
+                    }}>
+                        <CheckCircle2 size={22} />
+                    </div>
+                    <div>
+                        <div style={{ fontSize: '22px', fontWeight: 800, color: 'var(--text-main)', lineHeight: 1.1 }}>{kpis.present}</div>
+                        <div style={{ fontSize: '12px', color: 'var(--text-muted)', fontWeight: 600, marginTop: '2px' }}>Present</div>
+                    </div>
+                </div>
+
+                {/* 3. Absent */}
+                <div style={{
+                    background: 'var(--card-bg, #ffffff)',
+                    border: '1px solid var(--card-border, #e2e8f0)',
+                    borderRadius: '12px',
+                    padding: '14px 18px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '14px',
+                    boxShadow: '0 1px 3px rgba(0,0,0,0.03)'
+                }}>
+                    <div style={{
+                        width: '42px',
+                        height: '42px',
+                        borderRadius: '10px',
+                        background: '#fee2e2',
+                        color: '#dc2626',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center'
+                    }}>
+                        <XCircle size={22} />
+                    </div>
+                    <div>
+                        <div style={{ fontSize: '22px', fontWeight: 800, color: 'var(--text-main)', lineHeight: 1.1 }}>{kpis.absent}</div>
+                        <div style={{ fontSize: '12px', color: 'var(--text-muted)', fontWeight: 600, marginTop: '2px' }}>Absent</div>
+                    </div>
+                </div>
+
+                {/* 4. Late */}
+                <div style={{
+                    background: 'var(--card-bg, #ffffff)',
+                    border: '1px solid var(--card-border, #e2e8f0)',
+                    borderRadius: '12px',
+                    padding: '14px 18px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '14px',
+                    boxShadow: '0 1px 3px rgba(0,0,0,0.03)'
+                }}>
+                    <div style={{
+                        width: '42px',
+                        height: '42px',
+                        borderRadius: '10px',
+                        background: '#fef3c7',
+                        color: '#d97706',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center'
+                    }}>
+                        <Clock size={22} />
+                    </div>
+                    <div>
+                        <div style={{ fontSize: '22px', fontWeight: 800, color: 'var(--text-main)', lineHeight: 1.1 }}>{kpis.late}</div>
+                        <div style={{ fontSize: '12px', color: 'var(--text-muted)', fontWeight: 600, marginTop: '2px' }}>Late</div>
+                    </div>
+                </div>
+
+                {/* 5. On Leave */}
+                <div style={{
+                    background: 'var(--card-bg, #ffffff)',
+                    border: '1px solid var(--card-border, #e2e8f0)',
+                    borderRadius: '12px',
+                    padding: '14px 18px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '14px',
+                    boxShadow: '0 1px 3px rgba(0,0,0,0.03)'
+                }}>
+                    <div style={{
+                        width: '42px',
+                        height: '42px',
+                        borderRadius: '10px',
+                        background: '#e0f2fe',
+                        color: '#0284c7',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center'
+                    }}>
+                        <Calendar size={22} />
+                    </div>
+                    <div>
+                        <div style={{ fontSize: '22px', fontWeight: 800, color: 'var(--text-main)', lineHeight: 1.1 }}>{kpis.onLeave}</div>
+                        <div style={{ fontSize: '12px', color: 'var(--text-muted)', fontWeight: 600, marginTop: '2px' }}>On Leave</div>
+                    </div>
+                </div>
+            </div>
+
+            {/* Action Bar: Quick Punch Buttons + Search & Department Filter */}
+            <div style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                flexWrap: 'wrap',
+                gap: '12px',
+                background: 'var(--card-bg, #ffffff)',
+                border: '1px solid var(--card-border, #e2e8f0)',
+                borderRadius: '10px',
+                padding: '10px 14px',
+                boxShadow: '0 1px 3px rgba(0,0,0,0.03)'
+            }}>
+                {/* 4 Quick Punch Action Buttons */}
+                <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                    <button
+                        type="button"
+                        onClick={() => handleDirectAction('LOGIN')}
+                        disabled={punchLoading || !canPunch}
+                        style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '6px',
+                            background: '#10b981',
+                            color: '#ffffff',
+                            border: 'none',
+                            borderRadius: '7px',
+                            padding: '6px 14px',
+                            fontSize: '12.5px',
+                            fontWeight: 700,
+                            cursor: 'pointer',
+                            transition: 'all 0.15s ease'
+                        }}
+                    >
+                        <LogIn size={15} /> Punch In
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => handleDirectAction('BREAK START')}
+                        disabled={punchLoading || !canPunch}
+                        style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '6px',
+                            background: '#f97316',
+                            color: '#ffffff',
+                            border: 'none',
+                            borderRadius: '7px',
+                            padding: '6px 14px',
+                            fontSize: '12.5px',
+                            fontWeight: 700,
+                            cursor: 'pointer',
+                            transition: 'all 0.15s ease'
+                        }}
+                    >
+                        <Coffee size={15} /> Break
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => handleDirectAction('BREAK END')}
+                        disabled={punchLoading || !canPunch}
+                        style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '6px',
+                            background: '#2563eb',
+                            color: '#ffffff',
+                            border: 'none',
+                            borderRadius: '7px',
+                            padding: '6px 14px',
+                            fontSize: '12.5px',
+                            fontWeight: 700,
+                            cursor: 'pointer',
+                            transition: 'all 0.15s ease'
+                        }}
+                    >
+                        <Play size={14} /> Resume
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => handleDirectAction('LOGOUT')}
+                        disabled={punchLoading || !canPunch}
+                        style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '6px',
+                            background: '#ef4444',
+                            color: '#ffffff',
+                            border: 'none',
+                            borderRadius: '7px',
+                            padding: '6px 14px',
+                            fontSize: '12.5px',
+                            fontWeight: 700,
+                            cursor: 'pointer',
+                            transition: 'all 0.15s ease'
+                        }}
+                    >
+                        <LogOut size={15} /> Punch Out
+                    </button>
+                </div>
+
+                {/* Right: Search + Department Filter */}
+                <div style={{ display: 'inline-flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap', flex: 1, justifyContent: 'flex-end', minWidth: '280px' }}>
+                    <div style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        background: 'var(--bg-app, #f8fafc)',
+                        border: '1px solid var(--card-border, #cbd5e1)',
+                        borderRadius: '7px',
+                        padding: '5px 10px',
+                        minWidth: '220px',
+                        flex: '1 1 200px',
+                        maxWidth: '360px'
+                    }}>
+                        <Search size={14} color="var(--text-muted)" />
+                        <input
+                            type="text"
+                            placeholder="Search staff by name or department..."
+                            value={searchTerm}
+                            onChange={e => setSearchTerm(e.target.value)}
+                            style={{
+                                border: 'none',
+                                background: 'transparent',
+                                color: 'var(--text-main)',
+                                fontSize: '12px',
+                                outline: 'none',
+                                width: '100%'
+                            }}
+                        />
+                    </div>
+
+                    <select
+                        value={selectedDept}
+                        onChange={e => setSelectedDept(e.target.value)}
+                        style={{
+                            background: 'var(--card-bg, #ffffff)',
+                            border: '1px solid var(--card-border, #cbd5e1)',
+                            borderRadius: '7px',
+                            padding: '6px 12px',
+                            fontSize: '12px',
+                            fontWeight: 600,
+                            color: 'var(--text-main)',
+                            cursor: 'pointer',
+                            outline: 'none'
+                        }}
+                    >
+                        <option value="All">All Departments</option>
+                        {availableDepts.filter(d => d !== 'All').map(dept => (
+                            <option key={dept} value={dept}>{dept}</option>
                         ))}
-                    </div>
-
-                    {/* Date Pickers */}
-                    <div className="att-date-pickers">
-                        <div className="att-input-group">
-                            <label>From</label>
-                            <input 
-                                type="date" 
-                                value={dateFrom} 
-                                onChange={(e) => {
-                                    setDatePreset('Custom');
-                                    setDateFrom(e.target.value);
-                                }} 
-                            />
-                        </div>
-                        <div className="att-input-group">
-                            <label>To</label>
-                            <input 
-                                type="date" 
-                                value={dateTo} 
-                                onChange={(e) => {
-                                    setDatePreset('Custom');
-                                    setDateTo(e.target.value);
-                                }} 
-                            />
-                        </div>
-                    </div>
-
-                    {/* Staff Select - Only for Super Admin / Managers */}
-                    {canManageAttendance && (
-                        <div className="att-staff-select-wrapper">
-                            <User size={15} className="att-select-icon" />
-                            <select 
-                                value={selectedStaff} 
-                                onChange={(e) => setSelectedStaff(e.target.value)}
-                                className="att-staff-select"
-                            >
-                                <option value="All Staff">All Staff ({staffList.length})</option>
-                                {staffList.map(name => (
-                                    <option key={name} value={name}>{name}</option>
-                                ))}
-                            </select>
-                        </div>
-                    )}
-
-                    {/* Date Span Label */}
-                    <div className="att-date-range-badge">
-                        📅 {dateFrom} – {dateTo} ({summaryData?.days_count || 1} day)
-                    </div>
+                    </select>
                 </div>
+            </div>
 
-                {/* Secondary Config Line - Only for Super Admin / Managers */}
-                {canManageAttendance && (
-                    <div className="attendance-config-secondary">
-                        <div className="att-config-item">
-                            <label>Expected Login</label>
-                            <input 
-                                type="text" 
-                                value={expectedLogin} 
-                                onChange={(e) => setExpectedLogin(e.target.value)}
-                                placeholder="09:00 AM" 
-                            />
+            {/* Attendance Main Table */}
+            <div style={{
+                background: 'var(--card-bg, #ffffff)',
+                border: '1px solid var(--card-border, #e2e8f0)',
+                borderRadius: '12px',
+                overflow: 'hidden',
+                boxShadow: '0 1px 3px rgba(0,0,0,0.03)'
+            }}>
+                <div style={{ overflowX: 'auto' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12.5px' }}>
+                        <thead>
+                            <tr style={{ background: 'var(--bg-app, #f8fafc)', borderBottom: '1px solid var(--card-border, #e2e8f0)', textAlign: 'left' }}>
+                                <th style={{ padding: '12px 14px', fontWeight: 700, color: 'var(--text-muted)', width: '40px' }}>#</th>
+                                <th style={{ padding: '12px 14px', fontWeight: 700, color: 'var(--text-muted)' }}>Staff Name</th>
+                                <th style={{ padding: '12px 14px', fontWeight: 700, color: 'var(--text-muted)' }}>Department</th>
+                                <th style={{ padding: '12px 14px', fontWeight: 700, color: 'var(--text-muted)' }}>Date</th>
+                                <th style={{ padding: '12px 14px', fontWeight: 700, color: 'var(--text-muted)' }}>Login Time</th>
+                                <th style={{ padding: '12px 14px', fontWeight: 700, color: 'var(--text-muted)' }}>Logout Time</th>
+                                <th style={{ padding: '12px 14px', fontWeight: 700, color: 'var(--text-muted)' }}>Working Hours</th>
+                                <th style={{ padding: '12px 14px', fontWeight: 700, color: 'var(--text-muted)' }}>Status</th>
+                                <th style={{ padding: '12px 14px', fontWeight: 700, color: 'var(--text-muted)', textAlign: 'center' }}>Action</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {filteredRows.length === 0 ? (
+                                <tr>
+                                    <td colSpan="9" style={{ padding: '32px', textAlign: 'center', color: 'var(--text-muted)' }}>
+                                        No attendance records found matching your filters.
+                                    </td>
+                                </tr>
+                            ) : (
+                                filteredRows.map((row, idx) => {
+                                    const avatarColor = AVATAR_COLORS[idx % AVATAR_COLORS.length];
+                                    return (
+                                        <tr key={row.name} style={{ borderBottom: '1px solid var(--card-border, #f1f5f9)' }}>
+                                            <td style={{ padding: '12px 14px', color: 'var(--text-muted)', fontWeight: 600 }}>
+                                                {row.id}
+                                            </td>
+                                            <td style={{ padding: '12px 14px' }}>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: '9px' }}>
+                                                    <div style={{
+                                                        width: '26px',
+                                                        height: '26px',
+                                                        borderRadius: '50%',
+                                                        background: avatarColor.bg,
+                                                        color: avatarColor.text,
+                                                        display: 'flex',
+                                                        alignItems: 'center',
+                                                        justifyContent: 'center',
+                                                        fontSize: '11px',
+                                                        fontWeight: 800
+                                                    }}>
+                                                        {row.name.charAt(0).toUpperCase()}
+                                                    </div>
+                                                    <span style={{ fontWeight: 700, color: 'var(--text-main)' }}>
+                                                        {row.name}
+                                                    </span>
+                                                </div>
+                                            </td>
+                                            <td style={{ padding: '12px 14px', color: 'var(--text-muted)' }}>
+                                                {row.dept}
+                                            </td>
+                                            <td style={{ padding: '12px 14px', color: 'var(--text-main)', whiteSpace: 'nowrap' }}>
+                                                {row.date}
+                                            </td>
+                                            <td style={{ padding: '12px 14px', color: 'var(--text-main)', fontWeight: 600 }}>
+                                                {row.loginTime}
+                                            </td>
+                                            <td style={{ padding: '12px 14px', color: 'var(--text-main)', fontWeight: 600 }}>
+                                                {row.logoutTime}
+                                            </td>
+                                            <td style={{ padding: '12px 14px', color: 'var(--text-main)', fontWeight: 600 }}>
+                                                {row.workingHours}
+                                            </td>
+                                            <td style={{ padding: '12px 14px' }}>
+                                                {row.status === 'Present' ? (
+                                                    <span style={{
+                                                        background: '#dcfce7',
+                                                        color: '#15803d',
+                                                        padding: '3px 10px',
+                                                        borderRadius: '12px',
+                                                        fontSize: '11px',
+                                                        fontWeight: 700
+                                                    }}>Present</span>
+                                                ) : row.status === 'Late' ? (
+                                                    <span style={{
+                                                        background: '#fef3c7',
+                                                        color: '#b45309',
+                                                        padding: '3px 10px',
+                                                        borderRadius: '12px',
+                                                        fontSize: '11px',
+                                                        fontWeight: 700
+                                                    }}>Late</span>
+                                                ) : (
+                                                    <span style={{
+                                                        background: '#fee2e2',
+                                                        color: '#b91c1c',
+                                                        padding: '3px 10px',
+                                                        borderRadius: '12px',
+                                                        fontSize: '11px',
+                                                        fontWeight: 700
+                                                    }}>Absent</span>
+                                                )}
+                                            </td>
+                                            <td style={{ padding: '12px 14px', textAlign: 'center' }}>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setViewStaffData(row)}
+                                                    style={{
+                                                        display: 'inline-flex',
+                                                        alignItems: 'center',
+                                                        gap: '4px',
+                                                        background: '#f1f5f9',
+                                                        border: '1px solid #cbd5e1',
+                                                        borderRadius: '6px',
+                                                        padding: '3px 9px',
+                                                        fontSize: '11.5px',
+                                                        fontWeight: 600,
+                                                        color: '#334155',
+                                                        cursor: 'pointer'
+                                                    }}
+                                                >
+                                                    <Eye size={13} /> View
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    );
+                                })
+                            )}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            {/* Bottom 3 Analytics Cards Grid */}
+            <div style={{
+                display: 'grid',
+                gridTemplateColumns: 'minmax(0, 1.2fr) minmax(0, 1fr) minmax(0, 1fr)',
+                gap: '16px',
+                alignItems: 'stretch'
+            }}>
+                {/* 1. Attendance Summary Card */}
+                <div style={{
+                    background: 'var(--card-bg, #ffffff)',
+                    border: '1px solid var(--card-border, #e2e8f0)',
+                    borderRadius: '12px',
+                    padding: '16px 18px',
+                    boxShadow: '0 1px 3px rgba(0,0,0,0.03)'
+                }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '7px', fontWeight: 800, fontSize: '13.5px', color: 'var(--text-main)' }}>
+                            <TrendingUp size={16} color="#2563eb" /> Attendance Summary
                         </div>
-                        <div className="att-config-item">
-                            <label>Expected Logout</label>
-                            <input 
-                                type="text" 
-                                value={expectedLogout} 
-                                onChange={(e) => setExpectedLogout(e.target.value)}
-                                placeholder="06:00 PM" 
-                            />
-                        </div>
-                        <div className="att-config-item">
-                            <label>How many hours to work in a day</label>
-                            <input 
-                                type="number" 
-                                step="0.5"
-                                min="1"
-                                max="24"
-                                value={expectedWorkHours} 
-                                onChange={(e) => setExpectedWorkHours(e.target.value === '' ? '' : parseFloat(e.target.value) || 0)} 
-                                placeholder="8"
-                            />
-                        </div>
-                        <div className="att-config-item">
-                            <label>Grace Period (min)</label>
-                            <input 
-                                type="number" 
-                                min="0"
-                                max="120"
-                                value={gracePeriodMin} 
-                                onChange={(e) => setGracePeriodMin(parseInt(e.target.value) || 0)} 
-                                placeholder="15"
-                            />
-                        </div>
-                        <div className="att-config-save-action">
+                        <div style={{ display: 'inline-flex', background: '#f1f5f9', borderRadius: '6px', padding: '2px' }}>
                             <button
                                 type="button"
-                                className="btn-save-defaults"
-                                onClick={handleSaveDefaultTimings}
-                                disabled={savingDefaults}
-                                title="Save current shift timings as company defaults"
+                                onClick={() => setSummaryPeriod('today')}
+                                style={{
+                                    border: 'none',
+                                    borderRadius: '5px',
+                                    padding: '3px 8px',
+                                    fontSize: '11px',
+                                    fontWeight: 700,
+                                    cursor: 'pointer',
+                                    background: summaryPeriod === 'today' ? '#2563eb' : 'transparent',
+                                    color: summaryPeriod === 'today' ? '#ffffff' : '#64748b'
+                                }}
                             >
-                                <Save size={13} /> {savingDefaults ? <ButtonSpinner text="Saving..." /> : 'Save as Default'}
+                                Today
                             </button>
-                            {saveFeedback && <span className="save-feedback-text">{saveFeedback}</span>}
+                            <button
+                                type="button"
+                                onClick={() => setSummaryPeriod('month')}
+                                style={{
+                                    border: 'none',
+                                    borderRadius: '5px',
+                                    padding: '3px 8px',
+                                    fontSize: '11px',
+                                    fontWeight: 700,
+                                    cursor: 'pointer',
+                                    background: summaryPeriod === 'month' ? '#2563eb' : 'transparent',
+                                    color: summaryPeriod === 'month' ? '#ffffff' : '#64748b'
+                                }}
+                            >
+                                This Month
+                            </button>
                         </div>
                     </div>
-                )}
-            </div>
 
-            {/* Navigation Tabs */}
-            <div className="attendance-tabs-nav">
-                <button 
-                    type="button" 
-                    className={`att-tab-btn ${activeTab === 'overview' ? 'active' : ''}`}
-                    onClick={() => setActiveTab('overview')}
-                >
-                    {canManageAttendance ? 'Overview' : 'My Overview'}
-                </button>
-                <button 
-                    type="button" 
-                    className={`att-tab-btn ${activeTab === 'events' ? 'active' : ''}`}
-                    onClick={() => setActiveTab('events')}
-                >
-                    {canManageAttendance ? `Attendance Log (${eventsCount})` : `My Punches (${eventsCount})`}
-                </button>
-                <button 
-                    type="button" 
-                    className={`att-tab-btn ${activeTab === 'analysis' ? 'active' : ''}`}
-                    onClick={() => setActiveTab('analysis')}
-                >
-                    {canManageAttendance ? `Time Analysis (${breakdownData.length})` : `My Time Analysis (${breakdownData.length})`}
-                </button>
-            </div>
-
-            {/* TAB 1: OVERVIEW */}
-            {activeTab === 'overview' && (
-                <div className="att-tab-content">
-                    {/* 4 Main KPI Cards */}
-                    <div className="att-kpi-grid">
-                        <div className="att-kpi-card card-present">
-                            <div className="kpi-label">{canManageAttendance ? 'PRESENT DAYS' : 'MY PRESENT DAYS'}</div>
-                            <div className="kpi-number">{summaryData?.present_days ?? 0}</div>
-                            <div className="kpi-subtext">
-                                {canManageAttendance 
-                                    ? `out of ${summaryData?.total_staff_days ?? (staffList.length || 12)} total staff days`
-                                    : `out of ${summaryData?.days_count || 1} day(s) in selected range`}
+                    {/* Progress Rows */}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                        {/* Present */}
+                        <div style={{ display: 'grid', gridTemplateColumns: '80px 30px 1fr 35px', alignItems: 'center', gap: '8px', fontSize: '12px' }}>
+                            <span style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--text-main)', fontWeight: 600 }}>
+                                <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#10b981' }} /> Present
+                            </span>
+                            <span style={{ fontWeight: 800, color: 'var(--text-main)' }}>{periodKpis.present}</span>
+                            <div style={{ background: '#f1f5f9', borderRadius: '10px', height: '8px', overflow: 'hidden' }}>
+                                <div style={{ background: '#10b981', height: '100%', width: `${periodKpis.total > 0 ? (periodKpis.present / periodKpis.total) * 100 : 0}%`, borderRadius: '10px' }} />
                             </div>
+                            <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 700, textAlign: 'right' }}>
+                                {periodKpis.total > 0 ? Math.round((periodKpis.present / periodKpis.total) * 100) : 0}%
+                            </span>
                         </div>
 
-                        <div className="att-kpi-card card-absent">
-                            <div className="kpi-label">{canManageAttendance ? 'ABSENT DAYS' : 'MY ABSENT DAYS'}</div>
-                            <div className="kpi-number">{summaryData?.absent_days ?? 0}</div>
-                            <div className="kpi-subtext">absent or not logged in</div>
+                        {/* Absent */}
+                        <div style={{ display: 'grid', gridTemplateColumns: '80px 30px 1fr 35px', alignItems: 'center', gap: '8px', fontSize: '12px' }}>
+                            <span style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--text-main)', fontWeight: 600 }}>
+                                <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#ef4444' }} /> Absent
+                            </span>
+                            <span style={{ fontWeight: 800, color: 'var(--text-main)' }}>{periodKpis.absent}</span>
+                            <div style={{ background: '#f1f5f9', borderRadius: '10px', height: '8px', overflow: 'hidden' }}>
+                                <div style={{ background: '#ef4444', height: '100%', width: `${periodKpis.total > 0 ? (periodKpis.absent / periodKpis.total) * 100 : 0}%`, borderRadius: '10px' }} />
+                            </div>
+                            <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 700, textAlign: 'right' }}>
+                                {periodKpis.total > 0 ? Math.round((periodKpis.absent / periodKpis.total) * 100) : 0}%
+                            </span>
                         </div>
 
-                        <div className="att-kpi-card card-late">
-                            <div className="kpi-label">{canManageAttendance ? 'LATE DAYS' : 'MY LATE DAYS'}</div>
-                            <div className="kpi-number">{summaryData?.late_days ?? 0}</div>
-                            <div className="kpi-subtext">logged in after grace time</div>
+                        {/* Late */}
+                        <div style={{ display: 'grid', gridTemplateColumns: '80px 30px 1fr 35px', alignItems: 'center', gap: '8px', fontSize: '12px' }}>
+                            <span style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--text-main)', fontWeight: 600 }}>
+                                <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#f59e0b' }} /> Late
+                            </span>
+                            <span style={{ fontWeight: 800, color: 'var(--text-main)' }}>{periodKpis.late}</span>
+                            <div style={{ background: '#f1f5f9', borderRadius: '10px', height: '8px', overflow: 'hidden' }}>
+                                <div style={{ background: '#f59e0b', height: '100%', width: `${periodKpis.total > 0 ? (periodKpis.late / periodKpis.total) * 100 : 0}%`, borderRadius: '10px' }} />
+                            </div>
+                            <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 700, textAlign: 'right' }}>
+                                {periodKpis.total > 0 ? Math.round((periodKpis.late / periodKpis.total) * 100) : 0}%
+                            </span>
                         </div>
 
-                        <div className="att-kpi-card card-ontime">
-                            <div className="kpi-label">{canManageAttendance ? 'ON TIME DAYS' : 'MY ON TIME DAYS'}</div>
-                            <div className="kpi-number">{summaryData?.on_time_days ?? 0}</div>
-                            <div className="kpi-subtext">punctual arrivals</div>
+                        {/* On Leave */}
+                        <div style={{ display: 'grid', gridTemplateColumns: '80px 30px 1fr 35px', alignItems: 'center', gap: '8px', fontSize: '12px' }}>
+                            <span style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--text-main)', fontWeight: 600 }}>
+                                <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#3b82f6' }} /> On Leave
+                            </span>
+                            <span style={{ fontWeight: 800, color: 'var(--text-main)' }}>{periodKpis.onLeave}</span>
+                            <div style={{ background: '#f1f5f9', borderRadius: '10px', height: '8px', overflow: 'hidden' }}>
+                                <div style={{ background: '#3b82f6', height: '100%', width: `${periodKpis.total > 0 ? (periodKpis.onLeave / periodKpis.total) * 100 : 0}%`, borderRadius: '10px' }} />
+                            </div>
+                            <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 700, textAlign: 'right' }}>
+                                {periodKpis.total > 0 ? Math.round((periodKpis.onLeave / periodKpis.total) * 100) : 0}%
+                            </span>
                         </div>
                     </div>
+                </div>
 
-                    {/* 3 Secondary Metric Chips */}
-                    <div className="att-secondary-stats">
-                        <div className="att-stat-chip">
-                            <span className="stat-label">Avg Work Time</span>
-                            <span className="stat-val">{summaryData?.avg_work_time_str || '0h 0m'}</span>
-                        </div>
-                        <div className="att-stat-chip">
-                            <span className="stat-label">Expected</span>
-                            <span className="stat-val">{summaryData?.expected_work_str || '8h 0m'}</span>
-                        </div>
-                        <div className="att-stat-chip">
-                            <span className="stat-label">No Logout</span>
-                            <span className="stat-val">{summaryData?.no_logout_count ?? 0}</span>
-                        </div>
+                {/* 2. Late Coming Card */}
+                <div style={{
+                    background: 'var(--card-bg, #ffffff)',
+                    border: '1px solid var(--card-border, #e2e8f0)',
+                    borderRadius: '12px',
+                    padding: '16px 18px',
+                    boxShadow: '0 1px 3px rgba(0,0,0,0.03)'
+                }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '7px', fontWeight: 800, fontSize: '13.5px', color: 'var(--text-main)', marginBottom: '14px' }}>
+                        <Clock size={16} color="#d97706" /> Late Coming
                     </div>
 
-                    {/* Staff Summary Grid */}
-                    <div className="att-staff-summary-section">
-                        <h3 className="att-section-title">
-                            {canManageAttendance ? <Users size={18} /> : <User size={18} />} {canManageAttendance ? 'Staff Summary' : 'My Attendance Status'}
-                        </h3>
-                        <div className="att-staff-cards-grid">
-                            {summaryData?.staff_summaries && summaryData.staff_summaries.length > 0 ? (
-                                summaryData.staff_summaries.map((s, idx) => (
-                                    <div key={idx} className="att-staff-card">
-                                        <div className="staff-card-header">
-                                            <div className="staff-avatar">
-                                                {s.staff_name.charAt(0)}
-                                            </div>
-                                            <div className="staff-info">
-                                                <div className="staff-name">{s.staff_name}</div>
-                                                <span className={`staff-status-badge ${s.status === 'Absent' ? 'text-gray-400' : s.status.includes('Late') ? 'text-amber-500' : 'text-emerald'}`}>
-                                                    {s.status === 'Absent' ? '— Absent' : s.status.includes('Late') ? `⚠️ ${s.status}` : '✓ All good'}
-                                                </span>
-                                            </div>
-                                        </div>
-                                        <div className="staff-metrics-row">
-                                            <div className="m-item">
-                                                <span className="m-label">Present</span>
-                                                <span className="m-val text-emerald">{s.present_days}</span>
-                                            </div>
-                                            <div className="m-item">
-                                                <span className="m-label">Absent</span>
-                                                <span className="m-val text-rose">{s.absent_days}</span>
-                                            </div>
-                                            <div className="m-item">
-                                                <span className="m-label">Avg/Day</span>
-                                                <span className="m-val text-indigo">{s.avg_work_str}</span>
-                                            </div>
-                                        </div>
-                                    </div>
-                                ))
-                            ) : !canManageAttendance ? (
-                                <div className="att-staff-card">
-                                    <div className="staff-card-header">
-                                        <div className="staff-avatar">
-                                            {userName.charAt(0)}
-                                        </div>
-                                        <div className="staff-info">
-                                            <div className="staff-name">{userName}</div>
-                                            <span className={`staff-status-badge ${shiftStatus.class === 'none' ? 'text-gray-400' : 'text-emerald'}`}>
-                                                {shiftStatus.label}
+                    {lateStaffList.length === 0 ? (
+                        <div style={{ padding: '24px 0', textAlign: 'center', color: 'var(--text-muted)', fontSize: '12px' }}>
+                            - No late arrivals today -
+                        </div>
+                    ) : (
+                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
+                            <thead>
+                                <tr style={{ borderBottom: '1px solid var(--card-border, #f1f5f9)', textAlign: 'left' }}>
+                                    <th style={{ padding: '6px 8px', color: 'var(--text-muted)', fontWeight: 600 }}>Staff</th>
+                                    <th style={{ padding: '6px 8px', color: 'var(--text-muted)', fontWeight: 600 }}>Login Time</th>
+                                    <th style={{ padding: '6px 8px', color: 'var(--text-muted)', fontWeight: 600, textAlign: 'right' }}>Delay</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {lateStaffList.map((st, idx) => (
+                                    <tr key={idx} style={{ borderBottom: '1px solid var(--card-border, #f8fafc)' }}>
+                                        <td style={{ padding: '8px 8px', fontWeight: 700, color: 'var(--text-main)' }}>{st.name}</td>
+                                        <td style={{ padding: '8px 8px', color: 'var(--text-muted)' }}>{st.loginTime}</td>
+                                        <td style={{ padding: '8px 8px', textAlign: 'right' }}>
+                                            <span style={{
+                                                background: '#fee2e2',
+                                                color: '#b91c1c',
+                                                padding: '2px 8px',
+                                                borderRadius: '6px',
+                                                fontSize: '11px',
+                                                fontWeight: 700
+                                            }}>
+                                                {st.delay}
                                             </span>
-                                        </div>
-                                    </div>
-                                    <div className="staff-metrics-row">
-                                        <div className="m-item">
-                                            <span className="m-label">Present</span>
-                                            <span className="m-val text-emerald">{summaryData?.present_days ?? 0}</span>
-                                        </div>
-                                        <div className="m-item">
-                                            <span className="m-label">Absent</span>
-                                            <span className="m-val text-rose">{summaryData?.absent_days ?? 0}</span>
-                                        </div>
-                                        <div className="m-item">
-                                            <span className="m-label">Avg/Day</span>
-                                            <span className="m-val text-indigo">{summaryData?.avg_work_time_str || '0h'}</span>
-                                        </div>
-                                    </div>
-                                </div>
-                            ) : null}
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            {/* TAB 2: ATTENDANCE LOG */}
-            {activeTab === 'events' && (
-                <div className="att-tab-content">
-                    <div className="att-table-container">
-                        <div className="att-table-header-bar">
-                            <h3 className="table-title">All Events ({eventsCount})</h3>
-                            <div className="att-search-box">
-                                <Search size={15} />
-                                <input 
-                                    type="text" 
-                                    placeholder="Search staff, event, time..." 
-                                    value={eventsSearch}
-                                    onChange={(e) => setEventsSearch(e.target.value)}
-                                />
-                            </div>
-                        </div>
-
-                        <div className="att-table-responsive">
-                            <table className="att-data-table">
-                                <thead>
-                                    <tr>
-                                        <th>STAFF</th>
-                                        <th>DATE</th>
-                                        <th>EVENT</th>
-                                        <th>TIME</th>
-                                        <th>PHOTO</th>
+                                        </td>
                                     </tr>
-                                </thead>
-                                <tbody>
-                                    {eventsData.length === 0 ? (
-                                        <tr>
-                                            <td colSpan="5" className="text-center py-8 text-gray-400">
-                                                No attendance events recorded for this selection.
-                                            </td>
-                                        </tr>
-                                    ) : (
-                                        eventsData.map((ev) => (
-                                            <tr key={ev.id}>
-                                                <td className="font-semibold text-slate-800 dark:text-slate-100">{ev.staff_name}</td>
-                                                <td>{ev.date}</td>
-                                                <td>{getEventBadge(ev.event)}</td>
-                                                <td className="font-mono text-sm">{ev.time}</td>
-                                                <td>
-                                                    <button 
-                                                        type="button" 
-                                                        className="att-photo-btn"
-                                                        onClick={() => setPreviewPhoto(ev.photo_url || '/api/placeholder/300/300')}
-                                                        title="View capture photo"
-                                                    >
-                                                        <Camera size={15} />
-                                                    </button>
-                                                </td>
-                                            </tr>
-                                        ))
-                                    )}
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
+                                ))}
+                            </tbody>
+                        </table>
+                    )}
                 </div>
-            )}
 
-            {/* TAB 3: TIME ANALYSIS */}
-            {activeTab === 'analysis' && (
-                <div className="att-tab-content">
-                    <div className="att-table-container">
-                        <div className="att-table-header-bar">
-                            <h3 className="table-title">📊 Daily Time Breakdown ({breakdownData.length} entries)</h3>
-                            <div className="att-search-box">
-                                <Search size={15} />
-                                <input 
-                                    type="text" 
-                                    placeholder="Search staff, date..." 
-                                    value={breakdownSearch}
-                                    onChange={(e) => setBreakdownSearch(e.target.value)}
-                                />
-                            </div>
+                {/* 3. Early Leaving Card */}
+                <div style={{
+                    background: 'var(--card-bg, #ffffff)',
+                    border: '1px solid var(--card-border, #e2e8f0)',
+                    borderRadius: '12px',
+                    padding: '16px 18px',
+                    boxShadow: '0 1px 3px rgba(0,0,0,0.03)'
+                }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '7px', fontWeight: 800, fontSize: '13.5px', color: 'var(--text-main)', marginBottom: '14px' }}>
+                        <Calendar size={16} color="#0284c7" /> Early Leaving
+                    </div>
+
+                    {earlyLeavingList.length === 0 ? (
+                        <div style={{ padding: '24px 0', textAlign: 'center', color: 'var(--text-muted)', fontSize: '12px' }}>
+                            - No early leaving today -
                         </div>
-
-                        <div className="att-table-responsive">
-                            <table className="att-data-table">
-                                <thead>
-                                    <tr>
-                                        <th>STAFF</th>
-                                        <th>DATE</th>
-                                        <th>LOGIN</th>
-                                        <th>LOGOUT</th>
-                                        <th>WORK TIME</th>
-                                        <th>EXPECTED</th>
-                                        <th>LOGIN DIFF</th>
-                                        <th>LOGOUT DIFF</th>
-                                        <th>WORK DIFF</th>
-                                        <th>STATUS</th>
+                    ) : (
+                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
+                            <thead>
+                                <tr style={{ borderBottom: '1px solid var(--card-border, #f1f5f9)', textAlign: 'left' }}>
+                                    <th style={{ padding: '6px 8px', color: 'var(--text-muted)', fontWeight: 600 }}>Staff</th>
+                                    <th style={{ padding: '6px 8px', color: 'var(--text-muted)', fontWeight: 600 }}>Logout Time</th>
+                                    <th style={{ padding: '6px 8px', color: 'var(--text-muted)', fontWeight: 600, textAlign: 'right' }}>Left Early</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {earlyLeavingList.map((st, idx) => (
+                                    <tr key={idx} style={{ borderBottom: '1px solid var(--card-border, #f8fafc)' }}>
+                                        <td style={{ padding: '8px 8px', fontWeight: 700, color: 'var(--text-main)' }}>{st.name}</td>
+                                        <td style={{ padding: '8px 8px', color: 'var(--text-muted)' }}>{st.logoutTime}</td>
+                                        <td style={{ padding: '8px 8px', textAlign: 'right' }}>
+                                            <span style={{
+                                                background: '#fef3c7',
+                                                color: '#b45309',
+                                                padding: '2px 8px',
+                                                borderRadius: '6px',
+                                                fontSize: '11px',
+                                                fontWeight: 700
+                                            }}>
+                                                {st.leftEarly}
+                                            </span>
+                                        </td>
                                     </tr>
-                                </thead>
-                                <tbody>
-                                    {breakdownData.length === 0 ? (
-                                        <tr>
-                                            <td colSpan="10" className="text-center py-8 text-gray-400">
-                                                No daily breakdown entries available.
-                                            </td>
-                                        </tr>
-                                    ) : (
-                                        breakdownData.map((row, idx) => (
-                                            <tr key={idx}>
-                                                <td className="font-semibold text-slate-800 dark:text-slate-100">{row.staff_name}</td>
-                                                <td>{row.date}</td>
-                                                <td className="font-mono text-sm">{row.login_time}</td>
-                                                <td className="font-mono text-sm">{row.logout_time}</td>
-                                                <td className="font-semibold">{row.work_time_str}</td>
-                                                <td className="text-gray-500">{row.expected_str}</td>
-                                                <td>
-                                                    <span className={`diff-pill ${row.login_status === 'on_time' ? 'diff-good' : 'diff-warn'}`}>
-                                                        {row.login_diff}
-                                                    </span>
-                                                </td>
-                                                <td>
-                                                    <span className={`diff-pill ${row.logout_status === 'on_time' ? 'diff-good' : row.logout_status === 'none' ? 'diff-neutral' : 'diff-warn'}`}>
-                                                        {row.logout_diff}
-                                                    </span>
-                                                </td>
-                                                <td>
-                                                    <span className={`diff-pill ${row.work_diff.startsWith('+') ? 'diff-good' : row.work_diff.startsWith('-') ? 'diff-bad' : 'diff-neutral'}`}>
-                                                        {row.work_diff}
-                                                    </span>
-                                                </td>
-                                                <td>
-                                                    {getStatusPill(row.status)}
-                                                </td>
-                                            </tr>
-                                        ))
-                                    )}
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
+                                ))}
+                            </tbody>
+                        </table>
+                    )}
                 </div>
-            )}
+            </div>
 
-            {/* Quick Punch Modal */}
-            {isPunchModalOpen && (
-                <div className="att-modal-overlay" onClick={() => setIsPunchModalOpen(false)}>
-                    <div className="att-punch-modal-card" onClick={(e) => e.stopPropagation()}>
-                        <div className="att-modal-header">
-                            <div className="att-modal-title-wrap">
-                                <Zap size={18} className="text-amber-500" />
-                                <h3>Quick Attendance Punch</h3>
-                            </div>
-                            <button type="button" className="att-modal-close-btn" onClick={() => setIsPunchModalOpen(false)}>
+            {/* MODAL 1: Add Attendance / Manual Punch */}
+            {isAddModalOpen && (
+                <div style={{
+                    position: 'fixed',
+                    top: 0, left: 0, right: 0, bottom: 0,
+                    background: 'rgba(0,0,0,0.5)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    zIndex: 9999,
+                    padding: '16px'
+                }}>
+                    <div style={{
+                        background: 'var(--card-bg, #ffffff)',
+                        border: '1px solid var(--card-border, #e2e8f0)',
+                        borderRadius: '14px',
+                        padding: '22px',
+                        width: '100%',
+                        maxWidth: '440px',
+                        boxShadow: '0 10px 30px rgba(0,0,0,0.2)'
+                    }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                            <h3 style={{ fontSize: '16px', fontWeight: 800, margin: 0, color: 'var(--text-main)' }}>
+                                + Add Attendance Record
+                            </h3>
+                            <button
+                                type="button"
+                                onClick={() => setIsAddModalOpen(false)}
+                                style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}
+                            >
                                 <X size={18} />
                             </button>
                         </div>
-                        <form onSubmit={handleRecordPunch} className="att-modal-form">
-                            <div className="att-form-group">
-                                <label className="att-form-label">Staff Member</label>
-                                <select 
-                                    value={punchStaff} 
-                                    onChange={(e) => setPunchStaff(e.target.value)}
-                                    required
-                                    className="att-form-select"
-                                    disabled={!canManageAttendance}
+
+                        <form onSubmit={handleAddAttendanceSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                            <div>
+                                <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '5px' }}>
+                                    Staff Member *
+                                </label>
+                                <select
+                                    value={punchStaff}
+                                    onChange={e => setPunchStaff(e.target.value)}
+                                    style={{
+                                        width: '100%',
+                                        padding: '8px 12px',
+                                        borderRadius: '8px',
+                                        border: '1px solid var(--card-border, #cbd5e1)',
+                                        background: 'var(--card-bg, #ffffff)',
+                                        color: 'var(--text-main)',
+                                        fontSize: '13px',
+                                        fontWeight: 600
+                                    }}
                                 >
-                                    {staffList.map(s => (
-                                        <option key={s} value={s}>{s}</option>
+                                    {allStaffMembers.map(name => (
+                                        <option key={name} value={name}>{name}</option>
                                     ))}
                                 </select>
                             </div>
 
-                            <div className="att-form-group">
-                                <label className="att-form-label">Event Type</label>
-                                <div className="att-punch-grid">
-                                    {[
-                                        { id: 'LOGIN', label: 'Login', icon: LogIn, color: 'emerald' },
-                                        { id: 'LUNCH START', label: 'Lunch Start', icon: Utensils, color: 'amber' },
-                                        { id: 'LUNCH END', label: 'Lunch End', icon: Coffee, color: 'amber' },
-                                        { id: 'BREAK START', label: 'Break Start', icon: PauseCircle, color: 'indigo' },
-                                        { id: 'BREAK END', label: 'Break End', icon: PlayCircle, color: 'indigo' },
-                                        { id: 'LOGOUT', label: 'Logout', icon: LogOut, color: 'rose' }
-                                    ].map(opt => (
-                                        <button
-                                            key={opt.id}
-                                            type="button"
-                                            className={`att-punch-btn ${punchEvent === opt.id ? `selected selected-${opt.color}` : ''}`}
-                                            onClick={() => setPunchEvent(opt.id)}
-                                        >
-                                            <opt.icon size={16} />
-                                            <span>{opt.label}</span>
-                                        </button>
-                                    ))}
-                                </div>
+                            <div>
+                                <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '5px' }}>
+                                    Action / Event *
+                                </label>
+                                <select
+                                    value={punchEvent}
+                                    onChange={e => setPunchEvent(e.target.value)}
+                                    style={{
+                                        width: '100%',
+                                        padding: '8px 12px',
+                                        borderRadius: '8px',
+                                        border: '1px solid var(--card-border, #cbd5e1)',
+                                        background: 'var(--card-bg, #ffffff)',
+                                        color: 'var(--text-main)',
+                                        fontSize: '13px',
+                                        fontWeight: 600
+                                    }}
+                                >
+                                    <option value="LOGIN">Punch In (LOGIN)</option>
+                                    <option value="BREAK START">Break Start</option>
+                                    <option value="BREAK END">Resume (Break End)</option>
+                                    <option value="LUNCH START">Lunch Start</option>
+                                    <option value="LUNCH END">Lunch End</option>
+                                    <option value="LOGOUT">Punch Out (LOGOUT)</option>
+                                </select>
                             </div>
 
-                            <div className="att-form-group">
-                                <label className="att-form-label">Notes (Optional)</label>
-                                <input 
-                                    type="text" 
-                                    placeholder="e.g. Field visit, Client meeting" 
-                                    value={punchNotes}
-                                    onChange={(e) => setPunchNotes(e.target.value)}
-                                    className="att-form-input"
+                            <div>
+                                <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '5px' }}>
+                                    Time (Leave blank for current time)
+                                </label>
+                                <input
+                                    type="text"
+                                    placeholder="e.g. 09:30 AM"
+                                    value={punchTime}
+                                    onChange={e => setPunchTime(e.target.value)}
+                                    style={{
+                                        width: '100%',
+                                        padding: '8px 12px',
+                                        borderRadius: '8px',
+                                        border: '1px solid var(--card-border, #cbd5e1)',
+                                        background: 'var(--card-bg, #ffffff)',
+                                        color: 'var(--text-main)',
+                                        fontSize: '13px'
+                                    }}
                                 />
                             </div>
 
-                            <div className="att-modal-actions">
-                                <button 
-                                    type="button" 
-                                    className="att-btn-cancel" 
-                                    onClick={() => setIsPunchModalOpen(false)}
+                            <div>
+                                <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '5px' }}>
+                                    Notes (Optional)
+                                </label>
+                                <input
+                                    type="text"
+                                    placeholder="e.g. Shift adjustment or reason"
+                                    value={punchNotes}
+                                    onChange={e => setPunchNotes(e.target.value)}
+                                    style={{
+                                        width: '100%',
+                                        padding: '8px 12px',
+                                        borderRadius: '8px',
+                                        border: '1px solid var(--card-border, #cbd5e1)',
+                                        background: 'var(--card-bg, #ffffff)',
+                                        color: 'var(--text-main)',
+                                        fontSize: '13px'
+                                    }}
+                                />
+                            </div>
+
+                            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '10px' }}>
+                                <button
+                                    type="button"
+                                    onClick={() => setIsAddModalOpen(false)}
+                                    style={{
+                                        padding: '8px 16px',
+                                        borderRadius: '8px',
+                                        border: '1px solid var(--card-border, #cbd5e1)',
+                                        background: 'transparent',
+                                        color: 'var(--text-main)',
+                                        fontSize: '13px',
+                                        fontWeight: 600,
+                                        cursor: 'pointer'
+                                    }}
                                 >
                                     Cancel
                                 </button>
-                                <button 
-                                    type="submit" 
-                                    className="att-btn-submit"
-                                    disabled={punchLoading}
+                                <button
+                                    type="submit"
+                                    disabled={punchLoading || !canPunch}
+                                    style={{
+                                        padding: '8px 18px',
+                                        borderRadius: '8px',
+                                        border: 'none',
+                                        background: '#10b981',
+                                        color: '#ffffff',
+                                        fontSize: '13px',
+                                        fontWeight: 700,
+                                        cursor: 'pointer'
+                                    }}
                                 >
-                                    {punchLoading ? <ButtonSpinner text="Recording..." /> : `Record ${punchEvent}`}
+                                    {punchLoading ? 'Saving...' : 'Record Attendance'}
                                 </button>
                             </div>
                         </form>
@@ -921,19 +1145,139 @@ export function Attendance({ settings }) {
                 </div>
             )}
 
-            {/* Photo Preview Modal */}
-            {previewPhoto && (
-                <div className="att-modal-overlay" onClick={() => setPreviewPhoto(null)}>
-                    <div className="att-photo-preview-card" onClick={(e) => e.stopPropagation()}>
-                        <div className="att-modal-header">
-                            <h4>Punch Photo Capture</h4>
-                            <button type="button" className="att-modal-close-btn" onClick={() => setPreviewPhoto(null)}><X size={18} /></button>
-                        </div>
-                        <div className="photo-preview-body">
-                            <div className="photo-placeholder-box">
-                                <Camera size={44} className="text-gray-400 mb-2" />
-                                <p className="text-xs text-gray-500">Selfie verification captured during punch check-in</p>
+            {/* MODAL 2: View Staff Attendance Details */}
+            {viewStaffData && (
+                <div style={{
+                    position: 'fixed',
+                    top: 0, left: 0, right: 0, bottom: 0,
+                    background: 'rgba(0,0,0,0.5)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    zIndex: 9999,
+                    padding: '16px'
+                }}>
+                    <div style={{
+                        background: 'var(--card-bg, #ffffff)',
+                        border: '1px solid var(--card-border, #e2e8f0)',
+                        borderRadius: '14px',
+                        padding: '22px',
+                        width: '100%',
+                        maxWidth: '480px',
+                        boxShadow: '0 10px 30px rgba(0,0,0,0.2)'
+                    }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <div style={{
+                                    width: '32px',
+                                    height: '32px',
+                                    borderRadius: '50%',
+                                    background: '#2563eb',
+                                    color: '#ffffff',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    fontWeight: 800,
+                                    fontSize: '14px'
+                                }}>
+                                    {viewStaffData.name.charAt(0)}
+                                </div>
+                                <div>
+                                    <h3 style={{ fontSize: '15px', fontWeight: 800, margin: 0, color: 'var(--text-main)' }}>
+                                        {viewStaffData.name} - Attendance Details
+                                    </h3>
+                                    <div style={{ fontSize: '11.5px', color: 'var(--text-muted)' }}>
+                                        {viewStaffData.dept} • {viewStaffData.date}
+                                    </div>
+                                </div>
                             </div>
+                            <button
+                                type="button"
+                                onClick={() => setViewStaffData(null)}
+                                style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}
+                            >
+                                <X size={18} />
+                            </button>
+                        </div>
+
+                        {/* Summary Details Grid */}
+                        <div style={{
+                            display: 'grid',
+                            gridTemplateColumns: '1fr 1fr',
+                            gap: '10px',
+                            background: 'var(--bg-app, #f8fafc)',
+                            padding: '12px',
+                            borderRadius: '10px',
+                            marginBottom: '16px',
+                            fontSize: '12.5px'
+                        }}>
+                            <div>
+                                <div style={{ color: 'var(--text-muted)', fontSize: '11px', fontWeight: 600 }}>Login Time</div>
+                                <div style={{ fontWeight: 800, color: 'var(--text-main)' }}>{viewStaffData.loginTime}</div>
+                            </div>
+                            <div>
+                                <div style={{ color: 'var(--text-muted)', fontSize: '11px', fontWeight: 600 }}>Logout Time</div>
+                                <div style={{ fontWeight: 800, color: 'var(--text-main)' }}>{viewStaffData.logoutTime}</div>
+                            </div>
+                            <div>
+                                <div style={{ color: 'var(--text-muted)', fontSize: '11px', fontWeight: 600 }}>Total Working Hours</div>
+                                <div style={{ fontWeight: 800, color: '#2563eb' }}>{viewStaffData.workingHours}</div>
+                            </div>
+                            <div>
+                                <div style={{ color: 'var(--text-muted)', fontSize: '11px', fontWeight: 600 }}>Status</div>
+                                <div>
+                                    <span style={{
+                                        background: viewStaffData.status === 'Present' ? '#dcfce7' : viewStaffData.status === 'Late' ? '#fef3c7' : '#fee2e2',
+                                        color: viewStaffData.status === 'Present' ? '#15803d' : viewStaffData.status === 'Late' ? '#b45309' : '#b91c1c',
+                                        padding: '2px 8px',
+                                        borderRadius: '10px',
+                                        fontSize: '11px',
+                                        fontWeight: 700
+                                    }}>
+                                        {viewStaffData.status}
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Recent Events Log for this Staff */}
+                        <div>
+                            <div style={{ fontSize: '12px', fontWeight: 800, color: 'var(--text-muted)', marginBottom: '8px', textTransform: 'uppercase' }}>
+                                Day Event Timeline
+                            </div>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '180px', overflowY: 'auto' }}>
+                                {eventsData.filter(e => e.staff_name === viewStaffData.name).length === 0 ? (
+                                    <div style={{ fontSize: '11.5px', color: 'var(--text-muted)', fontStyle: 'italic', padding: '10px 0' }}>
+                                        No punch logs recorded for this date.
+                                    </div>
+                                ) : (
+                                    eventsData.filter(e => e.staff_name === viewStaffData.name).map((ev, i) => (
+                                        <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--card-bg, #ffffff)', border: '1px solid var(--card-border, #e2e8f0)', padding: '6px 10px', borderRadius: '6px', fontSize: '11.5px' }}>
+                                            <span style={{ fontWeight: 700, color: 'var(--text-main)' }}>{ev.event}</span>
+                                            <span style={{ color: 'var(--text-muted)', fontWeight: 600 }}>{ev.time}</span>
+                                        </div>
+                                    ))
+                                )}
+                            </div>
+                        </div>
+
+                        <div style={{ marginTop: '16px', display: 'flex', justifyContent: 'flex-end' }}>
+                            <button
+                                type="button"
+                                onClick={() => setViewStaffData(null)}
+                                style={{
+                                    padding: '7px 16px',
+                                    borderRadius: '7px',
+                                    border: '1px solid var(--card-border, #cbd5e1)',
+                                    background: '#f1f5f9',
+                                    color: '#334155',
+                                    fontSize: '12.5px',
+                                    fontWeight: 700,
+                                    cursor: 'pointer'
+                                }}
+                            >
+                                Close
+                            </button>
                         </div>
                     </div>
                 </div>
@@ -941,5 +1285,3 @@ export function Attendance({ settings }) {
         </div>
     );
 }
-
-export default Attendance;

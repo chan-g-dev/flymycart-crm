@@ -99,6 +99,8 @@ class Customer(Base):
     email = Column(String(100), nullable=True)
     address = Column(Text, nullable=True)
     id_proof = Column(String(100), nullable=True)
+    id_proof_front = Column(Text, nullable=True)
+    id_proof_back = Column(Text, nullable=True)
     customer_type = Column(String(50), default="C2C", index=True)  # C2C, B2C, B2B
     source = Column(String(100), nullable=True)
     center = Column(String(100), default="Main Hub (Bangalore)")
@@ -135,6 +137,7 @@ class BookingRequest(Base):
     b2b_company_id = Column(String(50), ForeignKey("b2b_companies.id"), nullable=True, index=True)
 
     shipment_type = Column(String(20), default="International")  # Domestic, International
+    entity = Column(String(100), default="Globe Courier", nullable=True, index=True)
 
     # Sender details
     sender_name = Column(String(100), nullable=False)
@@ -155,6 +158,9 @@ class BookingRequest(Base):
     receiver_state = Column(String(100), nullable=True)
     receiver_zip = Column(String(20), nullable=True)
     receiver_country = Column(String(100), nullable=False)
+    receiver_id_proof = Column(String(100), nullable=True)
+    receiver_id_proof_front = Column(Text, nullable=True)
+    receiver_id_proof_back = Column(Text, nullable=True)
 
     # Parcel & weights
     parcel_description = Column(Text, nullable=True)
@@ -168,6 +174,7 @@ class BookingRequest(Base):
 
     # Pickup & Service details
     preferred_service = Column(String(100), default="International Priority")
+    is_ddp = Column(Boolean, default=False, nullable=True)
     pickup_date = Column(String(20), nullable=True)
     pickup_address = Column(Text, nullable=True)
     special_instructions = Column(Text, nullable=True)
@@ -244,6 +251,7 @@ class Shipment(Base):
     customer_name = Column(String(100), nullable=False, index=True)
     customer_type = Column(String(50), default="C2C", index=True)
     b2b_company_id = Column(String(50), ForeignKey("b2b_companies.id"), nullable=True)
+    entity = Column(String(100), default="Globe Courier", nullable=False, index=True)
 
     center = Column(String(100), default="Main Hub (Bangalore)")
     employee = Column(String(100), default="Nawaz")
@@ -254,6 +262,8 @@ class Shipment(Base):
     sender_address = Column(Text, nullable=True)
     sender_email = Column(String(150), nullable=True)
     sender_id_proof = Column(String(100), nullable=True)
+    id_proof_front = Column(Text, nullable=True)
+    id_proof_back = Column(Text, nullable=True)
 
     # Receiver info
     receiver_name = Column(String(100), nullable=False)
@@ -264,6 +274,9 @@ class Shipment(Base):
     receiver_zip = Column(String(20), nullable=True)
     receiver_email = Column(String(150), nullable=True)
     receiver_state = Column(String(100), nullable=True)
+    receiver_id_proof = Column(String(100), nullable=True)
+    receiver_id_proof_front = Column(Text, nullable=True)
+    receiver_id_proof_back = Column(Text, nullable=True)
     boxes = Column(JSON, default=list)
     weight_rule = Column(JSON, nullable=True)
 
@@ -281,6 +294,7 @@ class Shipment(Base):
     courier = Column(String(50), nullable=False, index=True)
     domestic_international = Column(String(20), default="International")  # Domestic, International
     service_type = Column(String(100), default="International Priority")
+    is_ddp = Column(Boolean, default=False, nullable=True)  # Delivered Duty Paid
     provider_type = Column(String(20), default="postpaid")  # prepaid, postpaid
     provider_name = Column(String(50), nullable=False)
     price = Column(Float, nullable=False)  # Customer base selling price (excl. GST)

@@ -3,20 +3,26 @@ import '../components/SettingsWorkspace.css';
 import WeightSettings from '../components/WeightSettings';
 import BusinessDefaults from '../components/BusinessDefaults';
 import PaymentAccounts from '../components/PaymentAccounts';
+import KycStorageSettings from '../components/KycStorageSettings';
+import MessageTemplatesSettings from '../components/MessageTemplatesSettings';
+import CreditPaymentAlertsSettings from '../components/CreditPaymentAlertsSettings';
 import { formatRecordTime } from '../utils/businessDates';
 import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../context/authSession';
 import { apiClient } from '../api/client';
-import { CourierLogo, PRESET_CARRIER_LOGOS } from '../components/CourierLogos';
-import { Plus, Upload, Image as ImageIcon, Check, X, Sparkles } from 'lucide-react';
+import { CourierLogo } from '../components/CourierLogos';
+import { Plus, Upload, Check, X, Sparkles, Building2 } from 'lucide-react';
+import { getEntityOptions } from '../utils/entityConstants';
 
-export const Settings = ({ settings, onUpdateSettings }) => {
+export const Settings = ({ settings, onUpdateSettings, activeSubPage }) => {
     const { hasPermission, currentUser } = useAuth();
     const canManageSettings = Boolean(currentUser?.isSuperAdmin || currentUser?.roleId === 'super_admin');
     
+    const DEFAULT_COURIERS = ['FedEx', 'Aramex', 'DHL', 'Blue Dart', 'Delhivery', 'UPS', 'Sree Maruthi', 'ICL', 'BRV'];
+    
     const visibleCouriers = settings?.couriers?.length
         ? settings.couriers
-        : ['FedEx', 'Aramex', 'DHL', 'Blue Dart', 'Delhivery', 'UPS', 'Sree Maruthi'];
+        : DEFAULT_COURIERS;
     
     const visibleCenters = settings?.centers?.length
         ? settings.centers
@@ -38,23 +44,23 @@ export const Settings = ({ settings, onUpdateSettings }) => {
         
     const visiblePrepaidWallets = settings?.prepaidWallets?.length
         ? settings.prepaidWallets
-        : [
-            { name: 'ICL', openingBalance: 0.0, currency: 'INR' },
-            { name: 'BRV', openingBalance: 0.0, currency: 'INR' }
-        ];
+        : visibleCouriers.map(c => ({ name: c, openingBalance: 0.0, currency: 'INR' }));
         
     const visiblePostpaidProviders = settings?.postpaidProviders?.length
         ? settings.postpaidProviders
-        : [
-            { name: 'Aramex', deposit: 0.0, paymentTerms: '30 Days' },
-            { name: 'Blue Dart', deposit: 0.0, paymentTerms: '30 Days' },
-            { name: 'FedEx', deposit: 0.0, paymentTerms: '30 Days' },
-            { name: 'DHL Express', deposit: 0.0, paymentTerms: '30 Days' }
-        ];
+        : visibleCouriers.map(c => ({ name: c, deposit: 0.0, paymentTerms: '30 Days' }));
 
-    const [settingsView, setSettingsView] = useState('business');
+    const PAYMENT_TERMS_OPTIONS = ['7 Days', '15 Days', '30 Days', '45 Days', '60 Days', 'Weekly', 'Bi-Weekly', 'Monthly'];
+
+    const VALID_SETTINGS_VIEWS = ['business', 'credit_alerts', 'messages', 'weights', 'operations', 'payments', 'kyc', 'audit'];
+    const resolveSettingsView = (sub) => (sub && VALID_SETTINGS_VIEWS.includes(sub)) ? sub : 'business';
+
+    const settingsView = resolveSettingsView(activeSubPage);
     const [newCourier, setNewCourier] = useState('');
     const [newCourierLogo, setNewCourierLogo] = useState('');
+    const [newCourierTrackingUrl, setNewCourierTrackingUrl] = useState('');
+    const [newCourierTerms, setNewCourierTerms] = useState('30 Days');
+    const [newCourierDeposit, setNewCourierDeposit] = useState('');
     const [showCourierModal, setShowCourierModal] = useState(false);
     const [newCenter, setNewCenter] = useState('');
     const [newEmployee, setNewEmployee] = useState('');
@@ -63,6 +69,14 @@ export const Settings = ({ settings, onUpdateSettings }) => {
     const [newWalletOpening, setNewWalletOpening] = useState('');
     const [newPostpaidName, setNewPostpaidName] = useState('');
     const [newPostpaidDeposit, setNewPostpaidDeposit] = useState('');
+    const [newPostpaidTerms, setNewPostpaidTerms] = useState('30 Days');
+    const visibleEntities = getEntityOptions(settings);
+    const [newEntityName, setNewEntityName] = useState('');
+    const [newEntityShortName, setNewEntityShortName] = useState('');
+    const [newEntityCode, setNewEntityCode] = useState('');
+    const [newEntityTagline, setNewEntityTagline] = useState('');
+    const [newEntityColor, setNewEntityColor] = useState('#2563eb');
+    const [showEntityModal, setShowEntityModal] = useState(false);
     const [auditLogs, setAuditLogs] = useState([]);
     const [logoUploadError, setLogoUploadError] = useState('');
     
@@ -111,23 +125,44 @@ export const Settings = ({ settings, onUpdateSettings }) => {
         if (newCourierLogo) {
             updatedLogos[name] = newCourierLogo;
         }
+        const updatedTrackingUrls = { ...(settings?.courierTrackingUrls || {}) };
+        if (newCourierTrackingUrl.trim()) {
+            updatedTrackingUrls[name] = newCourierTrackingUrl.trim();
+        }
+
+        // Automatically create or update postpaid provider entry with default terms & deposit
+        const terms = newCourierTerms?.trim() || '30 Days';
+        const deposit = Number(newCourierDeposit) || 0.0;
+        const existingPostpaid = visiblePostpaidProviders.filter(p => p.name.toLowerCase() !== name.toLowerCase());
+        const updatedPostpaid = [...existingPostpaid, { name, deposit, paymentTerms: terms, accountNo: '' }];
+
+        // Automatically ensure prepaid wallet is available
+        const existingWallets = visiblePrepaidWallets.filter(w => w.name.toLowerCase() !== name.toLowerCase());
+        const updatedWallets = [...existingWallets, { name, openingBalance: 0.0, currency: 'INR' }];
 
         const updated = {
             ...settings,
             couriers: updatedCouriers,
-            courierLogos: updatedLogos
+            courierLogos: updatedLogos,
+            courierTrackingUrls: updatedTrackingUrls,
+            postpaidProviders: updatedPostpaid,
+            prepaidWallets: updatedWallets
         };
 
         if (typeof window !== 'undefined') {
             window.__FMC_SETTINGS__ = updated;
             try {
                 localStorage.setItem('fmc_courier_logos', JSON.stringify(updatedLogos));
+                localStorage.setItem('fmc_courier_tracking_urls', JSON.stringify(updatedTrackingUrls));
             } catch {}
         }
 
         onUpdateSettings(updated);
         setNewCourier('');
         setNewCourierLogo('');
+        setNewCourierTrackingUrl('');
+        setNewCourierTerms('30 Days');
+        setNewCourierDeposit('');
         setShowCourierModal(false);
     };
 
@@ -140,20 +175,29 @@ export const Settings = ({ settings, onUpdateSettings }) => {
             return;
         }
 
-        const updatedCouriers = visibleCouriers.filter(c => c !== courierName);
+        const updatedCouriers = visibleCouriers.filter(c => c.toLowerCase() !== courierName.toLowerCase());
         const updatedLogos = { ...(settings?.courierLogos || {}) };
         delete updatedLogos[courierName];
+        const updatedTrackingUrls = { ...(settings?.courierTrackingUrls || {}) };
+        delete updatedTrackingUrls[courierName];
+
+        const updatedPostpaid = (settings?.postpaidProviders || visiblePostpaidProviders).filter(p => p.name.toLowerCase() !== courierName.toLowerCase());
+        const updatedWallets = (settings?.prepaidWallets || visiblePrepaidWallets).filter(w => w.name.toLowerCase() !== courierName.toLowerCase());
 
         const updated = {
             ...settings,
             couriers: updatedCouriers,
-            courierLogos: updatedLogos
+            courierLogos: updatedLogos,
+            courierTrackingUrls: updatedTrackingUrls,
+            postpaidProviders: updatedPostpaid,
+            prepaidWallets: updatedWallets
         };
 
         if (typeof window !== 'undefined') {
             window.__FMC_SETTINGS__ = updated;
             try {
                 localStorage.setItem('fmc_courier_logos', JSON.stringify(updatedLogos));
+                localStorage.setItem('fmc_courier_tracking_urls', JSON.stringify(updatedTrackingUrls));
             } catch {}
         }
 
@@ -214,6 +258,67 @@ export const Settings = ({ settings, onUpdateSettings }) => {
         onUpdateSettings(updated);
     };
 
+    const handleAddEntity = () => {
+        const name = newEntityName.trim();
+        if (!name) return;
+        if (visibleEntities.some(e => e.name.toLowerCase() === name.toLowerCase())) {
+            alert(`Operating entity "${name}" already exists.`);
+            return;
+        }
+        const shortName = newEntityShortName.trim() || name.split(' ')[0];
+        const code = (newEntityCode.trim() || shortName).slice(0, 4).toUpperCase();
+        const tagline = newEntityTagline.trim() || `${name} Operations`;
+        const color = newEntityColor || '#2563eb';
+
+        const newEntity = {
+            id: name,
+            name,
+            shortName,
+            code,
+            tagline,
+            color,
+            accentColor: color,
+            bg: '#f8fafc',
+            border: '#cbd5e1'
+        };
+
+        const currentList = Array.isArray(settings?.operatingEntities) && settings.operatingEntities.length > 0
+            ? settings.operatingEntities
+            : visibleEntities;
+
+        const updated = {
+            ...settings,
+            operatingEntities: [...currentList, newEntity]
+        };
+
+        onUpdateSettings(updated);
+        setNewEntityName('');
+        setNewEntityShortName('');
+        setNewEntityCode('');
+        setNewEntityTagline('');
+        setShowEntityModal(false);
+    };
+
+    const handleRemoveEntity = (entityId) => {
+        if (visibleEntities.length <= 1) {
+            alert('At least one operating entity must remain configured.');
+            return;
+        }
+        if (!window.confirm(`Are you sure you want to remove operating entity "${entityId}"?`)) {
+            return;
+        }
+
+        const currentList = Array.isArray(settings?.operatingEntities) && settings.operatingEntities.length > 0
+            ? settings.operatingEntities
+            : visibleEntities;
+
+        const updated = {
+            ...settings,
+            operatingEntities: currentList.filter(e => (e.id || e.name || e) !== entityId)
+        };
+        onUpdateSettings(updated);
+    };
+
     const handleAddPaidTo = () => {
         if (!newPaidTo.trim() || visiblePaidToAccounts.includes(newPaidTo.trim())) return;
         const updated = {
@@ -234,17 +339,28 @@ export const Settings = ({ settings, onUpdateSettings }) => {
 
     const handleAddWallet = () => {
         if (!newWalletName.trim()) return;
-        const exists = visiblePrepaidWallets.some(w => w.name.toLowerCase() === newWalletName.trim().toLowerCase());
+        const name = newWalletName.trim();
+        const exists = visiblePrepaidWallets.some(w => w.name.toLowerCase() === name.toLowerCase());
         if (exists) return;
         const newWallet = {
-            name: newWalletName.trim(),
+            name: name,
             openingBalance: Number(newWalletOpening) || 0.0,
             currency: 'INR',
-            notes: `${newWalletName.trim()} Prepaid Wallet`
+            notes: `${name} Prepaid Wallet`
         };
+        const updatedWallets = [...visiblePrepaidWallets, newWallet];
+        const updatedCouriers = visibleCouriers.some(c => c.toLowerCase() === name.toLowerCase())
+            ? visibleCouriers
+            : [...visibleCouriers, name];
+        const updatedPostpaid = visiblePostpaidProviders.some(p => p.name.toLowerCase() === name.toLowerCase())
+            ? visiblePostpaidProviders
+            : [...visiblePostpaidProviders, { name, deposit: 0.0, paymentTerms: '30 Days', accountNo: '' }];
+
         const updated = {
             ...settings,
-            prepaidWallets: [...visiblePrepaidWallets, newWallet]
+            couriers: updatedCouriers,
+            prepaidWallets: updatedWallets,
+            postpaidProviders: updatedPostpaid
         };
         onUpdateSettings(updated);
         setNewWalletName('');
@@ -254,63 +370,80 @@ export const Settings = ({ settings, onUpdateSettings }) => {
     const handleRemoveWallet = (walletName) => {
         const updated = {
             ...settings,
-            prepaidWallets: visiblePrepaidWallets.filter(w => w.name !== walletName)
+            prepaidWallets: visiblePrepaidWallets.filter(w => w.name.toLowerCase() !== walletName.toLowerCase())
         };
         onUpdateSettings(updated);
     };
 
     const handleAddPostpaid = () => {
         if (!newPostpaidName.trim()) return;
-        const exists = visiblePostpaidProviders.some(p => p.name.toLowerCase() === newPostpaidName.trim().toLowerCase());
+        const name = newPostpaidName.trim();
+        const exists = visiblePostpaidProviders.some(p => p.name.toLowerCase() === name.toLowerCase());
         if (exists) return;
         const newProvider = {
-            name: newPostpaidName.trim(),
+            name: name,
             deposit: Number(newPostpaidDeposit) || 0.0,
-            paymentTerms: '30 Days',
+            paymentTerms: newPostpaidTerms.trim() || '30 Days',
             accountNo: ''
         };
+        const updatedPostpaid = [...visiblePostpaidProviders, newProvider];
+        const updatedCouriers = visibleCouriers.some(c => c.toLowerCase() === name.toLowerCase())
+            ? visibleCouriers
+            : [...visibleCouriers, name];
+        const updatedWallets = visiblePrepaidWallets.some(w => w.name.toLowerCase() === name.toLowerCase())
+            ? visiblePrepaidWallets
+            : [...visiblePrepaidWallets, { name, openingBalance: 0.0, currency: 'INR' }];
+
         const updated = {
             ...settings,
-            postpaidProviders: [...visiblePostpaidProviders, newProvider]
+            couriers: updatedCouriers,
+            postpaidProviders: updatedPostpaid,
+            prepaidWallets: updatedWallets
         };
         onUpdateSettings(updated);
         setNewPostpaidName('');
         setNewPostpaidDeposit('');
+        setNewPostpaidTerms('30 Days');
+    };
+
+    const handleUpdatePostpaid = (providerName, updates) => {
+        const updated = {
+            ...settings,
+            postpaidProviders: visiblePostpaidProviders.map(p => 
+                p.name === providerName ? { ...p, ...updates } : p
+            )
+        };
+        onUpdateSettings(updated);
     };
 
     const handleRemovePostpaid = (providerName) => {
         const updated = {
             ...settings,
-            postpaidProviders: visiblePostpaidProviders.filter(p => p.name !== providerName)
+            postpaidProviders: visiblePostpaidProviders.filter(p => p.name.toLowerCase() !== providerName.toLowerCase())
         };
         onUpdateSettings(updated);
     };
 
     return (
-        <div className="settings-workspace">
-            <div className="page-header settings-header" style={{ marginBottom: '18px' }}>
-                <div>
-                    <h2 className="page-title">Business Settings</h2>
-                    <p className="page-subtitle" style={{ fontSize: '12.5px', color: 'var(--text-muted)' }}>
-                        Your business, configured your way. Manage the details your team uses every day.
-                    </p>
-                </div>
+        <div className="settings-workspace" style={{ paddingTop: '4px' }}>
+            <div hidden={settingsView !== 'business'}>
+                <BusinessDefaults settings={settings} onSave={onUpdateSettings} canManage={canManageSettings} />
+                <CustomerTypesSettings settings={settings} onSave={onUpdateSettings} canManage={canManageSettings} />
             </div>
-
-            <nav className="settings-nav" aria-label="Settings sections">
-                {[['business', 'Business & Billing', 'Company details, GST and defaults'], ['weights', 'Shipment Weights', 'Divisors, billing and courier rules'], ['operations', 'Team & Services', 'Couriers, centers and collectors'], ['payments', 'Payments & Carriers', 'Saved accounts, wallets and deposits'], ['audit', 'Activity', 'Review configuration changes']].filter(([key]) => key !== 'audit' || hasPermission('viewFinancials')).map(([key, title, subtitle]) => (
-                    <button key={key} type="button" aria-pressed={settingsView === key} onClick={() => setSettingsView(key)}><strong>{title}</strong><span>{subtitle}</span></button>
-                ))}
-            </nav>
-            <div hidden={settingsView !== 'business'}><CustomerTypesSettings settings={settings} onSave={onUpdateSettings} canManage={canManageSettings} /><BusinessDefaults settings={settings} onSave={onUpdateSettings} canManage={canManageSettings} /></div>
+            <div hidden={settingsView !== 'credit_alerts'}><CreditPaymentAlertsSettings settings={settings} onSave={onUpdateSettings} canManage={canManageSettings} /></div>
+            <div hidden={settingsView !== 'messages'}><MessageTemplatesSettings settings={settings} onSave={onUpdateSettings} canManage={canManageSettings} /></div>
             <div hidden={settingsView !== 'weights'}><WeightSettings settings={settings} onSave={onUpdateSettings} canManage={canManageSettings} /></div>
+            {canManageSettings && <div hidden={settingsView !== 'kyc'}><KycStorageSettings canManage={canManageSettings} /></div>}
 
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 320px), 1fr))', gap: '16px', marginBottom: '22px' }}>
+            <div hidden={settingsView !== 'operations'} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 360px), 1fr))', gap: '16px', marginBottom: '22px' }}>
                 
                 {/* 1. Couriers */}
-                <div className="dash-box settings-card" hidden={settingsView !== 'operations'}>
+                <div className="dash-box settings-card">
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-                        <h4 style={{ fontSize: '13.5px', fontWeight: 800, margin: 0, color: 'var(--text-main)' }}>📦 Configurable Couriers</h4>
+                        <div>
+                            <h4 style={{ fontSize: '13.5px', fontWeight: 800, margin: 0, color: 'var(--text-main)' }}>📦 Configurable Couriers</h4>
+                            <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Couriers & default billing terms</span>
+                        </div>
                         {canManageSettings && (
                             <button 
                                 type="button" 
@@ -323,85 +456,79 @@ export const Settings = ({ settings, onUpdateSettings }) => {
                         )}
                     </div>
                     
-                    <div className="settings-chips-scroll" style={{ minHeight: '80px' }}>
-                        {visibleCouriers.map(c => (
-                            <span 
-                                key={c} 
-                                className="status-pill in-transit" 
-                                style={{ 
-                                    fontSize: '12px', 
-                                    padding: '5px 10px', 
-                                    display: 'inline-flex', 
-                                    alignItems: 'center', 
-                                    gap: '7px',
-                                    border: '1px solid rgba(255,255,255,0.06)'
-                                }}
-                            >
-                                <CourierLogo courier={c} height={14} customLogos={settings?.courierLogos} />
-                                <span>{c}</span>
-                                {canManageSettings && visibleCouriers.length > 1 && (
-                                    <button 
-                                        type="button" 
-                                        onClick={() => handleRemoveCourier(c)} 
-                                        style={{ 
-                                            background: 'rgba(239, 68, 68, 0.12)', 
-                                            border: 'none', 
-                                            borderRadius: '50%',
-                                            cursor: 'pointer', 
-                                            color: '#ef4444', 
-                                            width: '18px',
-                                            height: '18px',
-                                            display: 'inline-flex',
-                                            alignItems: 'center',
-                                            justifyContent: 'center',
-                                            fontSize: '13px', 
-                                            fontWeight: 800,
-                                            marginLeft: '2px',
-                                            transition: 'all 0.15s ease'
-                                        }}
-                                        title={`Remove ${c}`}
-                                    >
-                                        ×
-                                    </button>
-                                )}
-                            </span>
-                        ))}
+                    <div className="settings-chips-scroll" style={{ minHeight: '100px' }}>
+                        {visibleCouriers.map(c => {
+                            const carrierPostpaid = visiblePostpaidProviders.find(p => p.name.toLowerCase() === c.toLowerCase());
+                            const terms = (carrierPostpaid?.paymentTerms && carrierPostpaid.paymentTerms !== 'Not set') ? carrierPostpaid.paymentTerms : '30 Days';
+                            return (
+                                <span 
+                                    key={c} 
+                                    className="status-pill in-transit" 
+                                    style={{ 
+                                        fontSize: '12px', 
+                                        padding: '5px 10px', 
+                                        display: 'inline-flex', 
+                                        alignItems: 'center', 
+                                        gap: '7px',
+                                        background: 'var(--card-bg, #0f172a)',
+                                        border: '1px solid var(--card-border, #1e293b)'
+                                    }}
+                                >
+                                    <CourierLogo courier={c} height={14} customLogos={settings?.courierLogos} />
+                                    <span>{c}</span>
+                                    <span style={{ fontSize: '10px', background: 'rgba(59, 130, 246, 0.15)', color: 'var(--primary-blue)', padding: '1px 5px', borderRadius: '4px', fontWeight: 600 }}>
+                                        ⏱️ {terms}
+                                    </span>
+                                    {canManageSettings && visibleCouriers.length > 1 && (
+                                        <button 
+                                            type="button" 
+                                            onClick={() => handleRemoveCourier(c)} 
+                                            style={{ 
+                                                background: 'rgba(239, 68, 68, 0.12)', 
+                                                border: 'none', 
+                                                borderRadius: '50%',
+                                                cursor: 'pointer', 
+                                                color: '#ef4444', 
+                                                width: '18px',
+                                                height: '18px',
+                                                display: 'inline-flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'center',
+                                                fontSize: '13px', 
+                                                fontWeight: 800,
+                                                marginLeft: '2px',
+                                                transition: 'all 0.15s ease'
+                                            }}
+                                            title={`Remove ${c}`}
+                                        >
+                                            ×
+                                        </button>
+                                    )}
+                                </span>
+                            );
+                        })}
                     </div>
 
-                    {/* Quick inline add or modal */}
-                    {canManageSettings && !showCourierModal && (
-                        <div style={{ display: 'flex', gap: '8px', marginTop: 'auto', paddingTop: '10px' }}>
-                            <input 
-                                type="text" 
-                                className="filter-input" 
-                                placeholder="Quick courier name..." 
-                                value={newCourier} 
-                                onChange={e => setNewCourier(e.target.value)} 
-                                onKeyDown={e => { if (e.key === 'Enter') handleAddCourier(); }}
-                            />
-                            <button className="btn btn-primary-blue" onClick={handleAddCourier}>Add</button>
-                        </div>
-                    )}
-
-                    {/* Add Custom Courier with Logo Form */}
+                    {/* Add Custom Courier with Logo & Terms Form */}
                     {canManageSettings && showCourierModal && (
                         <div style={{ 
                             marginTop: '12px', 
-                            padding: '12px', 
+                            padding: '14px', 
                             background: 'var(--card-bg, #0f172a)', 
                             border: '1px solid var(--primary-blue)', 
-                            borderRadius: '8px' 
+                            borderRadius: '10px',
+                            boxShadow: '0 4px 16px rgba(0,0,0,0.1)'
                         }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-                                <strong style={{ fontSize: '12px', color: 'var(--text-main)', display: 'flex', alignItems: 'center', gap: '5px' }}>
-                                    <Sparkles size={13} style={{ color: '#38bdf8' }} /> Add Custom Courier & Logo
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                                <strong style={{ fontSize: '13px', color: 'var(--text-main)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                    <Sparkles size={14} style={{ color: '#38bdf8' }} /> Configure New Courier & Payment Terms
                                 </strong>
                                 <button 
                                     type="button" 
                                     onClick={() => setShowCourierModal(false)}
                                     style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}
                                 >
-                                    <X size={15} />
+                                    <X size={16} />
                                 </button>
                             </div>
 
@@ -419,10 +546,41 @@ export const Settings = ({ settings, onUpdateSettings }) => {
                                 />
                             </div>
 
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '10px' }}>
+                                <div>
+                                    <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '4px' }}>
+                                        Default Payment Terms / Days *
+                                    </label>
+                                    <select 
+                                        className="filter-input" 
+                                        style={{ width: '100%', fontSize: '12px' }}
+                                        value={newCourierTerms} 
+                                        onChange={e => setNewCourierTerms(e.target.value)}
+                                    >
+                                        {PAYMENT_TERMS_OPTIONS.map(opt => (
+                                            <option key={opt} value={opt}>{opt}</option>
+                                        ))}
+                                    </select>
+                                </div>
+                                <div>
+                                    <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '4px' }}>
+                                        Initial Security Deposit (₹)
+                                    </label>
+                                    <input 
+                                        type="number" 
+                                        className="filter-input" 
+                                        style={{ width: '100%', fontSize: '12px' }}
+                                        placeholder="0" 
+                                        value={newCourierDeposit} 
+                                        onChange={e => setNewCourierDeposit(e.target.value)} 
+                                    />
+                                </div>
+                            </div>
+
                             {/* Logo Choice: Upload file, URL, or Pick Standard */}
                             <div style={{ marginBottom: '10px' }}>
                                 <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '4px' }}>
-                                    Carrier Logo (Upload Image or Pick Preset)
+                                    Carrier Logo (Upload Image or Paste URL)
                                 </label>
                                 
                                 <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '8px' }}>
@@ -470,20 +628,41 @@ export const Settings = ({ settings, onUpdateSettings }) => {
                                 {logoUploadError && <div style={{ fontSize: '10.5px', color: 'var(--rose)', marginBottom: '6px' }}>{logoUploadError}</div>}
                             </div>
 
+                            {/* Tracking Link / Portal URL */}
+                            <div style={{ marginBottom: '10px' }}>
+                                <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '4px' }}>
+                                    Live Tracking URL / Portal Link (Optional)
+                                </label>
+                                <input 
+                                    type="text" 
+                                    className="filter-input" 
+                                    style={{ width: '100%', fontSize: '11.5px' }}
+                                    placeholder="e.g. https://www.dtdc.in/tracking/{awb} or portal link" 
+                                    value={newCourierTrackingUrl} 
+                                    onChange={e => setNewCourierTrackingUrl(e.target.value)} 
+                                />
+                                <span style={{ fontSize: '10px', color: 'var(--text-muted)', marginTop: '3px', display: 'block', lineHeight: 1.3 }}>
+                                    💡 <em>Tip: Include <code>{'{awb}'}</code> in the link to automatically open direct tracking for each shipment.</em>
+                                </span>
+                            </div>
+
                             {/* Live Badge Preview */}
                             <div style={{ 
                                 display: 'flex', 
                                 alignItems: 'center', 
                                 justifyContent: 'space-between',
-                                padding: '8px 10px', 
+                                padding: '8px 12px', 
                                 background: 'rgba(0,0,0,0.25)', 
                                 borderRadius: '6px', 
-                                marginBottom: '10px' 
+                                marginBottom: '12px' 
                             }}>
-                                <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Badge Preview:</span>
-                                <span className="status-pill in-transit" style={{ fontSize: '12px', padding: '4px 8px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                                <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Live Badge Preview:</span>
+                                <span className="status-pill in-transit" style={{ fontSize: '12px', padding: '4px 10px', display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
                                     <CourierLogo courier={newCourier || 'New Courier'} height={14} logoUrl={newCourierLogo} />
-                                    <span>{newCourier || 'Courier Name'}</span>
+                                    <span style={{ fontWeight: 600 }}>{newCourier || 'Courier Name'}</span>
+                                    <span style={{ fontSize: '10px', background: 'rgba(59, 130, 246, 0.15)', color: 'var(--primary-blue)', padding: '1px 5px', borderRadius: '4px', fontWeight: 600 }}>
+                                        ⏱️ {newCourierTerms}
+                                    </span>
                                 </span>
                             </div>
 
@@ -503,8 +682,135 @@ export const Settings = ({ settings, onUpdateSettings }) => {
                                     onClick={handleAddCourier}
                                     disabled={!newCourier.trim()}
                                 >
-                                    <Check size={13} /> Save Carrier
+                                    <Check size={13} /> Save Carrier & Terms
                                 </button>
+                            </div>
+                        </div>
+                    )}
+                </div>
+
+                {/* 1b. Operating Entities & Divisions (Customizable) */}
+                <div className="dash-box settings-card" hidden={settingsView !== 'operations'}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                        <h4 style={{ fontSize: '13.5px', fontWeight: 800, margin: 0, color: 'var(--text-main)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <Building2 size={16} color="var(--primary-blue)" /> Operating Entities & Divisions ({visibleEntities.length})
+                        </h4>
+                        {canManageSettings && !showEntityModal && (
+                            <button 
+                                type="button" 
+                                className="btn btn-outline" 
+                                style={{ fontSize: '11px', padding: '3px 8px', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                                onClick={() => setShowEntityModal(true)}
+                            >
+                                <Plus size={12} /> Add Entity
+                            </button>
+                        )}
+                    </div>
+                    
+                    <div className="settings-chips-scroll" style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                        {visibleEntities.map(ent => (
+                            <span 
+                                key={ent.id} 
+                                style={{ 
+                                    fontSize: '12px', 
+                                    padding: '6px 12px', 
+                                    display: 'inline-flex', 
+                                    alignItems: 'center', 
+                                    gap: '8px',
+                                    borderRadius: '6px',
+                                    border: `1px solid ${ent.color}`,
+                                    background: ent.bg,
+                                    color: ent.accentColor,
+                                    fontWeight: 600
+                                }}
+                            >
+                                <span>{ent.name}</span>
+                                <span style={{ fontSize: '10px', background: 'rgba(0,0,0,0.06)', padding: '1px 5px', borderRadius: '4px' }}>
+                                    {ent.code}
+                                </span>
+                                {canManageSettings && visibleEntities.length > 1 && (
+                                    <button 
+                                        type="button" 
+                                        onClick={() => handleRemoveEntity(ent.id)} 
+                                        style={{ 
+                                            background: 'rgba(239, 68, 68, 0.12)', 
+                                            border: 'none', 
+                                            borderRadius: '50%',
+                                            cursor: 'pointer', 
+                                            color: '#ef4444', 
+                                            width: '18px',
+                                            height: '18px',
+                                            display: 'inline-flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            fontSize: '13px', 
+                                            fontWeight: 800,
+                                            marginLeft: '2px',
+                                            transition: 'all 0.15s ease'
+                                        }}
+                                        title={`Remove ${ent.name}`}
+                                    >
+                                        ×
+                                    </button>
+                                )}
+                            </span>
+                        ))}
+                    </div>
+
+                    {canManageSettings && showEntityModal && (
+                        <div style={{ marginTop: '12px', padding: '12px', background: '#f8fafc', border: '1px solid #cbd5e1', borderRadius: '8px' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                                <strong style={{ fontSize: '12.5px', color: '#0f172a' }}>Register New Operating Entity</strong>
+                                <button type="button" onClick={() => setShowEntityModal(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#64748b' }}><X size={14} /></button>
+                            </div>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr 0.8fr', gap: '8px', marginBottom: '8px' }}>
+                                <input 
+                                    type="text" 
+                                    className="filter-input" 
+                                    placeholder="Legal Entity Name (e.g. Apex Express)" 
+                                    value={newEntityName} 
+                                    onChange={e => setNewEntityName(e.target.value)} 
+                                />
+                                <input 
+                                    type="text" 
+                                    className="filter-input" 
+                                    placeholder="Short Name (e.g. Apex)" 
+                                    value={newEntityShortName} 
+                                    onChange={e => setNewEntityShortName(e.target.value)} 
+                                />
+                                <input 
+                                    type="text" 
+                                    className="filter-input" 
+                                    placeholder="Code (APX)" 
+                                    value={newEntityCode} 
+                                    onChange={e => setNewEntityCode(e.target.value)} 
+                                />
+                            </div>
+                            <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '8px', marginBottom: '8px' }}>
+                                <input 
+                                    type="text" 
+                                    className="filter-input" 
+                                    placeholder="Tagline / Description (e.g. Air Freight & Domestic)" 
+                                    value={newEntityTagline} 
+                                    onChange={e => setNewEntityTagline(e.target.value)} 
+                                />
+                                <select 
+                                    className="filter-input" 
+                                    value={newEntityColor} 
+                                    onChange={e => setNewEntityColor(e.target.value)}
+                                >
+                                    <option value="#2563eb">🔵 Blue</option>
+                                    <option value="#059669">🟢 Emerald</option>
+                                    <option value="#7c3aed">🟣 Purple</option>
+                                    <option value="#d97706">🟠 Amber</option>
+                                    <option value="#e11d48">🔴 Rose</option>
+                                    <option value="#0891b2">🔷 Cyan</option>
+                                    <option value="#4f46e5">🟪 Indigo</option>
+                                </select>
+                            </div>
+                            <div style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end' }}>
+                                <button type="button" className="btn btn-secondary" style={{ fontSize: '11px' }} onClick={() => setShowEntityModal(false)}>Cancel</button>
+                                <button type="button" className="btn btn-primary-blue" style={{ fontSize: '11px' }} onClick={handleAddEntity} disabled={!newEntityName.trim()}><Check size={13} /> Save Entity</button>
                             </div>
                         </div>
                     )}
@@ -619,11 +925,16 @@ export const Settings = ({ settings, onUpdateSettings }) => {
                         </div>
                     )}
                 </div>
+            </div>
 
-                <div className="settings-payment-wrapper" hidden={settingsView !== 'payments'}><PaymentAccounts settings={settings} onUpdateSettings={onUpdateSettings} canManage={canManageSettings} /></div>
+            {/* Payments & Carriers Section */}
+            <div hidden={settingsView !== 'payments'} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 360px), 1fr))', gap: '16px', marginBottom: '22px' }}>
+                <div className="settings-payment-wrapper" style={{ gridColumn: '1 / -1' }}>
+                    <PaymentAccounts settings={settings} onUpdateSettings={onUpdateSettings} canManage={canManageSettings} />
+                </div>
                 
                 {/* 4. Payment Accounts (paid_to) */}
-                <div className="dash-box settings-card" hidden={settingsView !== 'payments'}>
+                <div className="dash-box settings-card">
                     <h4 style={{ fontSize: '13.5px', fontWeight: 800, marginBottom: '10px', color: 'var(--text-main)' }}>🏦 Payment Accounts & Channels (paid_to)</h4>
                     <div className="settings-chips-scroll">
                         {visiblePaidToAccounts.map(acc => (
@@ -673,7 +984,7 @@ export const Settings = ({ settings, onUpdateSettings }) => {
                 </div>
 
                 {/* 5. Prepaid Wallets */}
-                <div className="dash-box settings-card" hidden={settingsView !== 'payments'}>
+                <div className="dash-box settings-card">
                     <h4 style={{ fontSize: '13.5px', fontWeight: 800, marginBottom: '10px', color: 'var(--text-main)' }}>💳 Prepaid Partner Wallets</h4>
                     <div className="settings-chips-scroll">
                         {visiblePrepaidWallets.map(w => (
@@ -715,95 +1026,128 @@ export const Settings = ({ settings, onUpdateSettings }) => {
                 </div>
 
                 {/* 6. Postpaid Providers */}
-                <div className="dash-box settings-card" hidden={settingsView !== 'payments'}>
-                    <h4 style={{ fontSize: '13.5px', fontWeight: 800, marginBottom: '10px', color: 'var(--text-main)' }}>🏢 Postpaid Providers & Deposits</h4>
+                <div className="dash-box settings-card">
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                        <h4 style={{ fontSize: '13.5px', fontWeight: 800, margin: 0, color: 'var(--text-main)' }}>🏢 Postpaid Providers & Terms</h4>
+                        <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Customize billing & payment cycles</span>
+                    </div>
                     <div className="settings-chips-scroll">
-                        {visiblePostpaidProviders.map(p => (
-                            <div key={p.name} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 10px', background: 'var(--card-bg, #0f172a)', border: '1px solid var(--card-border, #1e293b)', borderRadius: '6px', marginBottom: '6px' }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                    <CourierLogo courier={p.name} height={14} customLogos={settings?.courierLogos} />
-                                    <div>
+                        {visiblePostpaidProviders.map(p => {
+                            const currentTerms = (p.paymentTerms && p.paymentTerms !== 'Not set') ? p.paymentTerms : '30 Days';
+                            return (
+                                <div key={p.name} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 10px', background: 'var(--card-bg, #0f172a)', border: '1px solid var(--card-border, #1e293b)', borderRadius: '6px', marginBottom: '6px', gap: '8px', flexWrap: 'wrap' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: '130px' }}>
+                                        <CourierLogo courier={p.name} height={14} customLogos={settings?.courierLogos} />
                                         <strong style={{ fontSize: '12px' }}>{p.name}</strong>
-                                        <span style={{ fontSize: '10.5px', color: 'var(--text-muted)', display: 'block' }}>{p.paymentTerms || '30 Days'}</span>
+                                    </div>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginLeft: 'auto' }}>
+                                        {canManageSettings ? (
+                                            <select 
+                                                className="filter-input" 
+                                                style={{ padding: '3px 6px', fontSize: '11px', height: '26px', background: 'var(--bg-app)', border: '1px solid var(--card-border)', borderRadius: '4px', color: 'var(--text-main)' }}
+                                                value={currentTerms} 
+                                                onChange={e => handleUpdatePostpaid(p.name, { paymentTerms: e.target.value })}
+                                                title={`Change payment terms for ${p.name}`}
+                                            >
+                                                {PAYMENT_TERMS_OPTIONS.map(opt => (
+                                                    <option key={opt} value={opt}>{opt}</option>
+                                                ))}
+                                            </select>
+                                        ) : (
+                                            <span className="status-pill in-transit" style={{ fontSize: '10.5px' }}>{currentTerms}</span>
+                                        )}
+                                        <span style={{ fontSize: '11px', color: 'var(--emerald)', whiteSpace: 'nowrap' }}>
+                                            Deposit: ₹{Number(p.deposit || 0).toLocaleString('en-IN')}
+                                        </span>
+                                        {canManageSettings && (
+                                            <button 
+                                                type="button" 
+                                                onClick={() => handleRemovePostpaid(p.name)} 
+                                                style={{ 
+                                                    background: 'none', 
+                                                    border: 'none', 
+                                                    cursor: 'pointer', 
+                                                    color: 'var(--rose)', 
+                                                    fontSize: '14px', 
+                                                    fontWeight: 800,
+                                                    padding: '0 4px'
+                                                }}
+                                                title={`Remove ${p.name}`}
+                                            >
+                                                ×
+                                            </button>
+                                        )}
                                     </div>
                                 </div>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                    <span style={{ fontSize: '11px', color: 'var(--emerald)' }}>Deposit: ₹{Number(p.deposit || 0).toLocaleString('en-IN')}</span>
-                                    {canManageSettings && (
-                                        <button 
-                                            type="button" 
-                                            onClick={() => handleRemovePostpaid(p.name)} 
-                                            style={{ 
-                                                background: 'none', 
-                                                border: 'none', 
-                                                cursor: 'pointer', 
-                                                color: 'var(--rose)', 
-                                                fontSize: '13px', 
-                                                fontWeight: 800 
-                                            }}
-                                            title={`Remove ${p.name}`}
-                                        >
-                                            ×
-                                        </button>
-                                    )}
-                                </div>
-                            </div>
-                        ))}
+                            );
+                        })}
                     </div>
                     {canManageSettings && (
-                        <div style={{ display: 'flex', gap: '8px', marginTop: 'auto', flexWrap: 'wrap' }}>
-                            <input type="text" className="filter-input" style={{ flex: 1, minWidth: '110px' }} placeholder="Provider name" value={newPostpaidName} onChange={e => setNewPostpaidName(e.target.value)} />
-                            <input type="number" className="filter-input" style={{ width: '90px' }} placeholder="Deposit ₹" value={newPostpaidDeposit} onChange={e => setNewPostpaidDeposit(e.target.value)} />
-                            <button className="btn btn-primary-blue" onClick={handleAddPostpaid}>Add</button>
+                        <div style={{ display: 'flex', gap: '6px', marginTop: 'auto', flexWrap: 'wrap', paddingTop: '8px' }}>
+                            <input type="text" className="filter-input" style={{ flex: 1, minWidth: '100px' }} placeholder="Provider name" value={newPostpaidName} onChange={e => setNewPostpaidName(e.target.value)} />
+                            <input type="number" className="filter-input" style={{ width: '85px' }} placeholder="Deposit ₹" value={newPostpaidDeposit} onChange={e => setNewPostpaidDeposit(e.target.value)} />
+                            <select 
+                                className="filter-input" 
+                                style={{ width: '95px', fontSize: '11.5px' }} 
+                                value={newPostpaidTerms} 
+                                onChange={e => setNewPostpaidTerms(e.target.value)}
+                                title="Default payment terms"
+                            >
+                                {PAYMENT_TERMS_OPTIONS.map(opt => (
+                                    <option key={opt} value={opt}>{opt}</option>
+                                ))}
+                            </select>
+                            <button className="btn btn-primary-blue" style={{ whiteSpace: 'nowrap' }} onClick={handleAddPostpaid}>+ Add</button>
                         </div>
                     )}
                 </div>
-
             </div>
 
             {/* Audit Logs Section */}
             {canViewFinancials && (
-                <div className="dash-box settings-card" hidden={settingsView !== 'audit'}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
-                        <div>
-                            <h4 style={{ fontSize: '14px', fontWeight: 800, margin: 0, color: 'var(--text-main)' }}>📋 Configuration Activity & Audit Log</h4>
-                            <p style={{ fontSize: '11.5px', color: 'var(--text-muted)', margin: '2px 0 0 0' }}>Security trace of system settings changes, carrier modifications, and reconciliation activities.</p>
+                <div hidden={settingsView !== 'audit'} style={{ width: '100%', marginBottom: '22px' }}>
+                    <div className="dash-box settings-card" style={{ width: '100%', padding: '20px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
+                            <div>
+                                <h4 style={{ fontSize: '15px', fontWeight: 800, margin: 0, color: 'var(--text-main)' }}>📋 Configuration Activity & Audit Log</h4>
+                                <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: '4px 0 0 0' }}>Security trace of system settings changes, carrier modifications, and reconciliation activities.</p>
+                            </div>
+                            <span className="badge badge-info" style={{ fontSize: '12px', fontWeight: 700, padding: '4px 10px' }}>{auditLogs.length} Records</span>
                         </div>
-                        <span className="badge badge-info" style={{ fontSize: '11px' }}>{auditLogs.length} Records</span>
-                    </div>
 
-                    <div style={{ overflowX: 'auto', maxHeight: '420px', overflowY: 'auto' }}>
-                        <table className="data-table" style={{ width: '100%', fontSize: '11.5px' }}>
-                            <thead>
-                                <tr>
-                                    <th>Timestamp</th>
-                                    <th>User</th>
-                                    <th>Entity</th>
-                                    <th>Action</th>
-                                    <th>Details</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {auditLogs.slice(0, 50).map((log, idx) => (
-                                    <tr key={log.id || idx}>
-                                        <td style={{ whiteSpace: 'nowrap', color: 'var(--text-muted)' }}>{formatRecordTime(log.timestamp)}</td>
-                                        <td><strong>{log.user_name || 'System'}</strong></td>
-                                        <td><span className="status-pill in-transit" style={{ fontSize: '10px' }}>{log.entity_type}</span></td>
-                                        <td><strong>{log.action}</strong></td>
-                                        <td style={{ maxWidth: '300px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                            {typeof log.after_value === 'object' ? JSON.stringify(log.after_value) : (log.after_value || log.reason || '-')}
-                                        </td>
-                                    </tr>
-                                ))}
-                                {!auditLogs.length && (
+                        <div style={{ overflowX: 'auto', maxHeight: '550px', overflowY: 'auto' }}>
+                            <table className="data-table" style={{ width: '100%', fontSize: '12px' }}>
+                                <thead>
                                     <tr>
-                                        <td colSpan={5} style={{ textAlign: 'center', padding: '24px', color: 'var(--text-muted)' }}>
-                                            No configuration audit events logged yet.
-                                        </td>
+                                        <th>Timestamp</th>
+                                        <th>User</th>
+                                        <th>Entity</th>
+                                        <th>Action</th>
+                                        <th>Details</th>
                                     </tr>
-                                )}
-                            </tbody>
-                        </table>
+                                </thead>
+                                <tbody>
+                                    {auditLogs.slice(0, 100).map((log, idx) => (
+                                        <tr key={log.id || idx}>
+                                            <td style={{ whiteSpace: 'nowrap', color: 'var(--text-muted)' }}>{formatRecordTime(log.timestamp)}</td>
+                                            <td><strong>{log.user_name || 'System'}</strong></td>
+                                            <td><span className="status-pill in-transit" style={{ fontSize: '11px' }}>{log.entity_type}</span></td>
+                                            <td><strong>{log.action}</strong></td>
+                                            <td style={{ maxWidth: '400px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                                {typeof log.after_value === 'object' ? JSON.stringify(log.after_value) : (log.after_value || log.reason || '-')}
+                                            </td>
+                                        </tr>
+                                    ))}
+                                    {!auditLogs.length && (
+                                        <tr>
+                                            <td colSpan={5} style={{ textAlign: 'center', padding: '32px', color: 'var(--text-muted)' }}>
+                                                No configuration audit events logged yet.
+                                            </td>
+                                        </tr>
+                                    )}
+                                </tbody>
+                            </table>
+                        </div>
                     </div>
                 </div>
             )}

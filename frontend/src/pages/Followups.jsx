@@ -1,3 +1,4 @@
+import { exportToExcel } from '../utils/excelExport';
 import { businessDate, formatBusinessDate } from '../utils/businessDates';
 import ScheduleFollowup from '../components/ScheduleFollowup';
 import { dateAfter, followupBuckets } from '../utils/followupDates';
@@ -15,6 +16,15 @@ export const Followups = ({ followups = [], customers = [], onRefresh, onComplet
     const formatDate = formatBusinessDate;
 
     const { dueToday, overdue, upcoming } = followupBuckets(followups, todayStr);
+
+    const findCustomerObj = (name) => {
+        if (!name) return null;
+        const norm = name.trim().toLowerCase();
+        return (customers || []).find(c => 
+            (c.name && c.name.trim().toLowerCase() === norm) || 
+            (c.company && c.company.trim().toLowerCase() === norm)
+        );
+    };
 
     const filteredFollowups = (followups || []).filter(f => {
         const matchesSearch = !searchVal || 
@@ -42,27 +52,30 @@ export const Followups = ({ followups = [], customers = [], onRefresh, onComplet
         if (!followups || followups.length === 0) return;
         const headers = ['Customer Name', 'Category', 'Due Date', 'Priority', 'Follow-up Notes', 'Status'];
         const rows = followups.map(f => [
-            `"${f.customer || ''}"`,
-            `"${f.category || ''}"`,
-            `"${f.due_date || ''}"`,
-            `"${f.priority || ''}"`,
-            `"${(f.notes || '').replace(/"/g, '""')}"`,
-            `"${f.status || ''}"`
+            f.customer || '',
+            f.category || '',
+            f.due_date || '',
+            f.priority || '',
+            f.notes || '',
+            f.status || ''
         ]);
 
-        const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map(e => e.join(','))].join('\n');
-        const encodedUri = encodeURI(csvContent);
-        const link = document.createElement('a');
-        link.setAttribute('href', encodedUri);
-        link.setAttribute('download', `FMC_Followups_${businessDate()}.csv`);
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
+        exportToExcel(headers, rows, `FMC_Followups_${businessDate()}.xlsx`, 'Followups');
     };
 
-    const handleWhatsAppFollowup = (customerName, notes) => {
-        const msg = encodeURIComponent(`Hello ${customerName}, greeting from Fly My Cart Logistics! Following up regarding: ${notes || 'your recent courier bookings'}. Let us know how we can assist you.`);
-        window.open(`https://wa.me/?text=${msg}`, '_blank');
+    const handleWhatsAppFollowup = (followupItem) => {
+        const cust = findCustomerObj(followupItem.customer);
+        const targetData = {
+            name: followupItem.customer,
+            customer_id: followupItem.customer_id || cust?.id,
+            mobile: cust?.mobile || cust?.whatsapp || '',
+            email: cust?.email || '',
+            due: cust?.outstanding_balance || 0,
+            category: followupItem.category,
+            notes: followupItem.notes,
+            priority: followupItem.priority
+        };
+        onOpenCommModal(targetData);
     };
 
     return (
@@ -81,8 +94,8 @@ export const Followups = ({ followups = [], customers = [], onRefresh, onComplet
                         <span className="pill-stat" style={{ background: '#ffe4e6', color: '#be123c' }}>Overdue: <strong>{overdue.length}</strong></span>
                         <span className="pill-stat" style={{ background: '#e0f2fe', color: '#0369a1' }}>Upcoming: <strong>{upcoming.length}</strong></span>
                     </div>
-                    <button className="btn btn-outline" onClick={exportToCSV} title="Export Follow-ups to CSV">
-                        <Download size={14} /> Export CSV
+                    <button className="btn btn-outline" onClick={exportToCSV} title="Export Follow-ups to Excel">
+                        <Download size={14} /> Export Excel
                     </button>
                     {hasPermission('followups.add') && (
                         <button className="btn btn-primary-blue" onClick={() => setScheduling(true)}>
@@ -192,10 +205,10 @@ export const Followups = ({ followups = [], customers = [], onRefresh, onComplet
                                                         <Check size={12} /> Done
                                                     </button>
                                                 )}
-                                                <button className="btn btn-sm btn-outline" onClick={() => handleWhatsAppFollowup(f.customer, f.notes)} title="Send WhatsApp">
+                                                <button className="btn btn-sm btn-outline" onClick={() => handleWhatsAppFollowup(f)} title="Send WhatsApp">
                                                     <WhatsAppIcon size={14} color="#25D366" />
                                                 </button>
-                                                <button className="btn btn-sm btn-outline" onClick={() => onOpenCommModal(f.customer)} title="Log Phone Call / Meeting">
+                                                <button className="btn btn-sm btn-outline" onClick={() => handleWhatsAppFollowup(f)} title="Log Phone Call / Meeting">
                                                     <MessageSquare size={12} /> Log
                                                 </button>
                                             </div>

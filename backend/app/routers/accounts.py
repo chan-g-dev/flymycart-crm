@@ -1,3 +1,4 @@
+from app.reporting_scope import report_scope
 from app.payment_requests import claim_payment_request, finish_payment_request
 from app.payment_details import validate_payment, validate_amount
 # ================================================================
@@ -174,7 +175,12 @@ def record_accounting_entry(payload: AccountingEntryCreate, request: Request, ct
     if payload.kind in ("provider_payment", "provider_deposit"):
         config = db.query(SystemSettings).first()
         providers = (config.config_json if config else {}).get("postpaidProviders", [])
-        if payload.provider not in [p["name"] for p in providers]:
+        matched = next((p["name"] for p in providers if isinstance(p, dict) and p.get("name", "").strip().lower() == (payload.provider or "").strip().lower()), None)
+        if matched:
+            payload.provider = matched
+        elif payload.provider and payload.provider.strip():
+            payload.provider = payload.provider.strip()
+        else:
             raise HTTPException(status_code=400, detail="Select a configured postpaid provider")
     if payload.kind == "expense":
         category = payload.category or "General"
@@ -234,8 +240,14 @@ def log_accounts_audit(db: Session, user_name: str, entity_id: str, action: str,
 @accounts_router.get("/summary")
 def get_accounts_summary(
     ctx: Dict[str, Any] = Depends(require_permission(PermissionCode.ACCOUNTS_VIEW)),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    center: str | None = None,
 ):
+    with report_scope(db, center):
+        return _accounts_summary(ctx, db)
+
+
+def _accounts_summary(ctx, db):
     paid = shipment_payments_query(db).subquery()
     balance = case((func.coalesce(paid.c.total, Shipment.price) > func.coalesce(paid.c.paid, 0), func.coalesce(paid.c.total, Shipment.price) - func.coalesce(paid.c.paid, 0)), else_=0)
     total_sales, total_collected, b2b_credit = db.query(
@@ -292,20 +304,31 @@ def get_accounts_summary(
         {"name": "Blue Dart", "deposit": 150000, "paymentTerms": "30 Days"}
     ]
 
-    provider_totals = db.query(Shipment.provider_name, Shipment.courier, func.count(Shipment.id),
-        func.sum(Shipment.provider_cost), func.sum(case((Shipment.cost_reconciled.is_(True), Shipment.actual_provider_cost), else_=0))
-    ).filter(Shipment.provider_type == "postpaid").group_by(Shipment.provider_name, Shipment.courier).all()
+    provider_totals = db.query(
+        func.coalesce(Shipment.provider_name, Shipment.courier),
+        func.count(Shipment.id),
+        func.sum(Shipment.provider_cost),
+        func.sum(case((Shipment.cost_reconciled.is_(True), Shipment.actual_provider_cost), else_=0))
+    ).filter(Shipment.provider_type == "postpaid").group_by(func.coalesce(Shipment.provider_name, Shipment.courier)).all()
     for p in postpaid_configs:
         p_name = p["name"]
-        matched = [row for row in provider_totals if row[0] == p_name]
-        count = sum(int(row[2]) for row in matched)
-        predicted_cost = round(float(sum(float(row[3] or 0) for row in matched)), 2)
-        actual_billed = round(float(sum(float(row[4] or 0) for row in matched)), 2)
+        matched = [row for row in provider_totals if row[0] and row[0].strip().lower() == p_name.strip().lower()]
+        count = sum(int(row[1]) for row in matched)
+        predicted_cost = round(float(sum(float(row[2] or 0) for row in matched)), 2)
+        actual_billed = round(float(sum(float(row[3] or 0) for row in matched)), 2)
         unbilled_count, unbilled = db.query(
             func.count(Shipment.id), func.coalesce(func.sum(Shipment.provider_cost), 0)
-        ).filter(Shipment.provider_name == p_name, Shipment.provider_type == "postpaid",
-                 Shipment.cost_reconciled.is_(False)).one()
-        ledger = dict(db.query(AccountingEntry.kind, func.sum(AccountingEntry.amount)).filter(AccountingEntry.provider == p_name).group_by(AccountingEntry.kind).all())
+        ).filter(
+            or_(
+                func.lower(func.coalesce(Shipment.provider_name, "")) == p_name.strip().lower(),
+                func.lower(func.coalesce(Shipment.courier, "")) == p_name.strip().lower()
+            ),
+            Shipment.provider_type == "postpaid",
+            Shipment.cost_reconciled.is_(False)
+        ).one()
+        ledger = dict(db.query(AccountingEntry.kind, func.sum(AccountingEntry.amount)).filter(
+            func.lower(AccountingEntry.provider) == p_name.strip().lower()
+        ).group_by(AccountingEntry.kind).all())
 
         deposit_added = float(ledger.get("provider_deposit", 0) or 0)
         payments_made = float(ledger.get("provider_payment", 0) or 0)
@@ -318,7 +341,7 @@ def get_accounts_summary(
             "payments_made": round(payments_made, 2),
             "net_payable": round(max(0.0, actual_billed - payments_made), 2),
             "unapplied_payments": round(max(0.0, payments_made - actual_billed), 2),
-            "payment_terms": p.get("paymentTerms", "30 Days"),
+            "payment_terms": (p.get("paymentTerms") if p.get("paymentTerms") and p.get("paymentTerms") != "Not set" else (p.get("payment_terms") if p.get("payment_terms") and p.get("payment_terms") != "Not set" else "30 Days")),
             "shipments_count": count,
             "predicted_cost": predicted_cost,
             "actual_billed": actual_billed

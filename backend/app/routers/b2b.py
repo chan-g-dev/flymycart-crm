@@ -3,6 +3,7 @@
 # ================================================================
 
 import uuid
+from app.reporting_scope import report_scope
 from collections import defaultdict
 import datetime
 from app.business_dates import business_today
@@ -27,8 +28,14 @@ def get_b2b_summary(
     companies_limit: int = Query(100, ge=1, le=500),
     companies_offset: int = Query(0, ge=0),
     ctx: Dict[str, Any] = Depends(require_permission(PermissionCode.B2B_VIEW)),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    center: str | None = None,
 ):
+    with report_scope(db, center):
+        return _b2b_summary(companies_limit, companies_offset, ctx, db)
+
+
+def _b2b_summary(companies_limit, companies_offset, ctx, db):
     try:
         b2b_customers = db.query(Customer).filter(Customer.customer_type == "B2B").all()
         b2b_companies = db.query(B2BCompany).all()
@@ -160,28 +167,12 @@ def get_b2b_summary(
             "companies_limit": companies_limit,
             "companies_offset": companies_offset,
         }
-    except Exception as e:
-        # Resilient fallback returns zeroed structure so frontend never hangs
-        return {
-            "total_credit_sales": 0.0,
-            "collected": 0.0,
-            "outstanding": 0.0,
-            "due_this_week": 0.0,
-            "overdue": 0.0,
-            "aging": {
-                "not_due": 0.0,
-                "days1_30": 0.0,
-                "days31_60": 0.0,
-                "days61_90": 0.0,
-                "days90_plus": 0.0,
-                "total_outstanding": 0.0,
-                "overdue_total": 0.0
-            },
-            "companies": [],
-            "companies_total": 0,
-            "companies_limit": companies_limit,
-            "companies_offset": companies_offset,
-        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        import logging
+        logging.getLogger(__name__).error('B2B summary failed (%s)', type(exc).__name__)
+        raise HTTPException(503, 'Corporate account data could not be loaded. Please retry.') from exc
 
 @b2b_router.get("/companies", response_model=List[B2BCompanyOut])
 def get_b2b_companies(

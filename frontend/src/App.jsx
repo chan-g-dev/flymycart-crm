@@ -67,30 +67,40 @@ const getInitialPage = () => {
     return 'dashboard';
 };
 
-const loadCached = (_key, fallback) => fallback;
 
 
 export function App() {
+    const { currentUser } = useAuth();
+    return <AppWorkspace key={`${currentUser?.id || 'signed-out'}:${currentUser?.roleId || ''}`} />;
+}
+
+function AppWorkspace() {
     const { isAuthenticated, isPendingApproval, isRejected, isSuspended, logout, authLoading, currentUser } = useAuth();
     const [currentPage, setCurrentPage] = useState(getInitialPage);
     const [activeSubPage, setActiveSubPage] = useState('');
-    const [isLoading, setIsLoading] = useState(false);
+    const [manualLoading, setIsLoading] = useState(false);
+    const [loadedPage, setLoadedPage] = useState(null);
     const [isDrawerLoading, setIsDrawerLoading] = useState(false);
     const [selectedCenter, setSelectedCenter] = useState('All Centers');
-    const [dashboardData, setDashboardData] = useState(() => loadCached('dashboard', null));
-    const [customers, setCustomers] = useState(() => loadCached('customers', []));
-    const [shipments, setShipments] = useState(() => loadCached('shipments', []));
-    const [invoices, setInvoices] = useState(() => loadCached('invoices', []));
-    const [accountsData, setAccountsData] = useState(() => loadCached('accounts', null));
-    const [reconciliations, setReconciliations] = useState(() => loadCached('reconciliations', []));
-    const [b2bData, setB2BData] = useState(() => loadCached('b2b', null));
-    const [refunds, setRefunds] = useState(() => loadCached('refunds', []));
-    const [followups, setFollowups] = useState(() => loadCached('followups', []));
-    const [settings, setSettings] = useState(() => loadCached('settings', null));
+    const [selectedScope, setSelectedScope] = useState('');
+    const [selectedEntity, setSelectedEntity] = useState('');
+    const pageKey = `${currentPage}:${selectedCenter}:${selectedScope}:${selectedEntity}`;
+    const isLoading = manualLoading || loadedPage !== pageKey;
+    const [dashboardData, setDashboardData] = useState(null);
+    const [customers, setCustomers] = useState([]);
+    const [shipments, setShipments] = useState([]);
+    const [invoices, setInvoices] = useState([]);
+    const [accountsData, setAccountsData] = useState(null);
+    const [reconciliations, setReconciliations] = useState([]);
+    const [b2bData, setB2BData] = useState(null);
+    const [refunds, setRefunds] = useState([]);
+    const [followups, setFollowups] = useState([]);
+    const [settings, setSettings] = useState(null);
     const [pendingStaffCount, setPendingStaffCount] = useState(0);
 
     // Modal States
     const [isShipmentModalOpen, setIsShipmentModalOpen] = useState(false);
+    const [initialShipmentEntity, setInitialShipmentEntity] = useState('Globe Courier');
     const [isCustomerModalOpen, setIsCustomerModalOpen] = useState(false);
     const [isReconModalOpen, setIsReconModalOpen] = useState(false);
     const [isWalletModalOpen, setIsWalletModalOpen] = useState(false);
@@ -100,6 +110,15 @@ export function App() {
     const [activeCommCustomer, setActiveCommCustomer] = useState('');
     const [isB2BModalOpen, setIsB2BModalOpen] = useState(false);
     const [selectedStatusShipment, setSelectedStatusShipment] = useState(null);
+
+    const handleOpenShipmentModal = (entity) => {
+        if (typeof entity === 'string' && entity) {
+            setInitialShipmentEntity(entity);
+        } else {
+            setInitialShipmentEntity('Globe Courier');
+        }
+        setIsShipmentModalOpen(true);
+    };
 
     // Drawer & Invoice Preview
     const [drawerData, setDrawerData] = useState(null);
@@ -131,9 +150,10 @@ export function App() {
     }, [welcomeGreeting]);
 
     // Synchronize current page with URL path & LocalStorage
-    const navigateToPage = (page) => {
+    const navigateToPage = (page, sub = '') => {
         if (!VALID_PAGES.includes(page)) page = 'dashboard';
         setCurrentPage(page);
+        setActiveSubPage(sub);
         try {
             navigate(`/${page}`);
             localStorage.setItem('fmc_active_page', page);
@@ -186,25 +206,24 @@ export function App() {
             const path = getCurrentPath().toLowerCase();
             if (path === '/login' || path === '/register' || path.startsWith('/login') || path.startsWith('/register')) {
                 navigate('/', true);
-                setCurrentPage('dashboard');
             }
         }
     }, [isAuthenticated, currentUser, authLoading]);
 
     const loadGeneration = useRef(0);
-    const [loadError, setLoadError] = useState('');
-    const loadPage = useCallback(async (silent = false) => {
+    const [pageError, setLoadError] = useState('');
+    const loadError = loadedPage === pageKey ? pageError : '';
+    const loadPage = useCallback(async () => {
         const generation = ++loadGeneration.current;
-        if (!silent) setIsLoading(true);
-        setLoadError('');
+        let nextError = '';
         const resources = {
-            dashboard: [apiClient.getDashboardSummary, setDashboardData],
+            dashboard: [() => apiClient.getDashboardSummary({ center: selectedCenter === 'All Centers' ? undefined : selectedCenter, ...(currentPage === 'dashboard' ? { scope: selectedScope || undefined, entity: selectedEntity || undefined } : {}) }), setDashboardData],
             customers: [apiClient.getCustomers, setCustomers],
             shipments: [apiClient.getShipments, setShipments],
             invoices: [apiClient.getInvoices, setInvoices],
-            accounts: [apiClient.getAccountsSummary, setAccountsData],
+            accounts: [() => apiClient.getAccountsSummary({ center: selectedCenter === 'All Centers' ? undefined : selectedCenter }), setAccountsData],
             reconciliations: [apiClient.getReconciliationBatches, setReconciliations],
-            b2b: [apiClient.getB2BSummary, setB2BData],
+            b2b: [() => apiClient.getB2BSummary({ center: selectedCenter === 'All Centers' ? undefined : selectedCenter }), setB2BData],
             refunds: [apiClient.getRefunds, setRefunds],
             followups: [apiClient.getFollowups, setFollowups],
             settings: [apiClient.getSettings, value => {
@@ -231,16 +250,23 @@ export function App() {
                 const value = await fetch();
                 if (generation === loadGeneration.current) publish(value);
             } catch (error) {
-                if (generation === loadGeneration.current && error.response?.status !== 403) {
-                    setLoadError('Some data could not be loaded. Please retry.');
+                if (generation === loadGeneration.current) {
+                    const empty = ['dashboard', 'accounts', 'b2b', 'settings'].includes(key) ? null : [];
+                    resources[key][1](empty);
+                    if (error.response?.status !== 403) nextError = 'Some data could not be loaded. Please retry.';
                 }
             }
         }));
-        if (generation === loadGeneration.current) setIsLoading(false);
-    }, [currentPage, selectedCenter]);
+        if (generation === loadGeneration.current) {
+            setLoadError(nextError);
+            setLoadedPage(pageKey);
+            setIsLoading(false);
+        }
+    }, [currentPage, selectedCenter, selectedScope, selectedEntity, pageKey]);
 
     const refreshAll = async (silent = false) => {
-        await loadPage(silent === true);
+        if (silent !== true) setIsLoading(true);
+        await loadPage();
         if (isDrawerOpen && drawerData?.customer?.id) {
             const customerId = drawerData.customer.id;
             const profile = await apiClient.getCustomer360(customerId);
@@ -249,25 +275,10 @@ export function App() {
     };
 
     useEffect(() => {
-        setDashboardData(null);
-        setCustomers([]);
-        setShipments([]);
-        setInvoices([]);
-        setAccountsData(null);
-        setReconciliations([]);
-        setB2BData(null);
-        setRefunds([]);
-        setFollowups([]);
-        setSettings(null);
-        setDrawerData(null);
-        setPreviewInvoice(null);
-        setPendingStaffCount(0);
-    }, [currentUser?.id, currentUser?.roleId]);
-
-    useEffect(() => {
         if (!isAuthenticated || authLoading) return;
         loadPage();
-        return () => { ++loadGeneration.current; };
+        const generationRef = loadGeneration;
+        return () => { ++generationRef.current; };
     }, [isAuthenticated, authLoading, currentUser?.id, currentUser?.roleId, loadPage]);
 
     useEffect(() => {
@@ -294,8 +305,7 @@ export function App() {
 
     // Navigation and subnavigation handlers
     const handleSubNavigate = (parent, sub) => {
-        setActiveSubPage(sub);
-        navigateToPage(parent);
+        navigateToPage(parent, sub);
         if (sub === 'reconciliation') {
             setIsReconModalOpen(true);
         } else if (sub === 'icl_wallet') {
@@ -392,10 +402,7 @@ export function App() {
     // Center matching logic
     const matchesCenter = useCallback((itemCenter) => {
         if (!selectedCenter || selectedCenter === 'All Centers') return true;
-        if (!itemCenter) return true;
-        const normSelected = selectedCenter.toLowerCase().replace(/hub|branch|center|\(|\)/g, '').trim();
-        const normItem = itemCenter.toLowerCase().replace(/hub|branch|center|\(|\)/g, '').trim();
-        return normItem.includes(normSelected) || normSelected.includes(normItem);
+        return (itemCenter || '').trim().toLowerCase() === selectedCenter.trim().toLowerCase();
     }, [selectedCenter]);
 
     const filteredShipments = useMemo(() => {
@@ -415,7 +422,7 @@ export function App() {
             if (ship) return matchesCenter(ship.center);
             const cust = customers.find(c => c.id === inv.customer_id);
             if (cust) return matchesCenter(cust.center);
-            return true;
+            return false;
         });
     }, [invoices, shipments, customers, selectedCenter, matchesCenter]);
 
@@ -423,7 +430,7 @@ export function App() {
         if (!selectedCenter || selectedCenter === 'All Centers') return followups;
         return followups.filter(f => {
             const cust = customers.find(c => c.id === f.customer_id || c.name === (f.customer_name || f.customer));
-            return cust ? matchesCenter(cust.center) : true;
+            return cust ? matchesCenter(cust.center) : false;
         });
     }, [followups, customers, selectedCenter, matchesCenter]);
 
@@ -431,63 +438,15 @@ export function App() {
         if (!selectedCenter || selectedCenter === 'All Centers') return refunds;
         return refunds.filter(r => {
             const ship = shipments.find(s => s.id === r.shipment_id || s.awb === r.awb);
-            return ship ? matchesCenter(ship.center) : true;
+            return ship ? matchesCenter(ship.center) : false;
         });
     }, [refunds, shipments, selectedCenter, matchesCenter]);
 
-    const filteredDashboardData = useMemo(() => {
-        if (!dashboardData) return null;
-        if (!selectedCenter || selectedCenter === 'All Centers') return dashboardData;
+    const filteredDashboardData = loadedPage === pageKey ? dashboardData : null;
 
-        const summary = dashboardData.center_summaries?.[selectedCenter];
-        return {
-            ...dashboardData,
-            ...summary,
-            today_shipments_count: summary?.today_shipments_count ?? 0,
-            today_sales: summary?.today_sales ?? 0,
-            today_collected: dashboardData.collections_by_center?.[selectedCenter] ?? 0,
-            pending_collection: summary?.pending_collection ?? 0,
-            b2b_outstanding: summary?.b2b_outstanding ?? 0,
-            recent_shipments: (dashboardData.recent_shipments || []).filter(s => matchesCenter(s.center))
-        };
-    }, [dashboardData, selectedCenter, matchesCenter]);
+    const filteredAccountsData = accountsData;
 
-    const filteredAccountsData = useMemo(() => {
-        if (!accountsData) return null;
-        if (!selectedCenter || selectedCenter === 'All Centers') return accountsData;
-
-        const totalSales = filteredShipments.reduce((acc, s) => acc + (s.price || 0), 0);
-        const totalCollected = filteredShipments.reduce((acc, s) => {
-            if (s.payment_status === 'Paid') return acc + (s.price || 0);
-            if (s.payment_status === 'Partial') return acc + filteredInvoices.filter(inv => inv.shipment_id === s.id).reduce((total, inv) => total + (inv.paid || 0), 0);
-            return acc;
-        }, 0);
-
-        return {
-            ...accountsData,
-            total_sales: dashboardData?.center_summaries?.[selectedCenter]?.total_sales ?? totalSales,
-            total_sales_with_gst: dashboardData?.center_summaries?.[selectedCenter]?.total_sales_with_gst ?? filteredShipments.reduce((sum, s) => sum + Number(s.total_amount ?? (Number(s.price || 0) + Number(s.gst_amount || 0))), 0),
-            total_collected: dashboardData?.center_summaries?.[selectedCenter]?.total_collected ?? totalCollected,
-            pending_collection: Math.max(0, (dashboardData?.center_summaries?.[selectedCenter]?.total_sales_with_gst ?? totalSales) - (dashboardData?.center_summaries?.[selectedCenter]?.total_collected ?? totalCollected)),
-            recent_invoices: filteredInvoices.slice(0, 10)
-        };
-    }, [accountsData, dashboardData, filteredShipments, filteredInvoices, selectedCenter]);
-
-    const filteredB2BData = useMemo(() => {
-        if (!b2bData) return null;
-        if (!selectedCenter || selectedCenter === 'All Centers') return b2bData;
-
-        const centerB2BShips = filteredShipments.filter(s => s.customer_type === 'B2B');
-        const totalOutstanding = centerB2BShips
-            .filter(s => s.payment_status !== 'Paid')
-            .reduce((acc, s) => acc + (s.price || 0), 0);
-
-        return {
-            ...b2bData,
-            total_outstanding: dashboardData?.center_summaries?.[selectedCenter]?.b2b_outstanding ?? totalOutstanding,
-            recent_shipments: centerB2BShips.slice(0, 10)
-        };
-    }, [b2bData, dashboardData, filteredShipments, selectedCenter]);
+    const filteredB2BData = b2bData;
 
     if (authLoading) return <main className="fmc-workspace-loading"><LoadingSpinner size="lg" text="Loading your workspace..." /></main>;
 
@@ -553,7 +512,7 @@ export function App() {
                 )}
                 <Topbar
                     currentPage={currentPage}
-                    onOpenShipmentModal={() => setIsShipmentModalOpen(true)}
+                    onOpenShipmentModal={handleOpenShipmentModal}
                     onOpenCustomerDrawer={handleOpenCustomerDrawer}
                     onPreviewInvoice={setPreviewInvoice}
                     onNavigate={navigateToPage}
@@ -563,10 +522,14 @@ export function App() {
                     isSidebarOpen={isMobileSidebarOpen}
                     selectedCenter={selectedCenter}
                     onSelectCenter={setSelectedCenter}
+                    selectedScope={selectedScope}
+                    onSelectScope={setSelectedScope}
+                    selectedEntity={selectedEntity}
+                    onSelectEntity={setSelectedEntity}
                 />
 
                 <main className="page-content" aria-busy={isLoading}>
-                    {loadError && <div role="alert">{loadError} <button className="btn btn-outline" onClick={() => loadPage()}>Retry</button></div>}
+                    {loadError && <div role="alert">{loadError} <button className="btn btn-outline" onClick={() => refreshAll()}>Retry</button></div>}
                     <Suspense fallback={<LoadingSpinner size="lg" text={PAGE_LOADING_MESSAGES[currentPage]} />}>
                     {isLoading && !['accounts', 'reports', 'attendance', 'users'].includes(currentPage) && !(currentPage === 'b2b' && !b2bData) && <div className="fmc-page-loading"><LoadingSpinner inline size="sm" text={PAGE_LOADING_MESSAGES[currentPage]} /></div>}
                     {currentPage === 'dashboard' && (
@@ -577,9 +540,14 @@ export function App() {
                             b2bData={filteredB2BData}
                             followups={filteredFollowups}
                             selectedCenter={selectedCenter}
+                            selectedScope={selectedScope}
+                            onSelectScope={setSelectedScope}
+                            selectedEntity={selectedEntity}
+                            onSelectEntity={setSelectedEntity}
+                            settings={settings}
                             onOpenStatusModal={setSelectedStatusShipment}
                             onNavigate={navigateToPage}
-                            onOpenShipmentModal={() => setIsShipmentModalOpen(true)}
+                            onOpenShipmentModal={handleOpenShipmentModal}
                             onOpenCustomerModal={() => setIsCustomerModalOpen(true)}
                             onOpenReconciliationModal={() => setIsReconModalOpen(true)}
                             onOpenCustomerDrawer={handleOpenCustomerDrawer}
@@ -605,7 +573,11 @@ export function App() {
                             invoices={invoices}
                             settings={settings}
                             selectedCenter={selectedCenter}
-                            onOpenShipmentModal={() => setIsShipmentModalOpen(true)}
+                            selectedScope={selectedScope}
+                            onSelectScope={setSelectedScope}
+                            selectedEntity={selectedEntity}
+                            onSelectEntity={setSelectedEntity}
+                            onOpenShipmentModal={handleOpenShipmentModal}
                             onOpenCustomerDrawer={handleOpenCustomerDrawer}
                             isLoading={isLoading}
                             onViewInvoice={(shipId) => {
@@ -620,7 +592,13 @@ export function App() {
                     {currentPage === 'invoices' && (
                         <Invoices
                             invoices={filteredInvoices}
+                            shipments={shipments}
+                            settings={settings}
                             selectedCenter={selectedCenter}
+                            selectedEntity={selectedEntity}
+                            onSelectEntity={setSelectedEntity}
+                            selectedScope={selectedScope}
+                            onSelectScope={setSelectedScope}
                             onPreviewInvoice={setPreviewInvoice}
                         />
                     )}
@@ -679,7 +657,7 @@ export function App() {
                     )}
 
                     {currentPage === 'reports' && (
-                        <Reports activeTab={activeSubPage} refreshKey={dashboardData} />
+                        <Reports activeTab={activeSubPage} refreshKey={dashboardData} settings={settings} shipments={shipments} />
                     )}
 
                     {currentPage === 'attendance' && (
@@ -698,6 +676,7 @@ export function App() {
                     {currentPage === 'settings' && (
                         <Settings
                             settings={settings}
+                            activeSubPage={activeSubPage}
                             onUpdateSettings={async (newSetts) => {
                                 const saved = await apiClient.updateSettings(newSetts);
                                 setSettings(saved);
@@ -728,6 +707,7 @@ export function App() {
                 onClose={() => setIsShipmentModalOpen(false)}
                 onCreated={refreshAll}
                 settings={settings}
+                initialEntity={initialShipmentEntity}
             />}
 
             {(isCustomerModalOpen) && <CustomerModal
@@ -771,6 +751,9 @@ export function App() {
                 isOpen={isCommModalOpen}
                 onClose={() => setIsCommModalOpen(false)}
                 customerName={activeCommCustomer}
+                customers={customers}
+                invoices={invoices}
+                shipments={shipments}
                 onCreated={refreshAll}
                 settings={settings}
             />}

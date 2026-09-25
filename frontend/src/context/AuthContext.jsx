@@ -7,8 +7,10 @@ import { ROLES } from './roles';
 const getAvatarForRole = (roleId) => {
     switch (roleId) {
         case 'super_admin': return '👑';
-        case 'operations_staff': return '💼';
-        case 'counter_staff': return '📝';
+        case 'manager': return '👔';
+        case 'supervisor': case 'team_leader': return '🛡️';
+        case 'account_executive': case 'counter_staff': return '📊';
+        case 'operation_executive': case 'operations_executive': case 'operations_staff': return '💼';
         default: return '👤';
     }
 };

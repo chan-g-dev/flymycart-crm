@@ -1,4 +1,4 @@
-﻿/* Portal keeps the selected invoice separate from the CRM page when printing. */
+/* Portal keeps the selected invoice separate from the CRM page when printing. */
 .invoice-summary-grid { display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(260px, .95fr); gap: 18px; align-items: start; }
 .invoice-terms { min-width: 0; padding: 0; color: var(--text-muted); font-size: 10px; line-height: 1.4; }
 .invoice-terms h4 { margin: 0 0 8px; font-size: 12px; font-weight: 800; color: var(--text-main); }
@@ -8,22 +8,52 @@
 .invoice-totals { min-width: 0; }
 .invoice-totals > div { gap: 12px; }
 .invoice-totals > div > :last-child { white-space: nowrap; }
+
 @media screen and (max-width: 600px) {
     .invoice-summary-grid { grid-template-columns: minmax(0, 1fr); gap: 14px; }
 }
+
 @media print {
-    @page invoice-only { size: A4 portrait; margin: 0; }
+    @page { 
+        size: A4 portrait; 
+        margin: 8mm 10mm 8mm 10mm; 
+    }
+
+    :root,
+    [data-theme="dark"],
+    [data-theme="light"],
+    html, 
+    body,
+    .invoice-print-overlay,
+    .invoice-print-overlay * {
+        --text-main: #0f172a !important;
+        --text-muted: #475569 !important;
+        --text-subtle: #64748b !important;
+        --bg-app: #f8fafc !important;
+        --card-bg: #ffffff !important;
+        --bg-card: #ffffff !important;
+        --card-border: #cbd5e1 !important;
+        --primary-blue: #1e64f0 !important;
+        --emerald: #059669 !important;
+        --rose: #dc2626 !important;
+        color: #0f172a !important;
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
+    }
+
     html:has(.invoice-print-overlay), body:has(.invoice-print-overlay) {
         margin: 0 !important;
         padding: 0 !important;
         height: auto !important;
         min-height: 0 !important;
         overflow: visible !important;
-        background: white !important;
+        background: #ffffff !important;
     }
+
     body:has(> .invoice-print-overlay) > :not(.invoice-print-overlay) {
         display: none !important;
     }
+
     body > .invoice-print-overlay {
         page: invoice-only;
         display: block !important;
@@ -35,10 +65,11 @@
         margin: 0 !important;
         padding: 0 !important;
         overflow: visible !important;
-        background: white !important;
+        background: #ffffff !important;
         backdrop-filter: none !important;
         transform: none !important;
     }
+
     body > .invoice-print-overlay > .modal {
         display: block !important;
         position: static !important;
@@ -53,17 +84,17 @@
         box-shadow: none !important;
         overflow: visible !important;
         transform: none !important;
+        background: #ffffff !important;
     }
+
     .invoice-print-overlay > .modal > :not(#printable-invoice),
-    .invoice-print-overlay .invoice-logo-controls {
+    .invoice-print-overlay .invoice-logo-controls,
+    .invoice-print-overlay .modal-header,
+    .invoice-print-overlay .form-actions {
         display: none !important;
     }
+
     .invoice-print-overlay #printable-invoice {
-        --text-main: #0f172a;
-        --text-muted: #475569;
-        --bg-app: #f4f6fb;
-        --card-bg: white;
-        --card-border: #dce3eb;
         display: block !important;
         visibility: visible !important;
         position: static !important;
@@ -71,26 +102,90 @@
         max-width: none !important;
         box-sizing: border-box !important;
         margin: 0 !important;
-        padding: 12mm !important;
-        border: 0 !important;
-        border-radius: 0 !important;
-        background: white !important;
+        padding: 4mm !important;
+        border: 1px solid #cbd5e1 !important;
+        border-radius: 8px !important;
+        background: #ffffff !important;
         color: #0f172a !important;
         box-shadow: none !important;
         overflow: visible !important;
-        print-color-adjust: exact;
-        -webkit-print-color-adjust: exact;
     }
+
+    .invoice-print-overlay #printable-invoice * {
+        color: #0f172a;
+    }
+
+    .invoice-print-overlay #printable-invoice h1,
+    .invoice-print-overlay #printable-invoice h2,
+    .invoice-print-overlay #printable-invoice h3,
+    .invoice-print-overlay #printable-invoice h4,
+    .invoice-print-overlay #printable-invoice strong {
+        color: #0f172a !important;
+    }
+
+    .invoice-print-overlay #printable-invoice [style*="color: var(--primary-blue)"] {
+        color: #1e64f0 !important;
+    }
+
+    .invoice-print-overlay #printable-invoice [style*="color: var(--text-muted)"] {
+        color: #475569 !important;
+    }
+
     .invoice-print-overlay #printable-invoice .invoice-metadata-grid {
         grid-template-columns: 1fr 1fr !important;
+        display: grid !important;
+        gap: 12px !important;
+        margin-bottom: 16px !important;
     }
+
+    .invoice-print-overlay #printable-invoice .invoice-metadata-grid > div {
+        background: #f8fafc !important;
+        border: 1px solid #cbd5e1 !important;
+        padding: 10px 12px !important;
+    }
+
     .invoice-print-overlay #printable-invoice .invoice-brand {
-        flex-wrap: nowrap !important;
+        display: flex !important;
+        justify-content: space-between !important;
+        align-items: flex-start !important;
+        border-bottom: 2px solid #1e64f0 !important;
+        padding-bottom: 14px !important;
+        margin-bottom: 16px !important;
     }
+
     .invoice-print-overlay #printable-invoice .invoice-summary-grid {
-        grid-template-columns: minmax(0, 1.05fr) minmax(260px, .95fr);
+        display: grid !important;
+        grid-template-columns: minmax(0, 1.05fr) minmax(260px, .95fr) !important;
+        gap: 16px !important;
         break-inside: avoid;
     }
+
+    .invoice-print-overlay #printable-invoice .invoice-totals {
+        background: #f8fafc !important;
+        border: 1px solid #cbd5e1 !important;
+        padding: 12px 14px !important;
+    }
+
+    .invoice-print-overlay #printable-invoice table.data-table {
+        width: 100% !important;
+        border-collapse: collapse !important;
+        margin-bottom: 16px !important;
+    }
+
+    .invoice-print-overlay #printable-invoice table.data-table th {
+        background: #f8fafc !important;
+        color: #1e293b !important;
+        font-weight: 800 !important;
+        border-bottom: 1px solid #cbd5e1 !important;
+        padding: 8px 10px !important;
+    }
+
+    .invoice-print-overlay #printable-invoice table.data-table td {
+        padding: 8px 10px !important;
+        border-bottom: 1px solid #e2e8f0 !important;
+        color: #0f172a !important;
+    }
+
     .invoice-print-overlay #printable-invoice tr,
     .invoice-print-overlay #printable-invoice .invoice-brand,
     .invoice-print-overlay #printable-invoice .invoice-metadata-grid {

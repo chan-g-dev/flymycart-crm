@@ -36,16 +36,27 @@ users_router = APIRouter(prefix="/users", tags=["Users, Roles & Access Control"]
 
 ROLE_NAME_ALIASES = {
     **ROLE_NAMES,
-    "operations_staff": "Operations Executive",
     "super_admin": "SUPER_ADMIN",
-    "operations_staff": "Operations Executive",
-    "counter_staff": "Counter Staff",
+    "manager": "Manager",
+    "supervisor": "Supervisor",
+    "account_executive": "Account Executive",
+    "operation_executive": "Operation Executive",
+    "operations_executive": "Operation Executive",
+    "team_leader": "Supervisor",
+    "counter_staff": "Account Executive",
+    "operations_staff": "Operation Executive",
 }
 
 ROLE_CODES_BY_NAME = {
     "super_admin": "super_admin",
-    "operations staff": "operations_staff",
-    "front counter staff": "counter_staff",
+    "manager": "manager",
+    "supervisor": "supervisor",
+    "account_executive": "account_executive",
+    "operation_executive": "operation_executive",
+    "operations_executive": "operation_executive",
+    "team leader": "supervisor",
+    "counter staff": "account_executive",
+    "operations staff": "operation_executive",
 }
 
 

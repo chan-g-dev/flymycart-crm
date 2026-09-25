@@ -67,9 +67,9 @@ export const BRVLogo = ({ height = 16 }) => (
 );
 
 export const SreeMaruthiLogo = ({ height = 16 }) => (
-    <svg height={height} viewBox="0 0 115 24" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ verticalAlign: 'middle', display: 'inline-block' }}>
-        <rect width="115" height="24" rx="4" fill="#7C2D12" />
-        <text x="57.5" y="16.5" fontFamily="'Arial Black', sans-serif" fontSize="11" fontWeight="900" fill="#FEF08A" textAnchor="middle" letterSpacing="0.5">SREE MARUTHI</text>
+    <svg height={height} viewBox="0 0 100 24" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ verticalAlign: 'middle', display: 'inline-block' }}>
+        <rect width="100" height="24" rx="4" fill="#7C2D12" />
+        <text x="50" y="16.5" fontFamily="'Arial Black', sans-serif" fontSize="10.5" fontWeight="900" fill="#FEF08A" textAnchor="middle" letterSpacing="0.2">SREE MARUTHI</text>
     </svg>
 );
 
@@ -108,22 +108,6 @@ export const WhatsAppIcon = ({ size = 15, color = '#25D366' }) => (
     </svg>
 );
 
-// Built-in presets map
-export const PRESET_CARRIER_LOGOS = [
-    { name: 'FedEx', component: FedExLogo },
-    { name: 'Aramex', component: AramexLogo },
-    { name: 'DHL', component: DHLLogo },
-    { name: 'Blue Dart', component: BlueDartLogo },
-    { name: 'Delhivery', component: DelhiveryLogo },
-    { name: 'UPS', component: UPSLogo },
-    { name: 'ICL', component: ICLLogo },
-    { name: 'BRV', component: BRVLogo },
-    { name: 'Sree Maruthi', component: SreeMaruthiLogo },
-    { name: 'DTDC', component: DTDCLogo },
-    { name: 'Trackon', component: TrackonLogo },
-    { name: 'Shadowfax', component: ShadowfaxLogo },
-    { name: 'Ecom Express', component: EcomExpressLogo }
-];
 
 // Map courier string strictly to the required logos or custom stored logo
 export const CourierLogo = ({ courier, height = 17, showLabel = false, logoUrl = null, customLogos = null }) => {
@@ -176,7 +160,7 @@ export const CourierLogo = ({ courier, height = 17, showLabel = false, logoUrl =
         logoComponent = <DHLLogo height={height} />;
     } else if (c.includes('ups')) {
         logoComponent = <UPSLogo height={height} />;
-    } else if (c.includes('maruthi')) {
+    } else if (c.includes('maruthi') || c.includes('murti') || c.includes('maruti')) {
         logoComponent = <SreeMaruthiLogo height={height} />;
     } else if (c.includes('icl')) {
         logoComponent = <ICLLogo height={height} />;
@@ -217,7 +201,8 @@ export const CourierLogo = ({ courier, height = 17, showLabel = false, logoUrl =
                 display: 'inline-flex', 
                 alignItems: 'center', 
                 gap: '6px',
-                verticalAlign: 'middle'
+                verticalAlign: 'middle',
+                flexShrink: 0
             }}
         >
             {logoComponent}

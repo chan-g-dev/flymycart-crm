@@ -81,7 +81,7 @@ const ReconciliationModal = ({ isOpen, onClose, onReconciled, settings }) => {
             return;
         }
 
-        if (!confirm(`Are you sure you want to apply carrier costs to ${matchedItemsCount} shipment(s) and recalculate Value After Courier Cost?`)) {
+        if (!confirm(`Are you sure you want to apply carrier values to ${matchedItemsCount} shipment(s) and recalculate Profit?`)) {
             return;
         }
 
@@ -300,7 +300,7 @@ const ReconciliationModal = ({ isOpen, onClose, onReconciled, settings }) => {
                                         <tr>
                                             <th>AWB</th>
                                             <th>Customer</th>
-                                            <th>Predicted Cost</th><th>Net Cost</th>
+                                            <th>Predicted Value</th><th>Net Cost</th>
                                             <th>{costLabel}</th>
                                             <th>Difference</th>
                                             <th>Status</th>
@@ -357,7 +357,7 @@ const ReconciliationModal = ({ isOpen, onClose, onReconciled, settings }) => {
                             onClick={handleApply} 
                             disabled={isApplying || loading || matchedItemsCount === 0}
                         >
-                            <CheckCheck size={16} /> {isApplying ? 'Applying costs...' : `Recalculate Profit & Apply to ${matchedItemsCount} Shipment${matchedItemsCount === 1 ? '' : 's'}`}
+                            <CheckCheck size={16} /> {isApplying ? 'Applying costs...' : `Recalculate Margins & Apply to ${matchedItemsCount} Shipment${matchedItemsCount === 1 ? '' : 's'}`}
                         </button>
                     </div>
                 )}

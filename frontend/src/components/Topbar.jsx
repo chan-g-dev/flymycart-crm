@@ -1,31 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { 
-    Search, 
-    MapPin, 
-    Calendar, 
-    Plus, 
-    Bell, 
-    ShieldCheck, 
-    Package, 
-    Users, 
-    FileText, 
-    Wallet,
-    Building2,
-    RotateCcw,
-    TrendingUp,
-    Settings as SettingsIcon,
-    ArrowUpRight,
-    X,
-    LogOut,
-    Menu,
-    CheckCircle2,
-    Boxes,
-    Clock
-} from 'lucide-react';
+import { Search, MapPin, Calendar, Plus, Bell, ShieldCheck, Package, Users, FileText, Wallet, Building2, RotateCcw, TrendingUp, Settings as SettingsIcon, ArrowUpRight, X, LogOut, Menu, CheckCircle2, Boxes, Clock } from 'lucide-react';
 import { useAuth } from '../context/authSession';
 import { apiClient } from '../api/client';
 import { navigate } from '../utils/navigation';
 import { TrackingLink } from './TrackingLink';
+
 
 const PAGE_CONFIG = {
     dashboard: { 
@@ -118,16 +97,19 @@ const Topbar = ({
     onToggleSidebar,
     isSidebarOpen = false,
     selectedCenter = 'All Centers',
-    onSelectCenter
+    onSelectCenter,
 }) => {
     const { currentUser, currentRole, hasPermission, logout } = useAuth();
     const pageMeta = PAGE_CONFIG[currentPage] || PAGE_CONFIG.dashboard;
     const PageIcon = pageMeta.icon;
 
+
     // Search state
     const [searchQuery, setSearchQuery] = useState('');
-    const [searchResults, setSearchResults] = useState(null);
-    const [isSearching, setIsSearching] = useState(false);
+    const [searchResponse, setSearchResults] = useState(null);
+    const searchResults = searchResponse?.query === searchQuery ? searchResponse.data : null;
+    const [searchingQuery, setIsSearching] = useState(null);
+    const isSearching = searchingQuery === searchQuery && searchQuery.trim().length >= 2;
     const [showResults, setShowResults] = useState(false);
     const searchRef = useRef(null);
     const searchInputRef = useRef(null);
@@ -157,28 +139,25 @@ const Topbar = ({
         return () => window.removeEventListener('keydown', handleKeyDown);
     }, []);
 
-    // Global Search debounced effect
+    // Cancel stale responses when another query starts or the search is cleared.
     useEffect(() => {
-        if (!searchQuery.trim() || searchQuery.length < 2) {
-            setSearchResults(null);
-            setIsSearching(false);
-            return;
-        }
-
+        if (searchQuery.trim().length < 2) return;
+        let active = true;
         const timer = setTimeout(async () => {
-            setIsSearching(true);
+            setIsSearching(searchQuery);
             try {
-                const res = await apiClient.globalSearch(searchQuery.trim());
-                setSearchResults(res);
-                setShowResults(true);
+                const data = await apiClient.globalSearch(searchQuery.trim());
+                if (active) {
+                    setSearchResults({ query: searchQuery, data });
+                    setShowResults(true);
+                }
             } catch (err) {
-                console.error('Global search error:', err);
+                if (active) console.error('Global search error:', err);
             } finally {
-                setIsSearching(false);
+                if (active) setIsSearching(null);
             }
         }, 220);
-
-        return () => clearTimeout(timer);
+        return () => { active = false; clearTimeout(timer); };
     }, [searchQuery]);
 
     // Close dropdowns on click outside
@@ -221,7 +200,9 @@ const Topbar = ({
                         <div className="fmc-page-title-row">
                             <h1 className="fmc-page-title-heading">{pageMeta.title}</h1>
                         </div>
-                        <p className="fmc-page-subtitle-text">{pageMeta.subtitle}</p>
+                        {pageMeta.subtitle && (
+                            <p className="fmc-page-subtitle-text">{pageMeta.subtitle}</p>
+                        )}
                     </div>
                 </div>
 

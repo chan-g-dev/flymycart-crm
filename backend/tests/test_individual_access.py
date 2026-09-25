@@ -73,26 +73,44 @@ class IndividualAccessTests(unittest.TestCase):
             json={'version': version, 'overrides': overrides})
 
     def test_role_defaults_mask_costs_and_enforce_centers(self):
-        for user in ['a', 'b', 'team', 'counter', 'ops']:
+        for user in ['team', 'counter', 'ops']:
             response = self.client.get('/api/shipments', headers=self.token(user))
             self.assertEqual(response.status_code, 200, response.text)
             self.assertEqual([x['id'] for x in response.json()], ['Main'])
             for key in ['provider_cost', 'actual_provider_cost', 'gross_profit']:
                 self.assertIsNone(response.json()[0][key])
+        for user in ['a', 'b']:
+            response = self.client.get('/api/shipments', headers=self.token(user))
+            self.assertEqual(response.status_code, 200, response.text)
+            self.assertEqual([x['id'] for x in response.json()], ['Main'])
+            self.assertEqual(response.json()[0]['provider_cost'], 60)
+            self.assertIsNone(response.json()[0]['gross_profit'])
+
+    def test_policy_upgrade_preserves_customized_role_permissions(self):
+        from app.models import SystemSettings, RolePermission, Permission
+        with self.sessions() as db:
+            role = db.query(Role).filter_by(name='Manager').one()
+            permission = db.query(Permission).filter_by(code='shipments.delete').one()
+            db.query(RolePermission).filter_by(role_id=role.id, permission_id=permission.id).delete()
+            config = db.get(SystemSettings, 1)
+            config.config_json = {'companyRolePolicyV2': True}
+            db.commit()
+            seed_permissions_and_roles(db)
+            self.assertIsNone(db.query(RolePermission).filter_by(role_id=role.id, permission_id=permission.id).first())
 
     def test_personal_grant_isolated_and_revokes_session(self):
-        old = self.token('a')
-        response = self.save({'costs.view': 'allow'})
+        old = self.token('counter')
+        response = self.save({'costs.view': 'allow'}, user='counter')
         self.assertEqual(response.status_code, 200, response.text)
         self.assertEqual(self.client.get('/api/shipments', headers=old).status_code, 401)
-        a = self.client.get('/api/shipments', headers=self.token('a')).json()[0]
-        b = self.client.get('/api/shipments', headers=self.token('b')).json()[0]
-        self.assertEqual(a['provider_cost'], 60)
-        self.assertIsNone(a['gross_profit'])
-        self.assertIsNone(b['provider_cost'])
+        counter = self.client.get('/api/shipments', headers=self.token('counter')).json()[0]
+        ops = self.client.get('/api/shipments', headers=self.token('ops')).json()[0]
+        self.assertEqual(counter['provider_cost'], 60)
+        self.assertIsNone(counter['gross_profit'])
+        self.assertIsNone(ops['provider_cost'])
 
     def test_deny_precedence_reset_and_seed_persistence(self):
-        self.assertEqual(self.save({'reports.view_financial': 'allow', 'costs.view': 'deny', 'shipments.view': 'deny'}).status_code, 200)
+        self.assertEqual(self.save({'reports.view_financial': 'deny', 'costs.view': 'deny', 'shipments.view': 'deny'}).status_code, 200)
         with self.sessions() as db:
             seed_permissions_and_roles(db)
             permissions = resolve_permissions(db, db.get(UserProfile, 'a'))
@@ -136,7 +154,7 @@ class IndividualAccessTests(unittest.TestCase):
                     entity_type='customer', entity_id='customer-1', action='UPDATE',
                     after_value={'name': 'Updated', 'password': 'must-not-appear'}))
             db.commit()
-        self.assertEqual(self.client.get('/users/audit-logs', headers=self.token('a')).status_code, 403)
+        self.assertEqual(self.client.get('/users/audit-logs', headers=self.token('counter')).status_code, 403)
         first = self.client.get('/users/audit-logs', headers=self.admin,
             params={'actor_id': 'a', 'limit': 1}).json()
         second = self.client.get('/users/audit-logs', headers=self.admin,
@@ -150,16 +168,17 @@ class IndividualAccessTests(unittest.TestCase):
     def test_role_update_preserves_personal_override_and_revokes_sessions(self):
         from app.models import Permission
         self.assertEqual(self.save({'shipments.view': 'deny'}).status_code, 200)
-        token = self.token('b')
+        token_b = self.token('b')
+        token_counter = self.token('counter')
         with self.sessions() as db:
             role_id = db.query(Role).filter_by(name='Manager').one().id
             permission_id = db.query(Permission).filter_by(code='shipments.view').one().id
         url = '/users/roles/'+role_id+'/permissions'
         payload = {'permissions': [{'permission_id': permission_id, 'scope': 'center'}]}
-        self.assertEqual(self.client.put(url, headers=token, json=payload).status_code, 403)
+        self.assertEqual(self.client.put(url, headers=token_counter, json=payload).status_code, 403)
         response = self.client.put(url, headers=self.admin, json=payload)
         self.assertEqual(response.status_code, 200, response.text)
-        self.assertEqual(self.client.get('/api/shipments', headers=token).status_code, 401)
+        self.assertEqual(self.client.get('/api/shipments', headers=token_b).status_code, 401)
         with self.sessions() as db:
             self.assertNotIn('shipments.view', resolve_permissions(db, db.get(UserProfile, 'a')))
             self.assertIn('shipments.view', resolve_permissions(db, db.get(UserProfile, 'b')))
@@ -177,7 +196,8 @@ class IndividualAccessTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200, response.text)
         rows = response.json()['items']
         self.assertEqual(len(rows), 1)
-        for key in ['cost', 'expense', 'value', 'value_with_gst']:
+        self.assertEqual(rows[0]['cost'], 60)
+        for key in ['value', 'value_with_gst']:
             self.assertIsNone(rows[0][key])
         self.assertIn(rows[0]['courier_status'], ['Paid', 'Pending', 'Processing'])
 
@@ -219,7 +239,8 @@ class IndividualAccessTests(unittest.TestCase):
         counter = self.token('counter')
         self.assertEqual(self.client.get('/api/reports/eod', headers=counter).status_code, 200)
         self.assertEqual(self.client.get('/api/reports/weekly', headers=counter).status_code, 403)
-        self.assertEqual(self.client.get('/api/reports/monthly', headers=self.token('a')).status_code, 403)
+        self.assertEqual(self.client.get('/api/reports/monthly', headers=counter).status_code, 403)
+        self.assertEqual(self.client.get('/api/reports/monthly', headers=self.token('a')).status_code, 200)
         self.assertEqual(self.save({'reports.weekly': 'allow'}, user='counter').status_code, 200)
         self.assertEqual(self.client.get('/api/reports/weekly', headers=self.token('counter')).status_code, 200)
         response = self.client.put('/users/a/centers', headers=self.token('a'), json={'center_ids': ['Other']})
@@ -238,9 +259,9 @@ class IndividualAccessTests(unittest.TestCase):
                 for awb in awbs:
                     db.add(ReconciliationItem(batch_id=name, awb=awb, status='MATCHED'))
             db.commit()
-        self.assertEqual(self.client.get('/api/reconciliation/batches', headers=self.token('a')).status_code, 403)
-        self.assertEqual(self.save({'costs.carrier_cost': 'allow'}).status_code, 200)
-        headers = self.token('a')
+        self.assertEqual(self.client.get('/api/reconciliation/batches', headers=self.token('counter')).status_code, 403)
+        self.assertEqual(self.save({'reconciliation.view': 'allow', 'costs.carrier_cost': 'allow'}, user='counter').status_code, 200)
+        headers = self.token('counter')
         response = self.client.get('/api/reconciliation/batches', headers=headers)
         self.assertEqual(response.status_code, 200, response.text)
         self.assertEqual([batch['id'] for batch in response.json()], ['main'])
@@ -255,7 +276,7 @@ class IndividualAccessTests(unittest.TestCase):
                 shipment_id='Main', customer_name='Main Customer', date='2026-09-21',
                 amount=100, gst=18, total=118, paid=20, balance=98))
             db.commit()
-        headers = self.token('a')
+        headers = self.token('counter')
         customers = self.client.get('/api/customers', headers=headers).json()
         self.assertIsNone(customers[0]['total_spend'])
         self.assertIsNone(customers[0]['outstanding_balance'])
@@ -264,15 +285,13 @@ class IndividualAccessTests(unittest.TestCase):
         self.assertIsNone(profile['invoices'][0]['total'])
         dashboard = self.client.get('/api/dashboard/summary', headers=headers).json()
         self.assertIsNone(dashboard['center_summaries']['Main']['total_sales_with_gst'])
-        overview = self.client.get('/workspace/overview', headers=headers).json()
-        for key in ('sales', 'gross_sales', 'collected', 'pending', 'b2b', 'net'):
-            self.assertIsNone(overview['totals'][key], key)
+        self.assertEqual(self.client.get('/workspace/overview', headers=headers).status_code, 403)
         response = self.client.get('/api/accounts/receipts?date_from=2026-09-01&date_to=2026-09-30', headers=headers)
         self.assertEqual(response.status_code, 403)
         b2b = self.client.get('/api/b2b/summary', headers=headers).json()
         self.assertIsNone(b2b['outstanding'])
-        self.assertEqual(self.save({'costs.customer_price': 'allow'}).status_code, 200)
-        headers = self.token('a')
+        self.assertEqual(self.save({'accounts.view': 'allow', 'costs.customer_price': 'allow'}, user='counter').status_code, 200)
+        headers = self.token('counter')
         overview = self.client.get('/workspace/overview', headers=headers).json()
         self.assertEqual(overview['totals']['sales'], 100)
         self.assertIsNone(overview['totals']['cost'])

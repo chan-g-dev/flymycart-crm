@@ -18,7 +18,7 @@ from sqlalchemy.exc import IntegrityError
 
 from app.database import get_db
 from app.models import (
-    Customer, Shipment, Invoice, WalletTransaction,
+    Customer, B2BCompany, Shipment, Invoice, WalletTransaction,
     Refund, AuditLog, SystemSettings, AccountingEntry
 )
 from app.schemas import ShipmentCreate, ShipmentOut
@@ -48,6 +48,8 @@ def get_shipments(
     search: Optional[str] = None,
     status: Optional[str] = None,
     courier: Optional[str] = None,
+    entity: Optional[str] = None,
+    scope: Optional[str] = None,
     booking_date: Optional[datetime.date] = None,
     ctx: Dict[str, Any] = Depends(require_permission(PermissionCode.SHIPMENTS_VIEW)),
     db: Session = Depends(get_db)
@@ -67,6 +69,14 @@ def get_shipments(
         query = query.filter(Shipment.status == status)
     if courier:
         query = query.filter(Shipment.courier == courier)
+    if entity and entity.strip() and entity.strip().lower() not in ["all", "all entities"]:
+        query = query.filter(Shipment.entity == entity.strip())
+    if scope and scope.strip() and scope.strip().lower() not in ["all", "both"]:
+        scope_clean = scope.strip().lower()
+        if scope_clean == "international":
+            query = query.filter(func.lower(Shipment.domestic_international) == "international")
+        elif scope_clean == "domestic":
+            query = query.filter(func.lower(Shipment.domestic_international) == "domestic")
     if search:
         s = f"%{search.lower()}%"
         query = query.filter(
@@ -99,10 +109,20 @@ def get_shipments(
         .group_by(func.lower(AccountingEntry.provider))
         .all()
     )
+    refunds_by_awb = dict(
+        db.query(func.lower(Refund.awb), func.sum(Refund.amount))
+        .filter(Refund.status.in_(["Approved", "Refunded"]))
+        .group_by(func.lower(Refund.awb))
+        .all()
+    )
 
     out = [ShipmentOut.model_validate(s) for s in shipments]
     for row, shipment in zip(out, shipments):
-        row.gross_profit = calculate_gross_profit(shipment.price, shipment.provider_cost, shipment.actual_provider_cost, shipment.cost_reconciled)
+        awb_key = (shipment.awb or "").lower().strip()
+        ref_amt = float(refunds_by_awb.get(awb_key, 0) or 0)
+        row.refund_amount = ref_amt
+        base_gp = calculate_gross_profit(shipment.price or 0, shipment.provider_cost, shipment.actual_provider_cost, shipment.cost_reconciled)
+        row.gross_profit = round(base_gp - ref_amt, 2)
         p_name = (shipment.provider_name or shipment.courier or "").lower().strip()
         p_cost = float(provider_costs.get(p_name, 0) or 0)
         p_paid = float(provider_payments.get(p_name, 0) or 0)
@@ -227,6 +247,8 @@ def create_shipment(
     if payload.payment_status not in ["Paid", "Partial"] and paid_amt:
         raise HTTPException(status_code=400, detail="Amount received requires Paid or Partial payment status")
     if paid_amt > 0:
+        if "collected_by" not in payload.model_fields_set:
+            payload.collected_by = ctx.get("display_name") or ""
         paid_amt = validate_amount(paid_amt)
         payload.payment_reference = (payload.payment_reference or "").strip()
         payload.paid_to = payload.paid_to.strip() or ("Cash in Hand" if payment_kind(payload.payment_method) == "Cash" else "")
@@ -236,17 +258,37 @@ def create_shipment(
     if db.query(Shipment).filter(func.lower(Shipment.awb) == awb_clean.lower()).first():
         raise HTTPException(status_code=400, detail=f"AWB tracking number '{awb_clean}' already exists!")
 
-    # 2. Auto-find or create customer (Single Entry)
+    # Resolve customer and corporate identities separately; never link by phone across categories.
     customer = None
     if payload.customer_id:
         customer = db.query(Customer).filter(Customer.id == payload.customer_id).first()
-    customer_mobile = payload.customer_mobile or (payload.sender.phone if payload.sender else "") or ""
-    if not customer and customer_mobile:
-        customer = db.query(Customer).filter(Customer.mobile == customer_mobile.strip()).first()
-    if payload.customer_id and not customer:
-        raise HTTPException(status_code=404, detail="Customer not found")
-
+        if not customer:
+            raise HTTPException(404, "Customer not found")
     payload.customer_type = resolve_customer_type(db, payload.customer_type, customer.customer_type if customer else None)
+    company_id = payload.b2b_company_id or (customer.b2b_company_id if customer and payload.customer_type == "B2B" else None)
+    company = None
+    if company_id:
+        if payload.customer_type != "B2B":
+            raise HTTPException(400, "Corporate accounts require the B2B category")
+        company = db.query(B2BCompany).filter(B2BCompany.id == company_id).first()
+        if not company:
+            raise HTTPException(404, "Corporate account not found")
+        if customer and customer.b2b_company_id not in (None, company_id):
+            raise HTTPException(400, "Customer belongs to a different corporate account")
+    payload.b2b_company_id = company_id
+    customer_mobile = (payload.customer_mobile or (payload.sender.phone if payload.sender else "") or (company.mobile if company else "") or "").strip()
+    if not customer and company:
+        customer = db.query(Customer).filter(Customer.b2b_company_id == company.id, Customer.customer_type == "B2B", Customer.center == payload.center).first()
+    if not customer and customer_mobile:
+        candidates = db.query(Customer).filter(Customer.customer_type == payload.customer_type)
+        if company:
+            # A shared contact number does not establish corporate identity.
+            candidates = candidates.filter(Customer.b2b_company_id == company.id)
+        else:
+            candidates = candidates.filter(Customer.b2b_company_id.is_(None))
+        customer = candidates.filter(Customer.mobile == customer_mobile).first()
+    if customer and company:
+        customer.b2b_company_id = company.id
 
     if not customer:
         if not customer_mobile.strip():
@@ -254,13 +296,17 @@ def create_shipment(
         cust_id = f"cust_{uuid.uuid4().hex[:16]}"
         customer = Customer(
             id=cust_id,
-            name=payload.customer_name.strip(),
-            company=payload.customer_name.strip() if payload.customer_type == "B2B" else None,
+            name=company.company_name if company else payload.customer_name.strip(),
+            company=company.company_name if company else (payload.customer_name.strip() if payload.customer_type == "B2B" else None),
             mobile=customer_mobile.strip(),
             whatsapp=customer_mobile.strip(),
             email=payload.sender.email.strip() if payload.sender and payload.sender.email else None,
             id_proof=payload.sender.id_proof.strip() if payload.sender and payload.sender.id_proof else None,
+            id_proof_front=payload.sender.id_proof_front if payload.sender else None,
+            id_proof_back=payload.sender.id_proof_back if payload.sender else None,
             b2b_company_id=payload.b2b_company_id,
+            credit_limit=company.credit_limit if company else 0,
+            credit_period_days=company.credit_period_days if company else 30,
             customer_type=payload.customer_type,
             center=payload.center,
             assigned_employee=payload.employee,
@@ -268,6 +314,13 @@ def create_shipment(
         )
         db.add(customer)
         db.flush()
+    else:
+        if payload.sender and payload.sender.id_proof_front:
+            customer.id_proof_front = payload.sender.id_proof_front
+        if payload.sender and payload.sender.id_proof_back:
+            customer.id_proof_back = payload.sender.id_proof_back
+        if payload.sender and payload.sender.id_proof:
+            customer.id_proof = payload.sender.id_proof.strip()
 
     # Resolve and snapshot the policy used at booking time.
     from app.weight_rules import resolve_weight_rule, calculate_weights
@@ -299,12 +352,15 @@ def create_shipment(
         customer_name=customer.name,
         customer_type=payload.customer_type,
         b2b_company_id=payload.b2b_company_id,
+        entity=payload.entity or "Globe Courier",
         center=payload.center,
         employee=payload.employee,
 
         sender_name=payload.sender.name if payload.sender else customer.name,
         sender_email=payload.sender.email if payload.sender else customer.email,
         sender_id_proof=payload.sender.id_proof if payload.sender else customer.id_proof,
+        id_proof_front=payload.sender.id_proof_front if (payload.sender and payload.sender.id_proof_front) else getattr(customer, 'id_proof_front', None),
+        id_proof_back=payload.sender.id_proof_back if (payload.sender and payload.sender.id_proof_back) else getattr(customer, 'id_proof_back', None),
         receiver_email=payload.receiver.email,
         receiver_state=payload.receiver.state,
         boxes=[box.model_dump() for box in payload.parcel.boxes],
@@ -318,6 +374,9 @@ def create_shipment(
         receiver_city=payload.receiver.city.strip(),
         receiver_country=payload.receiver.country.strip(),
         receiver_zip=payload.receiver.zip.strip() if payload.receiver.zip else None,
+        receiver_id_proof=payload.receiver.id_proof.strip() if (payload.receiver and payload.receiver.id_proof) else None,
+        receiver_id_proof_front=payload.receiver.id_proof_front if (payload.receiver and payload.receiver.id_proof_front) else None,
+        receiver_id_proof_back=payload.receiver.id_proof_back if (payload.receiver and payload.receiver.id_proof_back) else None,
 
         description=payload.parcel.description,
         packages_count=payload.parcel.packages_count,
@@ -331,6 +390,7 @@ def create_shipment(
         courier=payload.courier,
         domestic_international=payload.domestic_international,
         service_type=payload.service_type,
+        is_ddp=bool(getattr(payload, 'is_ddp', False)),
         provider_type=payload.provider_type,
         provider_name=payload.provider_name,
         price=payload.price,
@@ -439,7 +499,7 @@ def create_shipment(
         or ctx.get("permissions", {}).get("reports.view_financial")
     )
     s_out = ShipmentOut.model_validate(new_shipment)
-    s_out.gross_profit = calculate_gross_profit(new_shipment.price, new_shipment.provider_cost, new_shipment.actual_provider_cost, new_shipment.cost_reconciled)
+    s_out.gross_profit = calculate_gross_profit(new_shipment.price or 0, new_shipment.provider_cost, new_shipment.actual_provider_cost, new_shipment.cost_reconciled)
     if not can_view_customer_price(ctx):
         s_out.price = None
         s_out.total_amount = None

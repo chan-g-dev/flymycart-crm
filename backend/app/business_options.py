@@ -57,4 +57,19 @@ def validate_business_options(payload):
         if not isinstance(logos, dict):
             raise HTTPException(400, 'courierLogos must be an object')
         result['courierLogos'] = {str(k).strip(): str(v).strip() for k, v in logos.items() if str(k).strip() and str(v).strip()}
+    if 'messageTemplates' in result:
+        templates = result['messageTemplates']
+        if not isinstance(templates, list):
+            raise HTTPException(400, 'messageTemplates must be a list of templates')
+        valid_templates = []
+        for item in templates:
+            if isinstance(item, dict) and ('title' in item or 'name' in item) and 'body' in item:
+                valid_templates.append({
+                    'id': str(item.get('id') or f"tpl_{len(valid_templates)+1}"),
+                    'title': str(item.get('title') or item.get('name') or '').strip()[:100],
+                    'channel': str(item.get('channel', 'All')).strip()[:20],
+                    'body': str(item.get('body', '')).strip()[:4000],
+                    'category': str(item.get('category', 'custom')).strip()[:30]
+                })
+        result['messageTemplates'] = valid_templates
     return result

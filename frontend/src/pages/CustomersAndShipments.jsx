@@ -1,28 +1,19 @@
+import { openWhatsApp, openEmail, openCall, CommTemplates } from '../utils/communication';
+import { exportToExcel } from '../utils/excelExport';
 import { customerTypeOptions } from '../utils/customerTypes';
+import { DEFAULT_ENTITY, getEntityMeta, getEntityOptions } from '../utils/entityConstants';
 import TablePagination from '../components/TablePagination';
 import useTablePage from '../components/useTablePage';
 import ShipmentPaymentCells from '../components/ShipmentPaymentCells';
-import GstValuePair from '../components/GstValuePair';
 import { businessDate } from '../utils/businessDates';
 import React, { useState, useDeferredValue, useMemo } from 'react';
-import { 
-    Plus, 
-    History, 
-    Trash2, 
-    Phone, 
-    Search, 
-    Mail, 
-    Building, 
-    MapPin, 
-    ArrowUpRight, 
-    FileText, 
-    Download,
-    Edit3
-} from 'lucide-react';
+import { Plus, History, Trash2, Phone, Search, Mail, Building, Building2, MapPin, ArrowUpRight, FileText, Download, Calendar, Edit3, Tag, MessageSquare, Globe, Plane, Truck, X } from 'lucide-react';
+import '../components/DashboardSummary.css';
 import { useAuth } from '../context/authSession';
 import { CourierLogo } from '../components/CourierLogos';
 import { TableSkeleton, ButtonSpinner } from '../components/LoadingSpinner';
 import { TrackingLink } from '../components/TrackingLink';
+import ParcelLabelModal from '../components/ParcelLabelModal';
 
 export const Customers = ({ 
     customers: allCustomers,
@@ -59,26 +50,18 @@ export const Customers = ({
         if (!customers || customers.length === 0) return;
         const headers = ['Name', 'Company', 'Mobile', 'Email', 'Type', 'Center', 'Total Bookings', 'Total Spend (INR)', 'Outstanding (INR)', 'Address'];
         const rows = customers.map(c => [
-            `"${c.name}"`,
-            `"${c.company || ''}"`,
-            `"${c.mobile}"`,
-            `"${c.email || ''}"`,
-            `"${c.customer_type}"`,
-            `"${c.center || ''}"`,
-            c.total_bookings || 0,
-            c.total_spend || 0,
-            c.outstanding_balance || 0,
-            `"${(c.address || '').replace(/"/g, '""')}"`
+            c.name || '',
+            c.company || '',
+            c.mobile || '',
+            c.email || '',
+            c.customer_type || '',
+            c.center || '',
+            Number(c.total_bookings || 0),
+            Number(c.total_spend || 0),
+            Number(c.outstanding_balance || 0),
+            c.address || ''
         ]);
-
-        const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map(e => e.join(','))].join('\n');
-        const encodedUri = encodeURI(csvContent);
-        const link = document.createElement('a');
-        link.setAttribute('href', encodedUri);
-        link.setAttribute('download', `FMC_Customers_${businessDate()}.csv`);
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
+        exportToExcel(headers, rows, `FMC_Customers_${businessDate()}.xlsx`, 'Customers');
     };
 
     const typeOptions = useMemo(() => customerTypeOptions(settings, (allCustomers || []).map(c => c.customer_type)), [settings, allCustomers]);
@@ -100,10 +83,10 @@ export const Customers = ({
                         <span className="pill-stat">Total: <strong>{customers?.length || 0}</strong></span>
                         {typeOptions.map(type => <span className="pill-stat" key={type}>{type}: <strong>{typeCounts.get(type) || 0}</strong></span>)}
                     </div>
-                    <button className="btn btn-outline" onClick={exportToCSV} title="Export Customers to CSV">
-                        <Download size={14} /> Export CSV
+                    <button className="btn btn-outline" disabled={!hasPermission('customers.export')} onClick={exportToCSV} title="Export Customers to Excel">
+                        <Download size={14} /> Export Excel
                     </button>
-                    <button className="btn btn-primary-blue" onClick={onOpenCustomerModal}>
+                    <button className="btn btn-primary-blue" disabled={!hasPermission('customers.add')} onClick={onOpenCustomerModal}>
                         <Plus size={15} /> Add Customer
                     </button>
                 </div>
@@ -186,7 +169,46 @@ export const Customers = ({
                                             </td>
                                         )}
                                         <td className="customer-actions-cell">
-                                            <div className="customer-actions-stack">
+                                            <div className="customer-actions-stack" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                                                {c.mobile && (
+                                                    <button 
+                                                        type="button" 
+                                                        className="btn-action-icon" 
+                                                        title="Chat on WhatsApp" 
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            openWhatsApp({ phone: c.mobile, message: (c.outstanding_balance > 0) ? CommTemplates.paymentReminder({ customerName: c.name, dueAmount: c.outstanding_balance }) : CommTemplates.generalGreeting({ customerName: c.name }) });
+                                                        }}
+                                                    >
+                                                        <MessageSquare size={13} color="#25D366" />
+                                                    </button>
+                                                )}
+                                                {c.mobile && (
+                                                    <button 
+                                                        type="button" 
+                                                        className="btn-action-icon" 
+                                                        title="Call Customer" 
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            openCall({ phone: c.mobile });
+                                                        }}
+                                                    >
+                                                        <Phone size={13} color="#10b981" />
+                                                    </button>
+                                                )}
+                                                {c.email && (
+                                                    <button 
+                                                        type="button" 
+                                                        className="btn-action-icon" 
+                                                        title="Send Email" 
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            openEmail({ email: c.email, subject: 'Update from Fly My Cart Logistics', body: (c.outstanding_balance > 0) ? CommTemplates.paymentReminder({ customerName: c.name, dueAmount: c.outstanding_balance }) : CommTemplates.generalGreeting({ customerName: c.name }) });
+                                                        }}
+                                                    >
+                                                        <Mail size={13} color="#3b82f6" />
+                                                    </button>
+                                                )}
                                                 <button className="btn-action-customer" onClick={() => onOpenCustomerDrawer(c.id)}>
                                                     <History size={13} />
                                                     <span>
@@ -333,39 +355,153 @@ export const Shipments = ({
     onDeleteShipment, 
     onOpenStatusModal, 
     selectedCenter,
+    selectedScope = '',
+    onSelectScope,
+    selectedEntity = '',
+    onSelectEntity,
     isLoading = false 
 }) => {
     const { hasPermission } = useAuth();
     const [searchVal, setSearchVal] = useState('');
+    const entityOptions = useMemo(() => getEntityOptions(settings), [settings]);
+    const entityVal = selectedEntity;
+    const setEntityVal = (valOrFn) => {
+        if (typeof valOrFn === 'function') {
+            const next = valOrFn(entityVal);
+            onSelectEntity?.(next);
+        } else {
+            onSelectEntity?.(valOrFn);
+        }
+    };
+
+    const scopeVal = selectedScope;
+    const setScopeVal = (valOrFn) => {
+        if (typeof valOrFn === 'function') {
+            const next = valOrFn(scopeVal);
+            onSelectScope?.(next);
+        } else {
+            onSelectScope?.(valOrFn);
+        }
+    };
     const [statusVal, setStatusVal] = useState('');
     const [courierVal, setCourierVal] = useState('');
     const [billingType, setBillingType] = useState('');
+    const [startDate, setStartDate] = useState('');
+    const [endDate, setEndDate] = useState('');
+    const [datePreset, setDatePreset] = useState('all');
+
+    const entityCounts = useMemo(() => {
+        const counts = { total: 0 };
+        entityOptions.forEach(e => { counts[e.name] = 0; });
+        (shipments || []).forEach(s => {
+            const isDom = s.domestic_international === 'Domestic' || (s.receiver_country && s.receiver_country.toLowerCase() === 'india' && s.domestic_international !== 'International');
+            if (scopeVal === 'International' && isDom) return;
+            if (scopeVal === 'Domestic' && !isDom) return;
+
+            counts.total += 1;
+            const ent = s.entity || DEFAULT_ENTITY;
+            const meta = getEntityMeta(ent, settings);
+            const key = meta.name;
+            counts[key] = (counts[key] || 0) + 1;
+        });
+        return counts;
+    }, [shipments, scopeVal, entityOptions, settings]);
+
+    const scopeCounts = useMemo(() => {
+        let intl = 0;
+        let dom = 0;
+        let total = 0;
+        (shipments || []).forEach(s => {
+            const sEntity = s.entity || DEFAULT_ENTITY;
+            if (entityVal && entityVal !== 'all' && sEntity !== entityVal) return;
+
+            total += 1;
+            const isDom = s.domestic_international === 'Domestic' || (s.receiver_country && s.receiver_country.toLowerCase() === 'india' && s.domestic_international !== 'International');
+            if (isDom) dom += 1;
+            else intl += 1;
+        });
+        return { all: total, intl, dom };
+    }, [shipments, entityVal]);
+
+    const handleDatePreset = (preset) => {
+        setDatePreset(preset);
+        const today = new Date();
+        const yyyy = today.getFullYear();
+        const mm = String(today.getMonth() + 1).padStart(2, '0');
+        const dd = String(today.getDate()).padStart(2, '0');
+        const todayStr = `${yyyy}-${mm}-${dd}`;
+
+        if (preset === 'all') {
+            setStartDate('');
+            setEndDate('');
+        } else if (preset === 'today') {
+            setStartDate(todayStr);
+            setEndDate(todayStr);
+        } else if (preset === 'yesterday') {
+            const yest = new Date(today);
+            yest.setDate(yest.getDate() - 1);
+            const yStr = `${yest.getFullYear()}-${String(yest.getMonth() + 1).padStart(2, '0')}-${String(yest.getDate()).padStart(2, '0')}`;
+            setStartDate(yStr);
+            setEndDate(yStr);
+        } else if (preset === 'this_week') {
+            const d = new Date(today);
+            const day = d.getDay();
+            const diff = d.getDate() - day + (day === 0 ? -6 : 1);
+            const monday = new Date(d.setDate(diff));
+            const mStr = `${monday.getFullYear()}-${String(monday.getMonth() + 1).padStart(2, '0')}-${String(monday.getDate()).padStart(2, '0')}`;
+            setStartDate(mStr);
+            setEndDate(todayStr);
+        } else if (preset === 'this_month') {
+            const firstDay = `${yyyy}-${mm}-01`;
+            setStartDate(firstDay);
+            setEndDate(todayStr);
+        }
+    };
+
     const deferredSearch = useDeferredValue(searchVal);
     const invoiceNumbers = useMemo(() => new Map(invoices.map(i => [i.shipment_id, i.invoice_no])), [invoices]);
-    const visibleShipments = useMemo(() => (shipments || []).filter(s =>
-        (!billingType || s.provider_type === billingType) &&
-        (!statusVal || s.status === statusVal) &&
-        (!courierVal || s.courier === courierVal) &&
-        (!deferredSearch || [s.awb, s.customer_name, s.receiver_city, s.receiver_name, s.receiver_phone, s.sender_phone, invoiceNumbers.get(s.id)].some(value => String(value || '').toLowerCase().includes(deferredSearch.toLowerCase())))
-    ), [shipments, billingType, statusVal, courierVal, deferredSearch, invoiceNumbers]);
-    const tablePage = useTablePage(visibleShipments, JSON.stringify([deferredSearch, billingType, statusVal, courierVal, selectedCenter]));
+    const visibleShipments = useMemo(() => (shipments || []).filter(s => {
+        if (startDate) {
+            const sDate = String(s.date || '').slice(0, 10);
+            if (sDate && sDate < startDate) return false;
+        }
+        if (endDate) {
+            const sDate = String(s.date || '').slice(0, 10);
+            if (sDate && sDate > endDate) return false;
+        }
+        const sEntity = s.entity || DEFAULT_ENTITY;
+        if (entityVal && entityVal !== 'all' && sEntity !== entityVal) {
+            return false;
+        }
+        const isShipmentDom = s.domestic_international === 'Domestic' || (s.receiver_country && s.receiver_country.toLowerCase() === 'india' && s.domestic_international !== 'International');
+        if (scopeVal === 'International' && isShipmentDom) return false;
+        if (scopeVal === 'Domestic' && !isShipmentDom) return false;
+
+        return (
+            (!billingType || s.provider_type === billingType) &&
+            (!statusVal || s.status === statusVal) &&
+            (!courierVal || s.courier === courierVal) &&
+            (!deferredSearch || [s.awb, s.customer_name, s.receiver_city, s.receiver_name, s.receiver_phone, s.sender_phone, s.entity, invoiceNumbers.get(s.id)].some(value => String(value || '').toLowerCase().includes(deferredSearch.toLowerCase())))
+        );
+    }), [shipments, billingType, statusVal, courierVal, entityVal, scopeVal, deferredSearch, invoiceNumbers, startDate, endDate]);
+    const tablePage = useTablePage(visibleShipments, JSON.stringify([deferredSearch, billingType, statusVal, courierVal, entityVal, scopeVal, selectedCenter, startDate, endDate]));
     const [shipmentToDelete, setShipmentToDelete] = useState(null);
     const [isDeleting, setIsDeleting] = useState(false);
+    const [selectedLabelShipment, setSelectedLabelShipment] = useState(null);
 
     // Dynamic aggregated courier and provider list
     const availableCouriers = React.useMemo(() => {
-        const base = [
-            'FedEx', 'DHL', 'Aramex', 'Blue Dart', 'Delhivery', 'UPS',
-            'ICL', 'BRV', 'DTDC', 'Trackon', 'Speed Post', 'Shree Maruti'
-        ];
         const fromSettings = settings?.couriers || [];
         const fromWallets = (settings?.prepaidWallets || []).map(w => typeof w === 'string' ? w : w?.name);
         const fromPostpaid = (settings?.providerAccounts || []).map(p => typeof p === 'string' ? p : p?.name);
         const fromShipments = (shipments || []).map(s => s.courier).filter(Boolean);
 
+        const list = fromSettings.length > 0 ? fromSettings : [
+            'FedEx', 'Aramex', 'DHL', 'Blue Dart', 'Delhivery', 'UPS', 'Sree Maruthi', 'ICL', 'BRV'
+        ];
+
         const all = new Set([
-            ...base,
-            ...fromSettings,
+            ...list,
             ...fromWallets,
             ...fromPostpaid,
             ...fromShipments
@@ -376,58 +512,102 @@ export const Shipments = ({
     const formatCurrency = (n) => '₹' + Number(n || 0).toLocaleString('en-IN');
     const formatDate = (d) => d ? new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '-';
 
+    const exportToCSV = (targetEntity = entityVal) => {
+        const activeEntityFilter = targetEntity && targetEntity !== 'all' ? targetEntity : null;
+        
+        let exportShipments = visibleShipments;
+        if (activeEntityFilter && entityVal !== activeEntityFilter) {
+            exportShipments = (shipments || []).filter(s => (s.entity || DEFAULT_ENTITY) === activeEntityFilter);
+        }
 
-    const exportToCSV = () => {
-        if (!shipments || shipments.length === 0) return;
-        let headers = ['AWB', 'Date', 'Customer', 'Type', 'Courier', 'Carrier Billing', 'Billing Account', 'Destination City', 'Destination Country', 'Actual Wt (kg)', 'Chargeable Wt (kg)', 'Price (INR)', 'Provider Cost (INR)', 'Value After Courier Cost Excl. GST (INR)', 'Value After Courier Cost Incl. GST (INR)', 'Payment Status', 'Status'];
-        let rows = visibleShipments.map(s => [
-            `"${s.awb}"`,
-            `"${s.date}"`,
-            `"${s.customer_name}"`,
-            `"${s.customer_type}"`,
-            `"${s.courier}"`,
-            s.provider_type,
-            s.provider_name,
-            `"${s.receiver_city || ''}"`,
-            `"${s.receiver_country}"`,
-            s.actual_weight || 0,
-            s.chargeable_weight || 0,
-            s.price || 0,
-            s.provider_cost !== null ? s.provider_cost : 'MASKED',
-            s.gross_profit !== null ? s.gross_profit : 'MASKED',
+        if (!exportShipments || exportShipments.length === 0) {
+            alert(`No shipments found for ${activeEntityFilter || 'All Entities'} to download.`);
+            return;
+        }
+
+        let headers = [
+            'AWB', 
+            'Operating Entity', 
+            'Date', 
+            'Customer', 
+            'Type', 
+            'Courier', 
+            'Carrier Billing', 
+            'Billing Account', 
+            'Destination City', 
+            'Destination Country', 
+            'DDP Status', 
+            'Actual Wt (kg)', 
+            'Chargeable Wt (kg)', 
+            'Price (INR)', 
+            'Carrier Cost (INR)', 
+            'Profit Excl. GST (INR)', 
+            'Profit Incl. GST (INR)', 
+            'Payment Status', 
+            'Status'
+        ];
+        
+        let rows = exportShipments.map(s => [
+            s.awb || '',
+            s.entity || DEFAULT_ENTITY,
+            s.date || '',
+            s.customer_name || '',
+            s.customer_type || '',
+            s.courier || '',
+            s.provider_type || '',
+            s.provider_name || '',
+            s.receiver_city || '',
+            s.receiver_country || '',
+            s.domestic_international === 'International' ? (s.is_ddp ? 'DDP Paid' : 'DDP Not Paid') : 'Domestic',
+            Number(s.actual_weight || 0),
+            Number(s.chargeable_weight || 0),
+            Number(s.price || 0),
+            s.provider_cost !== null ? Number(s.provider_cost) : 'MASKED',
+            s.gross_profit !== null ? Number(s.gross_profit) : 'MASKED',
             s.gross_profit != null ? Number(s.gross_profit) + Number(s.total_amount ?? (Number(s.price || 0) + Number(s.gst_amount || 0))) - Number(s.price || 0) : 'MASKED',
-            `"${s.payment_status}"`,
-            `"${s.status}"`
+            s.payment_status || '',
+            s.status || ''
         ]);
 
         const keepColumns = headers.map((_, index) => index).filter(index => {
-            if (index === 10 || index === 11) return hasPermission('costs.customer_price');
-            if (index === 12) return hasPermission('costs.carrier_cost') || hasPermission('costs.view');
-            if (index === 13 || index === 14) return hasPermission('costs.net_value') || hasPermission('reports.view_financial');
+            if (index === 12 || index === 13) return hasPermission('costs.customer_price');
+            if (index === 14) return hasPermission('costs.carrier_cost') || hasPermission('costs.view');
+            if (index === 15 || index === 16) return hasPermission('costs.net_value') || hasPermission('reports.view_financial');
             return true;
         });
         headers = keepColumns.map(index => headers[index]);
         rows = rows.map(row => keepColumns.map(index => row[index]));
-        const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map(e => e.join(','))].join('\n');
-        const encodedUri = encodeURI(csvContent);
-        const link = document.createElement('a');
-        link.setAttribute('href', encodedUri);
-        link.setAttribute('download', `FMC_Shipments_${businessDate()}.csv`);
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
+
+        const entityLabel = activeEntityFilter ? activeEntityFilter.replace(/[^a-zA-Z0-9]/g, '_') : 'All_Entities';
+        const sheetName = activeEntityFilter ? activeEntityFilter.slice(0, 31) : 'All Shipments';
+        const filename = `FMC_Shipments_${entityLabel}_${businessDate()}.xlsx`;
+
+        exportToExcel(headers, rows, filename, sheetName);
     };
 
     const getCourierBadge = (courier) => {
         return <CourierLogo courier={courier} height={18} />;
     };
 
-    const getCountryBadge = (country, city) => {
-        const name = country || city || '—';
+    const getCountryBadge = (shipment) => {
+        const country = typeof shipment === 'string' ? shipment : (shipment?.receiver_country || shipment?.receiver_city || '—');
+        const isIntl = typeof shipment === 'object' && (
+            shipment?.domestic_international === 'International' || 
+            (shipment?.receiver_country && shipment?.receiver_country.toLowerCase() !== 'india')
+        );
         return (
-            <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-main)', whiteSpace: 'nowrap' }}>
-                {name}
-            </span>
+            <div>
+                <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-main)', whiteSpace: 'nowrap' }}>
+                    {country}
+                </span>
+                {isIntl && (
+                    <div style={{ marginTop: '3px' }}>
+                        <span className={shipment?.is_ddp ? 'ddp-tag-paid' : 'ddp-tag-unpaid'}>
+                            {shipment?.is_ddp ? '✓ DDP Paid' : 'DDP Not Paid'}
+                        </span>
+                    </div>
+                )}
+            </div>
         );
     };
 
@@ -436,28 +616,175 @@ export const Shipments = ({
     const canViewNetValue = (hasPermission('costs.net_value') || hasPermission('reports.view_financial')) && canViewCustomerPrice && canViewCarrierCost;
     const shipmentColCount = 11 + (canViewCustomerPrice ? 1 : 0) + (canViewNetValue ? 1 : 0);
 
+    const currentEntityMeta = entityVal ? getEntityMeta(entityVal) : null;
+    const hasActiveFilters = Boolean(searchVal || statusVal || courierVal || billingType || scopeVal || entityVal || startDate || endDate || (datePreset && datePreset !== 'all'));
+    const resetAllFilters = () => {
+        setSearchVal('');
+        setStatusVal('');
+        setCourierVal('');
+        setBillingType('');
+        setScopeVal('');
+        setEntityVal('');
+        setStartDate('');
+        setEndDate('');
+        setDatePreset('all');
+    };
+
     return (
-        <div>
-            <div className="page-header">
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            {/* 1. Page Header & Actions */}
+            <div className="page-header" style={{ marginBottom: 0 }}>
                 <div className="shipment-directory-page">
                     <h2 className="page-title">📦 Shipment Master Engine</h2>
-                    <p className="page-subtitle">Track parcel volumetric weights, selling prices, provider costs, and delivery statuses</p>
+                    <p className="page-subtitle">Track parcel volumetric weights, selling prices, provider values, and delivery statuses</p>
                 </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <span className="pill-stat">Total: <strong>{shipments?.length || 0}</strong></span>
-                    <button className="btn btn-outline" onClick={exportToCSV} title="Export Shipments to CSV">
-                        <Download size={14} /> Export CSV
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                    <button 
+                        className="btn btn-outline" 
+                        onClick={() => exportToCSV(entityVal)} 
+                        title={entityVal ? `Download Excel of ${entityVal} shipments (${visibleShipments.length})` : `Download Excel of All shipments (${visibleShipments.length})`}
+                        style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '6px',
+                            fontWeight: 600,
+                            borderColor: currentEntityMeta ? currentEntityMeta.border : undefined,
+                            background: currentEntityMeta ? currentEntityMeta.bg : undefined,
+                            color: currentEntityMeta ? currentEntityMeta.accentColor : undefined
+                        }}
+                    >
+                        <Download size={14} /> 
+                        <span>
+                            {entityVal ? `Download ${currentEntityMeta?.shortName || entityVal} (${visibleShipments.length})` : `Download Excel (${visibleShipments.length})`}
+                        </span>
                     </button>
                     {hasPermission('addShipment') && (
-                        <button className="btn btn-primary-blue" onClick={onOpenShipmentModal}>
+                        <button className="btn btn-primary-blue" onClick={() => onOpenShipmentModal(entityVal || DEFAULT_ENTITY)}>
                             <Plus size={15} /> New Shipment
                         </button>
                     )}
                 </div>
             </div>
 
-            <div className="filter-bar">
-                <div style={{ position: 'relative', flex: 1, minWidth: 'min(220px, 100%)' }}>
+            {/* 2. Sticky Top Scope & Entity Switcher Bar */}
+            <div className="scope-entity-bar-sticky" style={{ margin: '0 0 4px' }}>
+                {/* Left: Scope Selection */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '9px', flexWrap: 'wrap' }}>
+                    <span style={{ fontSize: '12px', fontWeight: 800, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                        SCOPE:
+                    </span>
+                    <div style={{ display: 'inline-flex', alignItems: 'center', gap: '7px', flexWrap: 'wrap' }}>
+                        <button
+                            type="button"
+                            className="scope-pill-btn"
+                            onClick={() => setScopeVal('')}
+                            style={!scopeVal ? {
+                                background: '#eff6ff',
+                                borderColor: '#93c5fd',
+                                color: '#1d4ed8',
+                                fontWeight: 700
+                            } : {}}
+                        >
+                            <Globe size={15} color={!scopeVal ? '#1d4ed8' : '#64748b'} />
+                            <span>Both: <strong>{scopeCounts.all}</strong></span>
+                        </button>
+                        <button
+                            type="button"
+                            className="scope-pill-btn"
+                            onClick={() => setScopeVal(scopeVal === 'International' ? '' : 'International')}
+                            style={scopeVal === 'International' ? {
+                                background: '#eff6ff',
+                                borderColor: '#93c5fd',
+                                color: '#1d4ed8',
+                                fontWeight: 700
+                            } : {}}
+                        >
+                            <Plane size={15} color={scopeVal === 'International' ? '#1d4ed8' : '#64748b'} />
+                            <span>Intl: <strong>{scopeCounts.intl}</strong></span>
+                        </button>
+                        <button
+                            type="button"
+                            className="scope-pill-btn"
+                            onClick={() => setScopeVal(scopeVal === 'Domestic' ? '' : 'Domestic')}
+                            style={scopeVal === 'Domestic' ? {
+                                background: '#fffbeb',
+                                borderColor: '#fcd34d',
+                                color: '#b45309',
+                                fontWeight: 700
+                            } : {}}
+                        >
+                            <Truck size={15} color={scopeVal === 'Domestic' ? '#b45309' : '#64748b'} />
+                            <span>Dom: <strong>{scopeCounts.dom}</strong></span>
+                        </button>
+                    </div>
+                </div>
+
+                {/* Right: Entity Selection */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '9px', flexWrap: 'wrap' }}>
+                    <span style={{ fontSize: '12px', fontWeight: 800, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                        ENTITY:
+                    </span>
+                    <div style={{ display: 'inline-flex', alignItems: 'center', gap: '7px', flexWrap: 'wrap' }}>
+                        <button
+                            type="button"
+                            className="entity-pill-btn"
+                            onClick={() => setEntityVal('')}
+                            style={!entityVal ? {
+                                background: '#eff6ff',
+                                borderColor: '#93c5fd',
+                                color: '#1d4ed8',
+                                fontWeight: 700
+                            } : {}}
+                        >
+                            <Building2 size={15} color={!entityVal ? '#1d4ed8' : '#64748b'} />
+                            <span>All: <strong>{entityCounts.total}</strong></span>
+                        </button>
+                        {entityOptions.map(ent => {
+                            const count = entityCounts[ent.name] ?? 0;
+                            const isSelected = entityVal === ent.name;
+                            const activeStyle = isSelected ? {
+                                background: ent.bg || '#eff6ff',
+                                borderColor: ent.border || ent.color || '#93c5fd',
+                                color: ent.accentColor || ent.color || '#1d4ed8',
+                                fontWeight: 700,
+                                boxShadow: `0 1px 3px ${ent.border || 'rgba(0,0,0,0.08)'}`
+                            } : {};
+                            return (
+                                <button
+                                    key={ent.id}
+                                    type="button"
+                                    className="entity-pill-btn"
+                                    onClick={() => setEntityVal(isSelected ? '' : ent.name)}
+                                    style={activeStyle}
+                                    title={`Filter by ${ent.name}`}
+                                >
+                                    <span>{ent.shortName || ent.name}: <strong>{count}</strong></span>
+                                </button>
+                            );
+                        })}
+                        {(hasActiveFilters || entityVal || scopeVal) ? (
+                            <button 
+                                type="button"
+                                className="entity-pill-btn" 
+                                onClick={resetAllFilters}
+                                style={{
+                                    borderColor: '#fecdd3',
+                                    background: '#fff1f2',
+                                    color: '#e11d48',
+                                    fontWeight: 600
+                                }}
+                                title="Reset all filters"
+                            >
+                                <X size={13} /> Clear
+                            </button>
+                        ) : null}
+                    </div>
+                </div>
+            </div>
+
+            {/* 3. Search & Filter Controls Bar */}
+            <div className="filter-bar" style={{ flexWrap: 'wrap', gap: '8px' }}>
+                <div style={{ position: 'relative', flex: 1, minWidth: 'min(200px, 100%)' }}>
                     <Search size={14} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
                     <input 
                         type="text" 
@@ -465,11 +792,51 @@ export const Shipments = ({
                         placeholder="Search AWB, Customer, Receiver City..." 
                         style={{ paddingLeft: '32px' }}
                         value={searchVal}
+                        onChange={e => setSearchVal(e.target.value)}
+                    />
+                </div>
+
+                {/* Calendar Date Range Pickers */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '4px', background: 'var(--card-bg, #ffffff)', border: '1px solid var(--card-border, #cbd5e1)', borderRadius: '6px', padding: '2px 8px', fontSize: '11.5px' }}>
+                    <Calendar size={13} color="var(--primary-blue, #1e64f0)" />
+                    <span style={{ color: 'var(--text-muted)' }}>From:</span>
+                    <input
+                        type="date"
+                        className="filter-input"
+                        style={{ border: 'none', background: 'transparent', padding: '3px', fontSize: '11.5px' }}
+                        value={startDate}
                         onChange={e => {
-                            setSearchVal(e.target.value);
+                            setStartDate(e.target.value);
+                            setDatePreset('custom');
+                        }}
+                    />
+                    <span style={{ color: 'var(--text-muted)' }}>To:</span>
+                    <input
+                        type="date"
+                        className="filter-input"
+                        style={{ border: 'none', background: 'transparent', padding: '3px', fontSize: '11.5px' }}
+                        value={endDate}
+                        onChange={e => {
+                            setEndDate(e.target.value);
+                            setDatePreset('custom');
                         }}
                     />
                 </div>
+
+                <select 
+                    className="filter-select" 
+                    value={datePreset} 
+                    onChange={e => handleDatePreset(e.target.value)}
+                    style={{ fontSize: '11.5px' }}
+                >
+                    <option value="all">All Dates</option>
+                    <option value="today">Today</option>
+                    <option value="yesterday">Yesterday</option>
+                    <option value="this_week">This Week</option>
+                    <option value="this_month">This Month</option>
+                    <option value="custom">Custom Date</option>
+                </select>
+
                 <select 
                     className="filter-select" 
                     value={statusVal} 
@@ -485,6 +852,7 @@ export const Shipments = ({
                     <option value="Delayed">Delayed</option>
                     <option value="Cancelled">Cancelled</option>
                 </select>
+
                 <select 
                     className="filter-select" 
                     value={courierVal} 
@@ -497,6 +865,7 @@ export const Shipments = ({
                         <option key={c} value={c}>{c}</option>
                     ))}
                 </select>
+
                 <select className="filter-select" value={billingType} onChange={e => setBillingType(e.target.value)}>
                     <option value="">All billing types</option><option value="prepaid">Prepaid</option><option value="postpaid">Postpaid</option>
                 </select>
@@ -514,7 +883,8 @@ export const Shipments = ({
                                 <th>Carrier Billing</th><th>Destination</th>
                                 <th>Weight</th>
                                 {canViewCustomerPrice && <th>Customer Sale (INR)</th>}
-                                {canViewNetValue && <th>Value After Courier Cost</th>}
+                                {canViewCarrierCost && <th>Carrier Cost</th>}
+                                {canViewNetValue && <th>Profit (Excl. GST)</th>}
                                 <th>Payment Mode</th><th>Collection Status</th><th>Payment to Courier</th><th>Status</th>
                                 <th>Actions</th>
                             </tr>
@@ -526,10 +896,11 @@ export const Shipments = ({
                                 <tr><td colSpan={shipmentColCount} style={{ textAlign: 'center', padding: '32px', color: 'var(--text-muted)' }}>No shipments found matching filters.</td></tr>
                             ) : (
                                 tablePage.rows.map(s => {
-                                    const profit = s.gross_profit !== undefined && s.gross_profit !== null
-                                        ? s.gross_profit 
-                                        : (s.price || 0) - (s.cost_reconciled ? (s.actual_provider_cost ?? s.provider_cost ?? 0) : (s.provider_cost || 0));
-                                    const isProfitVisible = s.gross_profit !== null && canViewNetValue;
+                                    const billed = Number(s.total_amount ?? (Number(s.price || 0) + Number(s.gst_amount || 0)));
+                                    const cost = s.cost_reconciled ? Number(s.actual_provider_cost ?? s.provider_cost ?? 0) : Number(s.provider_cost || 0);
+                                    const refund = Number(s.refund_amount || 0);
+                                    const profit = (s.gross_profit !== undefined && s.gross_profit !== null) ? Number(s.gross_profit) : (Number(s.price || 0) - cost - refund);
+                                    const isProfitVisible = canViewNetValue;
 
                                     return (
                                         <tr key={s.id}>
@@ -539,7 +910,7 @@ export const Shipments = ({
                                                     <span className={`status-pill ${s.payment_status === 'Paid' ? 'delivered' : 'delayed'}`} style={{ fontSize: '9.5px', padding: '1px 6px', marginRight: '4px' }}>
                                                         {s.payment_status}
                                                     </span>
-                                                    <span>{s.paid_to || 'Office QR'}</span>
+                                                    <span>{s.paid_to || 'Not recorded'}</span>
                                                 </div>
                                             </td>
                                             <td style={{ color: 'var(--text-muted)', fontSize: '11.5px', whiteSpace: 'nowrap' }}>
@@ -553,7 +924,10 @@ export const Shipments = ({
                                                 >
                                                     {s.customer_name} <ArrowUpRight size={11} color="var(--primary-blue)" />
                                                 </a>
-                                                <div style={{ fontSize: '10.5px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                                                <div style={{ fontSize: '10.5px', color: 'var(--text-muted)', marginTop: '2px', display: 'flex', alignItems: 'center', gap: '4px', flexWrap: 'wrap' }}>
+                                                    <span className={`entity-badge ${getEntityMeta(s.entity).badgeClass}`} title={`Operating Entity: ${getEntityMeta(s.entity).name}`}>
+                                                        {getEntityMeta(s.entity).shortName}
+                                                    </span>
                                                     <span style={{ fontWeight: 600, color: s.customer_type === 'B2B' ? '#7c3aed' : '#0284c7' }}>{s.customer_type}</span> • {s.employee || 'Staff'}
                                                 </div>
                                             </td>
@@ -561,21 +935,29 @@ export const Shipments = ({
                                                 {getCourierBadge(s.courier)}
                                             </td><td><span className={`status-pill ${s.provider_type === 'prepaid' ? 'delivered' : 'picked-up'}`}>{s.provider_type === 'prepaid' ? 'Prepaid' : s.provider_type === 'postpaid' ? 'Postpaid' : 'Not set'}</span><small style={{display:'block', color:'var(--text-muted)'}}>{s.provider_name}</small></td>
                                             <td>
-                                                {getCountryBadge(s.receiver_country, s.receiver_city)}
+                                                {getCountryBadge(s)}
                                             </td>
                                             <td style={{ textAlign: 'center' }}>
                                                 <strong style={{ fontSize: '10.5px' }}>{s.chargeable_weight || s.actual_weight}</strong> <span style={{ fontSize: '10.5px', color: 'var(--text-muted)' }}>kg</span>
                                             </td>
                                             {canViewCustomerPrice && (
-                                                <td style={{ fontWeight: 800, color: 'var(--text-main)', textAlign: 'right', whiteSpace: 'nowrap' }}>
-                                                    {s.price !== null && s.price !== undefined ? formatCurrency(s.price) : '—'}
+                                                <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                                                    <div style={{ fontWeight: 800, color: 'var(--text-main)' }}>{formatCurrency(billed)}</div>
+                                                    <div style={{ fontSize: '9.5px', fontWeight: 700, color: s.is_gst_applicable !== false && (s.gst_amount > 0 || s.gst_rate > 0) ? '#2563eb' : '#64748b' }}>
+                                                        {s.is_gst_applicable !== false && (s.gst_amount > 0 || s.gst_rate > 0) ? `GST Applicable (${s.gst_rate || 18}%)` : 'Non-GST'}
+                                                    </div>
+                                                </td>
+                                            )}
+                                            {canViewCarrierCost && (
+                                                <td style={{ fontWeight: 700, color: '#475569', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                                                    {formatCurrency(cost)}
                                                 </td>
                                             )}
                                             {canViewNetValue && (
                                                 <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
                                                     {isProfitVisible ? (
                                                         <strong style={{ color: profit >= 0 ? 'var(--emerald)' : 'var(--rose)', fontSize: '11px' }}>
-                                                            <GstValuePair excluding={profit} including={profit + Number(s.total_amount ?? (Number(s.price || 0) + Number(s.gst_amount || 0))) - Number(s.price || 0)} formatValue={formatCurrency} />
+                                                            {formatCurrency(profit)}
                                                         </strong>
                                                     ) : (
                                                         '—'
@@ -595,6 +977,9 @@ export const Shipments = ({
                                             </td>
                                             <td style={{ textAlign: 'right' }}>
                                                 <div style={{ display: 'inline-flex', alignItems: 'center', gap: '5px' }}>
+                                                    <button className="btn-action-icon" title="Print / Download Box Address Label" onClick={() => setSelectedLabelShipment(s)}>
+                                                        <Tag size={13} color="var(--emerald, #10b981)" />
+                                                    </button>
                                                     <button className="btn-action-icon" title="Update status" onClick={() => onOpenStatusModal(s)}>
                                                         <Edit3 size={13} color="var(--text-muted)" />
                                                     </button>
@@ -727,6 +1112,14 @@ export const Shipments = ({
                     </div>
                 </div>
             )}
+
+            {/* Address Box Label Preview / Print Modal */}
+            <ParcelLabelModal
+                isOpen={Boolean(selectedLabelShipment)}
+                onClose={() => setSelectedLabelShipment(null)}
+                data={selectedLabelShipment}
+                settings={settings}
+            />
         </div>
     );
 };

@@ -1,7 +1,9 @@
+import { openWhatsApp, openEmail, openCall, CommTemplates } from '../utils/communication';
 import { formatRecordTime } from '../utils/businessDates';
 import { apiClient } from '../api/client';
 import React, { useState } from 'react';
 import { useAuth } from '../context/authSession';
+import { printElement } from '../utils/printHelper';
 import {
     X,
     Phone,
@@ -29,6 +31,8 @@ const CustomerDrawer = ({
 }) => {
     const { hasPermission } = useAuth();
     const canViewCustomerPrice = hasPermission('costs.customer_price');
+    const canViewCarrierCost = hasPermission('costs.carrier_cost') || hasPermission('costs.view');
+    const canViewNetValue = (hasPermission('costs.net_value') || hasPermission('reports.view_financial')) && canViewCustomerPrice && canViewCarrierCost;
     const [activeTab, setActiveTab] = useState('shipments');
 
     if (!isOpen) return null;
@@ -80,20 +84,19 @@ const CustomerDrawer = ({
     const formatCurrency = (n) => '₹' + Number(n || 0).toLocaleString('en-IN');
     const formatDate = (d) => d ? new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '-';
 
-    const handleWhatsAppDirect = () => {
-        const phoneClean = (customer.whatsapp || customer.mobile || '').replace(/[^0-9]/g, '');
-        const msg = encodeURIComponent(`Hello ${customer.name}, greeting from Fly My Cart Logistics! How can we assist with your shipments today?`);
-        window.open(`https://wa.me/${phoneClean.length === 10 ? '91' + phoneClean : phoneClean}?text=${msg}`, '_blank');
-    };
 
     const handlePrintStatement = () => {
-        window.print();
+        printElement('printable-customer-drawer', {
+            title: `Customer Statement - ${customer.name || 'Account'}`,
+            pageSize: 'A4',
+            pageOrientation: 'portrait'
+        });
     };
 
     return (
         <>
             <div className="drawer-overlay" onClick={onClose}></div>
-            <div className="customer-drawer" style={{ width: 'min(580px, 100vw)', display: 'flex', flexDirection: 'column' }}>
+            <div id="printable-customer-drawer" className="customer-drawer" style={{ width: 'min(580px, 100vw)', display: 'flex', flexDirection: 'column' }}>
                 {/* Header */}
                 <div className="drawer-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <div>
@@ -169,17 +172,39 @@ const CustomerDrawer = ({
                         )}
                     </div>
 
-                    {/* Action Bar */}
-                    <div style={{ display: 'flex', gap: '8px', marginBottom: '16px' }}>
+                    {/* Direct Contact & Interaction Bar */}
+                    <div style={{ display: 'flex', gap: '8px', marginBottom: '16px', flexWrap: 'wrap' }}>
                         <button
+                            type="button"
                             className="btn btn-sm"
-                            onClick={handleWhatsAppDirect}
-                            style={{ flex: 1, background: '#25D366', color: '#ffffff', border: 'none', fontWeight: 700, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
+                            onClick={() => openWhatsApp({ phone: customer.whatsapp || customer.mobile, message: outstanding_balance > 0 ? CommTemplates.paymentReminder({ customerName: customer.name, dueAmount: outstanding_balance }) : CommTemplates.generalGreeting({ customerName: customer.name }) })}
+                            style={{ flex: 1, background: '#25D366', color: '#ffffff', border: 'none', fontWeight: 700, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '6px', minWidth: '110px' }}
+                            title="Send WhatsApp message"
                         >
                             <WhatsAppIcon size={14} color="#ffffff" /> WhatsApp
                         </button>
-                        <button className="btn btn-sm btn-outline" onClick={() => onOpenCommModal(customer.name)} style={{ flex: 1 }}>
-                            <MessageSquare size={13} /> Log Interaction
+                        {customer.email && (
+                            <button
+                                type="button"
+                                className="btn btn-sm"
+                                onClick={() => openEmail({ email: customer.email, subject: `Fly My Cart Logistics - Account Update`, body: outstanding_balance > 0 ? CommTemplates.paymentReminder({ customerName: customer.name, dueAmount: outstanding_balance }) : CommTemplates.generalGreeting({ customerName: customer.name }) })}
+                                style={{ flex: 1, background: '#2563eb', color: '#ffffff', border: 'none', fontWeight: 700, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '6px', minWidth: '100px' }}
+                                title="Send Email"
+                            >
+                                <Mail size={14} /> Email
+                            </button>
+                        )}
+                        <button
+                            type="button"
+                            className="btn btn-sm"
+                            onClick={() => openCall({ phone: customer.mobile })}
+                            style={{ flex: 1, background: '#059669', color: '#ffffff', border: 'none', fontWeight: 700, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '6px', minWidth: '90px' }}
+                            title="Direct Call Phone"
+                        >
+                            <Phone size={14} /> Call
+                        </button>
+                        <button className="btn btn-sm btn-outline" onClick={() => onOpenCommModal({ name: customer.name, mobile: customer.mobile, email: customer.email, due: outstanding_balance })} style={{ flex: 1, minWidth: '110px' }}>
+                            <MessageSquare size={13} /> Comm Hub
                         </button>
                         {hasPermission('customers.statement') && (
                             <button className="btn btn-sm btn-outline" onClick={handlePrintStatement}>
@@ -237,21 +262,60 @@ const CustomerDrawer = ({
                             ) : (
                                 shipments.map(s => (
                                     <div key={s.id} style={{ background: 'var(--bg-app)', border: '1px solid var(--card-border)', borderRadius: 'var(--radius-sm)', padding: '10px 12px', marginBottom: '8px' }}>
-                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
                                             <strong><TrackingLink awb={s.awb} courier={s.courier} style={{ fontFamily: 'monospace', fontSize: '13px' }} /></strong>
-                                            <span className={`status-pill ${s.status === 'Delivered' ? 'delivered' : s.status === 'Delayed' ? 'delayed' : 'in-transit'}`} style={{ fontSize: '10px' }}>
-                                                {s.status}
-                                            </span>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                                {s.is_gst_applicable !== false && (s.gst_amount > 0 || s.gst_rate > 0) ? (
+                                                    <span style={{ fontSize: '10px', fontWeight: 700, padding: '2px 6px', borderRadius: '4px', background: '#eff6ff', color: '#1d4ed8', border: '1px solid #bfdbfe' }}>
+                                                        ✓ GST Applicable ({s.gst_rate ? `${s.gst_rate}%` : '18%'})
+                                                    </span>
+                                                ) : (
+                                                    <span style={{ fontSize: '10px', fontWeight: 700, padding: '2px 6px', borderRadius: '4px', background: '#f8fafc', color: '#64748b', border: '1px solid #e2e8f0' }}>
+                                                        Non-GST Shipment
+                                                    </span>
+                                                )}
+                                                {(s.domestic_international === 'International' || (s.receiver_country && s.receiver_country.toLowerCase() !== 'india')) && (
+                                                    <span className={s.is_ddp ? 'ddp-tag-paid' : 'ddp-tag-unpaid'} style={{ fontSize: '10px' }}>
+                                                        {s.is_ddp ? '✓ DDP Paid' : 'DDP Not Paid'}
+                                                    </span>
+                                                )}
+                                                <span className={`status-pill ${s.status === 'Delivered' ? 'delivered' : s.status === 'Delayed' ? 'delayed' : 'in-transit'}`} style={{ fontSize: '10px' }}>
+                                                    {s.status}
+                                                </span>
+                                            </div>
                                         </div>
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '11.5px', color: 'var(--text-muted)', margin: '4px 0', flexWrap: 'wrap' }}>
                                             <span>📅 {formatDate(s.date)}</span>
                                             <CourierLogo courier={s.courier} height={14} />
                                             <span>({s.service_type || 'Express'}) &rarr; To: {s.receiver_city || s.receiver_country} ({s.chargeable_weight} kg)</span>
                                         </div>
-                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '11.5px', borderTop: '1px dashed var(--card-border)', paddingTop: '4px', marginTop: '4px' }}>
-                                            {canViewCustomerPrice ? (
-                                                <span style={{ fontWeight: 800, color: 'var(--text-main)' }}>Price: {formatCurrency(s.price)}</span>
-                                            ) : <span />}
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '11.5px', borderTop: '1px dashed var(--card-border)', paddingTop: '6px', marginTop: '6px', flexWrap: 'wrap', gap: '6px' }}>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                                                {(() => {
+                                                    const billed = Number(s.total_amount ?? (Number(s.price || 0) + Number(s.gst_amount || 0)));
+                                                    const cost = s.cost_reconciled ? (s.actual_provider_cost ?? s.provider_cost) : s.provider_cost;
+                                                    const profit = s.gross_profit !== undefined && s.gross_profit !== null ? s.gross_profit : (Number(s.price || 0) - (cost || 0) - Number(s.refund_amount || 0));
+                                                    return (
+                                                        <>
+                                                            {canViewCustomerPrice && (
+                                                                <span style={{ fontWeight: 800, color: 'var(--text-main)' }}>
+                                                                    Sale: {formatCurrency(billed)} {s.is_gst_applicable !== false && (s.gst_amount > 0 || s.gst_rate > 0) ? <span style={{ fontSize: '10px', fontWeight: 600, color: '#2563eb' }}>(Incl. {s.gst_rate || 18}% GST)</span> : <span style={{ fontSize: '10px', fontWeight: 600, color: '#64748b' }}>(Non-GST)</span>}
+                                                                </span>
+                                                            )}
+                                                            {canViewCarrierCost && (
+                                                                <span style={{ fontWeight: 600, color: '#475569' }}>
+                                                                    Carrier Cost: {cost !== null && cost !== undefined ? formatCurrency(cost) : '—'}
+                                                                </span>
+                                                            )}
+                                                            {canViewNetValue && (
+                                                                <span style={{ fontWeight: 700, color: (profit >= 0) ? 'var(--emerald)' : 'var(--rose)' }}>
+                                                                    Profit (Excl. GST): {formatCurrency(profit)}
+                                                                </span>
+                                                            )}
+                                                        </>
+                                                    );
+                                                })()}
+                                            </div>
                                             <span className={`status-pill ${s.payment_status === 'Paid' ? 'delivered' : 'delayed'}`} style={{ fontSize: '10px' }}>
                                                 {s.payment_status}
                                             </span>
@@ -270,16 +334,24 @@ const CustomerDrawer = ({
                             ) : (
                                 invoices.map(i => (
                                     <div key={i.id} style={{ background: 'var(--bg-app)', border: '1px solid var(--card-border)', borderRadius: 'var(--radius-sm)', padding: '10px 12px', marginBottom: '8px' }}>
-                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                            <div>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
                                                 <strong style={{ color: 'var(--primary-blue)', fontSize: '13px' }}>{i.invoice_no}</strong>
-                                                <span style={{ fontSize: '11px', color: 'var(--text-muted)', marginLeft: '6px' }}>({formatDate(i.date)})</span>
+                                                <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>({formatDate(i.date)})</span>
+                                                {i.awb && <TrackingLink awb={i.awb} courier={i.courier} style={{ fontFamily: 'monospace', fontSize: '11.5px' }} />}
                                             </div>
-                                            {(hasPermission('invoices.print') || hasPermission('invoices.view')) && (
-                                                <button className="btn btn-sm btn-outline" style={{ fontSize: '11px', padding: '2px 8px' }} onClick={() => onPreviewInvoice(i)}>
-                                                    View
-                                                </button>
-                                            )}
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                                {i.is_ddp !== undefined && (
+                                                    <span className={i.is_ddp ? 'ddp-tag-paid' : 'ddp-tag-unpaid'} style={{ fontSize: '10px' }}>
+                                                        {i.is_ddp ? '✓ DDP Paid' : 'DDP Not Paid'}
+                                                    </span>
+                                                )}
+                                                {(hasPermission('invoices.print') || hasPermission('invoices.view')) && (
+                                                    <button className="btn btn-sm btn-outline" style={{ fontSize: '11px', padding: '2px 8px' }} onClick={() => onPreviewInvoice(i)}>
+                                                        View
+                                                    </button>
+                                                )}
+                                            </div>
                                         </div>
                                         {canViewCustomerPrice && (
                                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '11.5px', marginTop: '6px' }}>

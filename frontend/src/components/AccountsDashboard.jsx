@@ -1,18 +1,16 @@
 import { useAuth } from '../context/authSession';
-import GstValuePair from './GstValuePair';
 import React from 'react';
-import { Search, Eye, MoreHorizontal, Wallet, Building2, ArrowLeftRight, FileText, HandCoins, Truck, CircleCheck, RotateCcw } from 'lucide-react';
+import { Search, Eye, Wallet, Building2, ArrowLeftRight, FileText, HandCoins, Truck, CircleCheck, RotateCcw } from 'lucide-react';
 import { CourierLogo } from './CourierLogos';
 import { TrackingLink } from './TrackingLink';
 import { Breakdown, Pager } from './AccountsWidgets';
 import { money, dateLabel, colors } from './accountsHelpers';
 
-export function ShipmentLedger({ report, accounts, filters, setFilters, onSearch, ledger, page, setPage, refresh, onViewShipment, onAddShipmentExpense }) {
+export function ShipmentLedger({ report, accounts, filters, setFilters, onSearch, ledger, page, setPage, refresh, onViewShipment }) {
     const { hasPermission } = useAuth();
     const canViewPrice = hasPermission('costs.customer_price');
     const costs = hasPermission('costs.carrier_cost') || hasPermission('costs.view');
     const financial = (hasPermission('costs.net_value') || hasPermission('reports.view_financial')) && canViewPrice && costs;
-    const columns = 9 + Number(canViewPrice) + Number(costs) + (financial ? 3 : 0);
     const items = ledger.data?.items || [];
     const count = ledger.data?.total_count || 0;
     return <section className="ao-panel ao-ledger">
@@ -26,7 +24,7 @@ export function ShipmentLedger({ report, accounts, filters, setFilters, onSearch
         </form>
         {ledger.error && <p role="alert" className="ao-alert">{ledger.error}<button onClick={refresh}>Retry</button></p>}
         <div className="ao-table-scroll" tabIndex={0} role="region" aria-label="Shipment accounts ledger">
-            <table className="ao-table"><thead><tr>{['Date', 'AWB', 'Courier', 'Customer', 'Destination', ...(canViewPrice ? ['Customer Sale (Incl. GST)'] : []), ...(costs ? ['Courier Cost'] : []), ...(financial ? ['Sale Excl. GST', 'Expense', 'Net Value'] : []), 'Payment Mode', 'Collection Status', 'Payment to Courier', 'Action'].map(name => <th key={name}>{name}</th>)}</tr></thead>
+            <table className="ao-table"><thead><tr>{['Date', 'AWB', 'Courier', 'Customer', 'Destination', ...(canViewPrice ? ['Customer Sale (Incl. GST)'] : []), ...(costs ? ['Carrier Cost'] : []), ...(financial ? ['Sale Excl. GST', 'Expense', 'Profit'] : []), 'Payment Mode', 'Collection Status', 'Payment to Courier', 'Action'].map(name => <th key={name}>{name}</th>)}</tr></thead>
                 <tbody>{!ledger.loading && items.map(s => <tr key={s.id}>
                     <td>{dateLabel(s.date)}</td><td><TrackingLink awb={s.awb} courier={s.courier} /></td><td><CourierLogo courier={s.courier} height={13} /></td>
                     <td>{s.customer_name}</td><td>{s.destination || '—'}</td>
@@ -35,7 +33,7 @@ export function ShipmentLedger({ report, accounts, filters, setFilters, onSearch
                     {financial && <><td>{money(s.sale)}</td><td>{money(s.expense)}</td><td><strong>{money(s.value)}</strong></td></>}
                     <td>{s.payment_mode || '—'}</td><td><span className={`ao-badge ${s.collection_status?.toLowerCase()}`}>{s.collection_status}</span></td>
                     <td><span className={`ao-badge ${s.courier_status?.toLowerCase()}`}>{s.courier_status}</span></td>
-                    <td><button className="ao-icon-button" title="View shipment" onClick={() => onViewShipment(s.id)}><Eye size={12} /></button></td>
+                    <td><button className="ao-icon-button" title="View shipment account details" onClick={() => onViewShipment(s)}><Eye size={12} /></button></td>
                 </tr>)}</tbody>
             </table>
         </div>
@@ -56,8 +54,8 @@ export function AccountsCharts({ report, data, range, go, refresh }) {
         <div className="ao-charts">
             {financial && <Breakdown title="Expense Breakdown" data={report?.by_category} label="Total Expenses" onDetails={() => go('expenses')} />}
             <Breakdown title="Collection by Payment Mode" data={report?.by_mode} label="Collected" onDetails={() => go('collections')} />
-            {financial && <Breakdown title="Courier Cost by Partner" data={report?.by_partner} label="Total Courier Cost" onDetails={() => go('postpaid')} initialType="horizontal" horizontalView={
-                <div className="ao-partners">{partners.map(([name, value], index) => <div key={name}><span><CourierLogo courier={name} height={13} /></span><i><b style={{ width: `${partnerTotal ? value / partnerTotal * 100 : 0}%`, background: colors[index % colors.length] }} /></i><strong>{money(value)}</strong><em>{partnerTotal ? Math.round(value / partnerTotal * 100) : 0}%</em></div>)}{!partners.length && <p className="ao-empty">No courier costs in this period.</p>}</div>
+            {financial && <Breakdown title="Carrier Value by Partner" data={report?.by_partner} label="Total Carrier Value" onDetails={() => go('postpaid')} initialType="horizontal" horizontalView={
+                <div className="ao-partners">{partners.map(([name, value], index) => <div key={name}><span><CourierLogo courier={name} height={13} /></span><i><b style={{ width: `${partnerTotal ? value / partnerTotal * 100 : 0}%`, background: colors[index % colors.length] }} /></i><strong>{money(value)}</strong><em>{partnerTotal ? Math.round(value / partnerTotal * 100) : 0}%</em></div>)}{!partners.length && <p className="ao-empty">No carrier values in this period.</p>}</div>
             } />}
         </div>
         {financial && <div className="ao-bottom">

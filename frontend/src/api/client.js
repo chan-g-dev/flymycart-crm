@@ -120,12 +120,12 @@ export const apiClient = {
     globalSearch: (q) => api.get('/search/', { params: { q } }).then(res => res.data),
 
     // Dashboard
-    getDashboardSummary: () => api.get('/dashboard/summary').then(res => res.data),
+    getDashboardSummary: (params) => api.get('/dashboard/summary', { params }).then(res => res.data),
     recordAccountingEntry: (data) => paymentMutation('post', '/accounts/entries', data),
 
     // Customers
     getCustomers: (params) => params?.limit != null || params?.offset != null ? api.get('/customers', { params }).then(res => res.data) : fetchAllPages(page => api.get('/customers', { params: { ...params, ...page } })),
-    lookupCustomerByMobile: (mobile) => api.get('/customers/lookup', { params: { mobile } }).then(res => res.data),
+    lookupCustomerByMobile: (mobile, customer_type) => api.get('/customers/lookup', { params: { mobile, ...(customer_type ? { customer_type } : {}) } }).then(res => res.data),
     getCustomer360: (id) => api.get(`/customers/${id}/360`).then(res => res.data),
     createCustomer: (data) => api.post('/customers', data).then(res => res.data),
     updateCustomer: (id, data) => api.put(`/customers/${id}`, data).then(res => res.data),
@@ -152,7 +152,7 @@ export const apiClient = {
     recordInvoicePayment: (id, data) => paymentMutation('post', `/invoices/${id}/payments`, data),
 
     // Accounts & Wallets
-    getAccountsSummary: () => api.get('/accounts/summary').then(res => res.data),
+    getAccountsSummary: (params) => api.get('/accounts/summary', { params }).then(res => res.data),
     getAccountsOverview: (params) => api.get('/accounts/overview', { params }).then(res => res.data),
     getShipmentLedger: (params) => api.get('/accounts/shipment-ledger', { params }).then(res => res.data),
     getAccountingEntries: (params) => api.get('/accounts/entries', { params }).then(res => res.data),
@@ -162,7 +162,6 @@ export const apiClient = {
     },
     downloadExpenseBill: (id) => api.get(`/accounts/entries/${id}/bill`, { responseType: 'blob' }).then(res => res.data),
 
-    getDateRangeReport: (date_from, date_to) => api.get('/reports/range', { params: { date_from, date_to } }).then(res => res.data),
     getAccountReceipts: params => api.get('/accounts/receipts', { params }).then(res => res.data),
     getAccountCheckOptions: () => api.get('/accounts/check-options').then(res => res.data),
     getAccountChecks: params => api.get('/accounts/checks', { params }).then(res => res.data),
@@ -171,8 +170,17 @@ export const apiClient = {
     rechargeWallet: (data) => paymentMutation('post', '/accounts/wallets/recharge', data),
 
     // B2B Corporate Credit
-    getB2BSummary: () => api.get('/b2b/summary').then(res => res.data),
-    getB2BCompanies: () => api.get('/b2b/companies').then(res => res.data),
+    getB2BSummary: async (params) => {
+        const first = (await api.get('/b2b/summary', { params: { ...params, companies_limit: 500 } })).data;
+        const companies = [...(first.companies || [])];
+        while (companies.length < first.companies_total) {
+            const next = (await api.get('/b2b/summary', { params: { ...params, companies_limit: 500, companies_offset: companies.length } })).data;
+            if (!next.companies?.length) throw new Error('Corporate directory changed while loading. Please retry.');
+            companies.push(...next.companies);
+        }
+        return { ...first, companies };
+    },
+    getB2BCompanies: () => fetchAllPages(page => api.get('/b2b/companies', { params: page })),
     createB2BCompany: (data) => api.post('/b2b/companies', data).then(res => res.data),
 
     // Reconciliation
@@ -196,19 +204,23 @@ export const apiClient = {
     logCommunication: (data) => api.post('/followups/communications', data).then(res => res.data),
 
     // Reports
-    getEODReport: (date) => api.get('/reports/eod', { params: { date } }).then(res => res.data),
-    getWeeklyReport: (endDate) => api.get('/reports/weekly', { params: { end_date: endDate } }).then(res => res.data),
-    getMonthlyReport: (month) => api.get('/reports/monthly', { params: { month } }).then(res => res.data),
-    getMonthlyPLReport: (month) => api.get('/reports/monthly', { params: { month } }).then(res => res.data),
-    getLiveDashboard: () => api.get('/reports/live', { params: { center: 'All Centers' } }).then(res => res.data),
+    getEODReport: (date, params = {}) => api.get('/reports/eod', { params: { date, ...params } }).then(res => res.data),
+    getWeeklyReport: (endDate, params = {}) => api.get('/reports/weekly', { params: { end_date: endDate, ...params } }).then(res => res.data),
+    getDateRangeReport: (startDate, endDate, params = {}) => api.get('/reports/range', { params: { date_from: startDate, date_to: endDate, ...params } }).then(res => res.data),
+    getMonthlyReport: (month, params = {}) => api.get('/reports/monthly', { params: { month, ...params } }).then(res => res.data),
+    getMonthlyPLReport: (month, params = {}) => api.get('/reports/monthly', { params: { month, ...params } }).then(res => res.data),
+    getLiveDashboard: (params = {}) => api.get('/reports/live', { params: { center: 'All Centers', ...params } }).then(res => res.data),
 
-    // Settings
+    // Settings & KYC Storage
     getExpenseCategories: () => api.get('/accounts/expense-categories').then(res => res.data),
     updateExpenseCategories: (categories) => api.put('/accounts/expense-categories', { categories }).then(res => res.data),
     getSettings: () => api.get('/settings/').then(res => res.data),
     updateSettings: (data) => api.put('/settings/', data).then(res => res.data),
     saveSettings: (data) => api.put('/settings/', data).then(res => res.data),
     getSystemAuditLogs: (limit = 50) => api.get('/settings/audit-logs', { params: { limit } }).then(res => res.data),
+    getKycStorage: (params) => api.get('/settings/kyc-storage', { params }).then(res => res.data),
+    cleanupKycStorage: (payload) => api.post('/settings/kyc-storage/cleanup', payload).then(res => res.data),
+    deleteKycDocument: (id) => api.delete(`/settings/kyc-storage/${id}`).then(res => res.data),
 
     // Attendance
     getAttendanceSummary: (params) => api.get('/attendance/summary', { params }).then(res => res.data),

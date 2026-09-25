@@ -47,8 +47,6 @@ def get_all_active_staff_names(db: Session) -> List[str]:
     except Exception:
         pass
 
-    if not names:
-        names.add("Akash")
 
     return sorted(list(names))
 
@@ -110,7 +108,7 @@ def get_staff_list(
     """Returns list of staff members based on permission scope."""
     if ctx.get("permissions", {}).get("attendance.view") is False:
         raise HTTPException(403, "Access to attendance has been restricted by Super Admin.")
-    is_admin = ctx.get("is_super_admin") or "attendance.manage" in ctx.get("permissions", {}) or ctx.get("permissions", {}).get("attendance.view") == "all"
+    is_admin = ctx.get("is_super_admin") or bool(ctx.get("permissions", {}).get("attendance.manage")) or ctx.get("permissions", {}).get("attendance.view") == "all"
     if not is_admin:
         staff = [ctx.get("display_name") or "Staff"]
     else:
@@ -148,7 +146,7 @@ def get_attendance_summary(
         d_end = business_today()
         days_count = 1
 
-    is_admin = ctx.get("is_super_admin") or "attendance.manage" in ctx.get("permissions", {}) or ctx.get("permissions", {}).get("attendance.view") == "all"
+    is_admin = ctx.get("is_super_admin") or bool(ctx.get("permissions", {}).get("attendance.manage")) or ctx.get("permissions", {}).get("attendance.view") == "all"
     user_display = ctx.get("display_name") or "Staff"
 
     if not is_admin:
@@ -302,7 +300,7 @@ def get_attendance_events(
     """Fetches event stream log for Attendance Log tab."""
     if ctx.get("permissions", {}).get("attendance.view") is False:
         raise HTTPException(403, "Access to attendance has been restricted by Super Admin.")
-    is_admin = ctx.get("is_super_admin") or "attendance.manage" in ctx.get("permissions", {}) or ctx.get("permissions", {}).get("attendance.view") == "all"
+    is_admin = ctx.get("is_super_admin") or bool(ctx.get("permissions", {}).get("attendance.manage")) or ctx.get("permissions", {}).get("attendance.view") == "all"
     user_display = ctx.get("display_name") or "Staff"
 
     query = db.query(AttendanceRecord)
@@ -372,7 +370,7 @@ def get_daily_breakdown(
     exp_login_min = parse_time_to_minutes(expected_login) or 540
     exp_logout_min = parse_time_to_minutes(expected_logout) or 1080
 
-    is_admin = ctx.get("is_super_admin") or "attendance.manage" in ctx.get("permissions", {}) or ctx.get("permissions", {}).get("attendance.view") == "all"
+    is_admin = ctx.get("is_super_admin") or bool(ctx.get("permissions", {}).get("attendance.manage")) or ctx.get("permissions", {}).get("attendance.view") == "all"
     user_display = ctx.get("display_name") or "Staff"
 
     query = db.query(AttendanceRecord).filter(AttendanceRecord.date.between(start_date, end_date))
@@ -506,7 +504,7 @@ def record_punch(
     time_str = payload.time or ist_now.strftime("%I:%M:%S %p")
 
     # Regular staff can only punch for themselves unless they have attendance.manage or is_super_admin
-    is_admin = ctx.get("is_super_admin") or "attendance.manage" in ctx.get("permissions", {})
+    is_admin = ctx.get("is_super_admin") or bool(ctx.get("permissions", {}).get("attendance.manage"))
     staff_name = payload.staff_name.strip() if is_admin else (ctx.get("display_name") or payload.staff_name.strip())
 
     record = AttendanceRecord(

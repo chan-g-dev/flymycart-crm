@@ -95,8 +95,8 @@ def run():
             _,staff_token=create_app_session(db,'qa-'+code,mfa_verified=True)
             client.headers['Authorization']='Bearer '+staff_token
             rows=call('GET','/api/shipments')
-            check(all(s['center']=='Main Hub (Bangalore)' and s['provider_cost'] is None and s['gross_profit'] is None for s in rows),code+' scope and cost masking')
-            call('GET','/api/users/audit-logs',expected=403)
+            check(all(s['center']=='Main Hub (Bangalore)' and (s['provider_cost'] is not None if code == 'manager' else s['provider_cost'] is None) and s['gross_profit'] is None for s in rows),code+' scope and cost masking')
+            call('GET','/api/users/audit-logs',expected=200 if code == 'manager' else 403)
         client.headers['Authorization']='Bearer '+admin_session
     with SessionLocal() as db:
         check(db.query(Shipment).filter(Shipment.awb.like('QA-20260922-%')).count()==12,'Fresh dataset has 12 shipments')

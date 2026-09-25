@@ -5,25 +5,33 @@ import { apiClient } from '../api/client';
 import './UserAccessEditor.css';
 
 const title = value => value.replaceAll('_', ' ').replace(/\b\w/g, c => c.toUpperCase());
-const sectionOrder = ['Dashboard', 'Customers', 'Shipments', 'Invoices', 'Accounts', 'Costs & Financials', 'Attendance & Timings', 'B2B & Credit', 'Refunds', 'Follow-ups & Communications', 'Reports & Analytics', 'Users & Access', 'Settings', 'Global Search'];
-const names = { attendance: 'Attendance & Timings', search: 'Global Search', reconciliation: 'Accounts', b2b: 'B2B & Credit', costs: 'Costs & Financials', reports: 'Reports & Analytics', users: 'Users & Access', dashboards: 'Dashboard', followups: 'Follow-ups & Communications' };
+const sectionOrder = ['Dashboard', 'Customers', 'Shipments', 'Invoices', 'Accounts', 'Value & Financials', 'Attendance & Timings', 'B2B & Credit', 'Refunds', 'Follow-ups & Communications', 'Reports & Analytics', 'Users & Access', 'Settings', 'Global Search'];
+const names = { attendance: 'Attendance & Timings', search: 'Global Search', reconciliation: 'Accounts', b2b: 'B2B & Credit', costs: 'Value & Financials', reports: 'Reports & Analytics', users: 'Users & Access', dashboards: 'Dashboard', followups: 'Follow-ups & Communications' };
 const label = permission => ({
-    'attendance.view': 'View Attendance Summary & Logs',
-    'attendance.manage': 'Manage All Staff Attendance',
-    'attendance.punch': 'Record Attendance Punches',
-    'costs.customer_price': 'View Customer Sale Price',
-    'costs.carrier_cost': 'View Courier / Carrier Cost',
-    'costs.net_value': 'View Net Value',
-    'costs.margins': 'View Profit Margins',
-    'costs.view': 'View Courier / Carrier Cost',
-    'reports.view_financial': 'View Financial P&L',
-    'reports.view': 'View Reports Overview',
-    'reports.eod': 'EOD Operations Audit',
-    'reports.weekly': 'Weekly Trends Report',
-    'reports.custom_range': 'Custom Date Range Report',
-    'reports.monthly_pnl': 'Monthly Business P&L',
-    'reports.print': 'Print Reports & Audit Sheets',
-    'reports.export': 'Export Analytical Reports',
+    'dashboards.view': 'KPI Cards',
+    'dashboards.booking_trends': 'Booking Trends',
+    'dashboards.recent_bookings': 'Recent Bookings',
+    'dashboards.fleet_volume': 'Courier Volume',
+    'dashboards.accounts_snapshot': 'Accounts Snapshot',
+    'dashboards.financial_analytics': 'Financial Charts',
+    'dashboards.followups': 'Follow-ups',
+    'dashboards.quick_actions': 'Quick Actions',
+    'attendance.view': 'View Attendance',
+    'attendance.manage': 'Manage Attendance',
+    'attendance.punch': 'Record Punches',
+    'costs.customer_price': 'Customer Sale Price',
+    'costs.carrier_cost': 'Courier / Carrier Value',
+    'costs.net_value': 'Profit',
+    'costs.margins': 'Margins',
+    'costs.view': 'Courier / Carrier Value',
+    'reports.view_financial': 'Financial P&L',
+    'reports.view': 'Reports Overview',
+    'reports.eod': 'EOD Report',
+    'reports.weekly': 'Weekly Trends',
+    'reports.custom_range': 'Custom Date Range',
+    'reports.monthly_pnl': 'Monthly P&L',
+    'reports.print': 'Print Reports',
+    'reports.export': 'Export Reports',
     'customers.statement': 'Customer Account Statement',
     'invoices.print': 'Print & View Invoices',
     'b2b.export': 'Export B2B Accounts',
@@ -102,7 +110,7 @@ export default function UserAccessEditor({ user, onClose, onSaved, embedded = fa
             <div className="access-toolbar"><input type="search" aria-label="Search permissions" placeholder="Search modules or permissions..." value={query} onChange={event => setQuery(event.target.value)} /></div>
             <p className="access-centers"><strong>Assigned centers:</strong> {access.centers.join(', ') || 'None'} · Center assignments are managed separately.</p>
             {!access.centers.length && <p className="access-intro">No centers assigned. Allowing permissions does not give this employee access to center records until a center is assigned.</p>}
-            <p className="access-note">Select the relevant module's View permission as well as its actions. Collections need Customer Sale Price access. Reconciliation needs Carrier Cost access. Net Value needs Customer Sale Price and Carrier Cost access. Monthly P&amp;L also needs Monthly Business P&amp;L access. Permission selection does not change an employee's assigned centers.</p>
+            <p className="access-note">Select the relevant module's View permission as well as its actions. Collections need Customer Sale Price access. Reconciliation needs Carrier Value access. Profit needs Customer Sale Price and Carrier Value access. Monthly P&amp;L also needs Monthly Business P&amp;L access. Permission selection does not change an employee's assigned centers.</p>
             <div className="access-groups">
                 {Object.entries(groups).sort(([a], [b]) => (sectionOrder.indexOf(a) === -1 ? 99 : sectionOrder.indexOf(a)) - (sectionOrder.indexOf(b) === -1 ? 99 : sectionOrder.indexOf(b))).map(([name, permissions]) => <section className="access-group access-section-row" key={name}>
                     <div className="access-section-heading"><h4>{name}</h4><span>{permissions.filter(p => allowed(p.code)).length} of {permissions.length} allowed</span></div>
@@ -113,7 +121,7 @@ export default function UserAccessEditor({ user, onClose, onSaved, embedded = fa
                 </section>)}
                 {!Object.keys(groups).length && <p>No permissions match your search.</p>}
             </div>
-            <p className="access-note">Super Admin can customize exact operational, user management, and financial access (Customer Price, Carrier Cost, Net Value) for each employee. Saving signs this employee out so their new access takes effect immediately at their next request/login.</p>
+            <p className="access-note">Super Admin can customize exact operational, user management, and financial access (Customer Price, Carrier Value, Profit) for each employee. Saving signs this employee out so their new access takes effect immediately at their next request/login.</p>
             <footer className="form-actions"><span className="access-save-status" role="status">{dirty ? `${changed.length} unsaved changes` : 'Changes saved'}</span>{dirty && <button type="button" className="btn btn-outline" disabled={saving} onClick={() => setOverrides({ ...access.overrides })}>Discard changes</button>}<button type="button" className="btn btn-outline" disabled={saving || access.protected} onClick={() => setOverrides({})}>Restore role defaults</button><button type="button" className="btn btn-primary-blue" disabled={saving || access.protected || !dirty} onClick={save}>{saving ? <ButtonSpinner text="Saving..." /> : 'Save changes'}</button></footer>
         </>}
     </section></div>;

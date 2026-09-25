@@ -63,7 +63,7 @@ async def login(
 ):
     """
     Fast & Resilient Authentication Flow:
-    1. An unknown email creates an active Operations Staff account on first login.
+    1. An unknown email requests a staff account pending administrator approval.
     2. Returning users must provide the password stored during their first login.
     3. Existing credentials are never replaced by this flow.
     4. Issues an HttpOnly session cookie and returns the CRM session context.
@@ -106,7 +106,7 @@ async def login(
                 role=legacy_u.role or "operations_staff",
                 status=normalize_profile_status(legacy_u.status),
                 requested_role=legacy_u.role or "operations_staff",
-                password_hash=legacy_u.password_hash or hash_password(plain_password),
+                password_hash=legacy_u.password_hash,
                 created_at=legacy_u.created_at or datetime.datetime.utcnow()
             )
             try:
@@ -135,10 +135,8 @@ async def login(
             display_name=full_name,
             role="operations_staff",
             requested_role="operations_staff",
-            status="active",
+            status="pending",
             password_hash=hashed_pass,
-            approved_by="First login registration",
-            approved_at=datetime.datetime.utcnow(),
         )
         db.add(profile)
 
@@ -152,11 +150,9 @@ async def login(
                 email=email,
                 role="operations_staff",
                 center="Main Hub (Bangalore)",
-                status="Active",
-                is_active=True,
+                status="Pending Approval",
+                is_active=False,
                 password_hash=hashed_pass,
-                approved_by="First login registration",
-                approval_date=datetime.datetime.utcnow(),
             )
             db.add(legacy_u)
 

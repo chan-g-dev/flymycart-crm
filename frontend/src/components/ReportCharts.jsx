@@ -1,4 +1,3 @@
-import GstValuePair from './GstValuePair';
 import { formatBusinessDate } from '../utils/businessDates';
 import React from 'react';
 import { CourierLogo } from './CourierLogos';
@@ -239,18 +238,17 @@ export const MonthlyWaterfallChart = ({
     grossProfit = 0, 
     refunds = 0, 
     operatingExpenses = 0, 
-    salesGst = 0,
     netProfit = 0 
 }) => {
     const base = Math.max(grossSales, 1);
 
     const steps = [
-        { label: '1. Sales (Excl. GST)', value: grossSales, pct: 100, color: '#6366f1', type: 'inflow' },
-        { label: '2. Provider Costs', value: providerCost, pct: Math.round((providerCost / base) * 100), color: '#ef4444', type: 'outflow' },
-        { label: '3. Value After Courier Cost', value: grossProfit, pct: Math.round((grossProfit / base) * 100), color: '#10b981', type: 'subtotal' },
+        { label: '1. Sales (Incl. GST)', value: grossSales, pct: 100, color: '#6366f1', type: 'inflow' },
+        { label: '2. Carrier Cost', value: providerCost, pct: Math.round((providerCost / base) * 100), color: '#ef4444', type: 'outflow' },
+        { label: '3. Gross Profit (Incl. GST, After Carrier Cost)', value: grossProfit, pct: Math.round((grossProfit / base) * 100), color: '#10b981', type: 'subtotal' },
         { label: '4. Refunds Deducted', value: refunds, pct: Math.round((refunds / base) * 100), color: '#f59e0b', type: 'outflow' },
-        { label: '5. Operating Expenses', value: operatingExpenses, pct: Math.round((operatingExpenses / base) * 100), color: '#ec4899', type: 'outflow' },
-        { label: '6. Net Value', value: netProfit, pct: Math.round((netProfit / base) * 100), color: '#10b981', type: 'total' }
+        { label: '5. Operating / Other Expenses', value: operatingExpenses, pct: Math.round((operatingExpenses / base) * 100), color: '#ec4899', type: 'outflow' },
+        { label: '6. Profit (Incl. GST)', value: netProfit, pct: Math.round((netProfit / base) * 100), color: '#10b981', type: 'total' }
     ];
 
     return (
@@ -261,7 +259,7 @@ export const MonthlyWaterfallChart = ({
                         <strong style={{ color: step.type === 'total' ? '#10b981' : 'var(--text-main)' }}>{step.label}</strong>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                             <strong style={{ color: step.color, fontSize: step.type === 'total' ? '14px' : '12.5px' }}>
-                                {['subtotal', 'total'].includes(step.type) ? <GstValuePair excluding={step.value} including={step.value + salesGst} formatValue={formatCurrency} /> : <>{step.type === 'outflow' && step.value > 0 ? '- ' : ''}{formatCurrency(step.value)}</>}
+                                {step.type === 'outflow' && step.value > 0 ? '- ' : ''}{formatCurrency(step.value)}
                             </strong>
                             <span style={{ fontSize: '10.5px', color: 'var(--text-muted)', fontWeight: 600 }}>({step.pct}%)</span>
                         </div>

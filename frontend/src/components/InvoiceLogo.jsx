@@ -1,5 +1,5 @@
 import { ButtonSpinner } from './LoadingSpinner';
-﻿import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Palette, Check, X } from 'lucide-react';
 import { useAuth } from '../context/authSession';
 import { apiClient } from '../api/client';

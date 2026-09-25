@@ -2,21 +2,21 @@ import React, { useState, useEffect } from 'react';
 import { 
     LayoutDashboard, 
     Users, 
-    Package,
+    Package, 
     FileText, 
     Wallet, 
     Building2, 
     RotateCcw, 
     Bell, 
     TrendingUp, 
-    Clock,
+    Clock, 
     ShieldCheck, 
-    Settings,
-    ChevronDown,
-    ChevronRight,
-    Moon,
-    Sun,
-    X
+    Settings, 
+    ChevronDown, 
+    ChevronRight, 
+    Moon, 
+    Sun, 
+    X 
 } from 'lucide-react';
 import { FlyMyCartLogo } from './FlyMyCartLogo';
 import { useAuth } from '../context/authSession';
@@ -24,8 +24,17 @@ import { useAuth } from '../context/authSession';
 const Sidebar = ({ currentPage, activeSubPage, onNavigate, onSubNavigate, stats, isOpen = false, onClose }) => {
     const { hasPermission } = useAuth();
     const [isAccountsOpen, setIsAccountsOpen] = useState(currentPage === 'accounts');
-    const [isReportsOpen, setIsReportsOpen] = useState(false);
+    const [isReportsOpen, setIsReportsOpen] = useState(currentPage === 'reports');
+    const [isSettingsOpen, setIsSettingsOpen] = useState(currentPage === 'settings');
     const [isDarkMode, setIsDarkMode] = useState(false);
+
+    const [previousPage, setPreviousPage] = useState(currentPage);
+    if (previousPage !== currentPage) {
+        setPreviousPage(currentPage);
+        if (currentPage === 'settings') setIsSettingsOpen(true);
+        if (currentPage === 'accounts') setIsAccountsOpen(true);
+        if (currentPage === 'reports') setIsReportsOpen(true);
+    }
 
     const canViewFinancials = hasPermission('viewFinancials');
     const canViewEod = hasPermission('reports.eod');
@@ -200,8 +209,8 @@ const Sidebar = ({ currentPage, activeSubPage, onNavigate, onSubNavigate, stats,
                     >
                         <Bell size={17} />
                         <span>Follow-ups & Communications</span>
-                        {stats?.followups_due > 0 && (
-                            <span className="sidebar-pill-badge">{stats.followups_due}</span>
+                        {(stats?.followups_pending || stats?.followups_due) > 0 && (
+                            <span className="sidebar-pill-badge">{stats?.followups_pending || stats?.followups_due}</span>
                         )}
                     </button>
                 )}
@@ -257,7 +266,7 @@ const Sidebar = ({ currentPage, activeSubPage, onNavigate, onSubNavigate, stats,
                     onClick={() => handleNavigate('attendance')}
                 >
                     <Clock size={17} />
-                    <span>Attendance</span>
+                    <span>Staff Attendance</span>
                 </button>}
 
                 {(hasPermission('users.view') || hasPermission('users.manage_permissions')) && (
@@ -272,14 +281,91 @@ const Sidebar = ({ currentPage, activeSubPage, onNavigate, onSubNavigate, stats,
                 )}
 
                 {(hasPermission('settings.view') || hasPermission('settings.manage')) && (
-                    <button
-                        type="button"
-                        className={`sidebar-link ${currentPage === 'settings' ? 'active' : ''}`}
-                        onClick={() => handleNavigate('settings')}
-                    >
-                        <Settings size={17} />
-                        <span>Settings</span>
-                    </button>
+                    <>
+                        <button
+                            type="button"
+                            className={`sidebar-link ${currentPage === 'settings' ? 'active' : ''}`}
+                            onClick={() => {
+                                handleNavigate('settings');
+                                setIsSettingsOpen(!isSettingsOpen);
+                            }}
+                        >
+                            <Settings size={17} />
+                            <span>Settings</span>
+                            <span className="menu-chevron">
+                                {isSettingsOpen ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+                            </span>
+                        </button>
+
+                        {isSettingsOpen && (
+                            <div className="sidebar-submenu">
+                                <button
+                                    type="button"
+                                    className={`sidebar-sublink ${!activeSubPage || activeSubPage === 'business' ? 'active' : ''}`}
+                                    onClick={() => handleSubNavigate('settings', 'business')}
+                                >
+                                    Business & Billing
+                                </button>
+                                <button
+                                    type="button"
+                                    className={`sidebar-sublink ${activeSubPage === 'credit_alerts' ? 'active' : ''}`}
+                                    onClick={() => handleSubNavigate('settings', 'credit_alerts')}
+                                    style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}
+                                >
+                                    <span>Credit Payment Alerts</span>
+                                    <span style={{ fontSize: '9.5px', background: '#fef3c7', color: '#b45309', padding: '1px 5px', borderRadius: '4px', fontWeight: 700 }}>
+                                        In Dev
+                                    </span>
+                                </button>
+                                <button
+                                    type="button"
+                                    className={`sidebar-sublink ${activeSubPage === 'messages' ? 'active' : ''}`}
+                                    onClick={() => handleSubNavigate('settings', 'messages')}
+                                >
+                                    Message Templates
+                                </button>
+                                <button
+                                    type="button"
+                                    className={`sidebar-sublink ${activeSubPage === 'weights' ? 'active' : ''}`}
+                                    onClick={() => handleSubNavigate('settings', 'weights')}
+                                >
+                                    Shipment Weights
+                                </button>
+                                <button
+                                    type="button"
+                                    className={`sidebar-sublink ${activeSubPage === 'operations' ? 'active' : ''}`}
+                                    onClick={() => handleSubNavigate('settings', 'operations')}
+                                >
+                                    Team & Couriers
+                                </button>
+                                <button
+                                    type="button"
+                                    className={`sidebar-sublink ${activeSubPage === 'payments' ? 'active' : ''}`}
+                                    onClick={() => handleSubNavigate('settings', 'payments')}
+                                >
+                                    Payments & Carriers
+                                </button>
+                                {hasPermission('settings.manage') && (
+                                    <button
+                                        type="button"
+                                        className={`sidebar-sublink ${activeSubPage === 'kyc' ? 'active' : ''}`}
+                                        onClick={() => handleSubNavigate('settings', 'kyc')}
+                                    >
+                                        KYC & Storage
+                                    </button>
+                                )}
+                                {canViewFinancials && (
+                                    <button
+                                        type="button"
+                                        className={`sidebar-sublink ${activeSubPage === 'audit' ? 'active' : ''}`}
+                                        onClick={() => handleSubNavigate('settings', 'audit')}
+                                    >
+                                        Activity Log
+                                    </button>
+                                )}
+                            </div>
+                        )}
+                    </>
                 )}
 
             </nav>

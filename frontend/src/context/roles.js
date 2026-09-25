@@ -18,11 +18,68 @@ export const ROLES = {
             manageUsers: true
         }
     },
-    operations_staff: {
-        id: 'operations_staff',
-        name: 'Operations Staff',
+    manager: {
+        id: 'manager',
+        name: 'Manager',
         badge: 'badge-primary',
-        description: 'Operational Bookings, Customer 360, Tracking (Financial Margins Masked)',
+        description: 'Branch Management & Full Operational Control (Excludes Margin & Profit)',
+        permissions: {
+            viewFinancials: true,
+            viewCostMargins: false,
+            addShipment: true,
+            editShipment: true,
+            deleteShipment: true,
+            approveRefunds: true,
+            manageAccounts: true,
+            runReconciliation: true,
+            exportReports: true,
+            manageSettings: true,
+            manageUsers: true
+        }
+    },
+    supervisor: {
+        id: 'supervisor',
+        name: 'Supervisor',
+        badge: 'badge-purple',
+        description: 'Operational Supervision, Dispatch Routing, Team Escalations & Daily EOD Sheets',
+        permissions: {
+            viewFinancials: false,
+            viewCostMargins: false,
+            addShipment: true,
+            editShipment: true,
+            deleteShipment: false,
+            approveRefunds: true,
+            manageAccounts: false,
+            runReconciliation: true,
+            exportReports: true,
+            manageSettings: false,
+            manageUsers: false
+        }
+    },
+    account_executive: {
+        id: 'account_executive',
+        name: 'Account Executive',
+        badge: 'badge-warning',
+        description: 'Billing, Invoices, Carrier Value Auditing, Ledger Settlement & Bank Reconciliation',
+        permissions: {
+            viewFinancials: true,
+            viewCostMargins: false,
+            addShipment: true,
+            editShipment: true,
+            deleteShipment: false,
+            approveRefunds: false,
+            manageAccounts: true,
+            runReconciliation: true,
+            exportReports: true,
+            manageSettings: false,
+            manageUsers: false
+        }
+    },
+    operation_executive: {
+        id: 'operation_executive',
+        name: 'Operation Executive',
+        badge: 'badge-info',
+        description: 'Counter Shipment Entry, Volumetric Weighing, AWB Tracking & Label Printing',
         permissions: {
             viewFinancials: false,
             viewCostMargins: false,
@@ -36,30 +93,11 @@ export const ROLES = {
             manageSettings: false,
             manageUsers: false
         }
-    },
-    counter_staff: {
-        id: 'counter_staff',
-        name: 'Front Counter Staff',
-        badge: 'badge-warning',
-        description: 'Counter Shipment Entry & Receipts (Restricted Operations)',
-        permissions: {
-            viewFinancials: false,
-            viewCostMargins: false,
-            addShipment: true,
-            editShipment: false,
-            deleteShipment: false,
-            approveRefunds: false,
-            manageAccounts: false,
-            runReconciliation: false,
-            exportReports: false,
-            manageSettings: false,
-            manageUsers: false
-        }
     }
 };
 
-
-ROLES.manager = { id: 'manager', name: 'Manager', badge: 'badge-primary', permissions: {} };
-ROLES.team_leader = { id: 'team_leader', name: 'Team Leader', badge: 'badge-primary', permissions: {} };
-ROLES.operations_executive = { id: 'operations_executive', name: 'Operations Executive', badge: 'badge-primary', permissions: {} };
-ROLES.counter_staff.name = 'Counter Staff';
+// Aliases for backward compatibility
+ROLES.operations_executive = ROLES.operation_executive;
+ROLES.operations_staff = ROLES.operation_executive;
+ROLES.team_leader = ROLES.supervisor;
+ROLES.counter_staff = ROLES.account_executive;

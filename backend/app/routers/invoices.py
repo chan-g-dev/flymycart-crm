@@ -98,7 +98,12 @@ def get_invoices(
     query = query.order_by(desc(Invoice.created_at), Invoice.id)
     response.headers["X-Total-Count"] = str(query.count())
     invoices = query.limit(limit).offset(offset).all()
-    out = [InvoiceOut.model_validate(inv) for inv in invoices]
+    out = []
+    for inv in invoices:
+        inv_out = InvoiceOut.model_validate(inv)
+        if inv.shipment_rel:
+            inv_out.is_ddp = bool(getattr(inv.shipment_rel, 'is_ddp', False))
+        out.append(inv_out)
     if not can_view_customer_price(ctx):
         for inv_out in out:
             inv_out.amount = inv_out.gst = inv_out.total = inv_out.paid = inv_out.balance = None
@@ -110,10 +115,12 @@ def get_invoice(
     ctx: Dict[str, Any] = Depends(require_permission(PermissionCode.INVOICES_VIEW)),
     db: Session = Depends(get_db)
 ):
-    inv = db.query(Invoice).filter((Invoice.id == invoice_id) | (Invoice.invoice_no == invoice_id)).first()
+    inv = db.query(Invoice).options(selectinload(Invoice.customer_rel), selectinload(Invoice.shipment_rel)).filter((Invoice.id == invoice_id) | (Invoice.invoice_no == invoice_id)).first()
     if not inv:
         raise HTTPException(status_code=404, detail="Invoice not found")
     inv_out = InvoiceOut.model_validate(inv)
+    if inv.shipment_rel:
+        inv_out.is_ddp = bool(getattr(inv.shipment_rel, 'is_ddp', False))
     if not can_view_customer_price(ctx):
         inv_out.amount = inv_out.gst = inv_out.total = inv_out.paid = inv_out.balance = None
     return inv_out

@@ -1,3 +1,7 @@
+import { useRemoteData } from '../utils/useRemoteData';
+import { openWhatsApp, openEmail, CommTemplates } from '../utils/communication';
+import { MessageSquare, Mail } from 'lucide-react';
+import { exportToExcel } from '../utils/excelExport';
 import { ButtonSpinner } from '../components/LoadingSpinner';
 import TablePagination from '../components/TablePagination';
 import useTablePage from '../components/useTablePage';
@@ -6,33 +10,109 @@ import AccountsOverview from '../components/AccountsOverview';
 import { businessDate } from '../utils/businessDates';
 import { providerCostLabel } from '../utils/costLabels';
 import AccountChecks from '../components/AccountChecks';
-import React, { useState } from 'react';
-import { 
-    Scale, 
-    Plus, 
-    Printer,
-    CreditCard, 
-    FileText, 
-    Download, 
-    Building2, 
-    RotateCcw
-} from 'lucide-react';
+import React, { useState, useMemo, useCallback } from 'react';
+import { Scale, Plus, Printer, CreditCard, FileText, Download, Building2, RotateCcw, Search, Globe, Plane, Truck, X } from 'lucide-react';
+import { DEFAULT_ENTITY, getEntityMeta, getEntityOptions } from '../utils/entityConstants';
 import { useAuth } from '../context/authSession';
 import { CourierLogo } from '../components/CourierLogos';
 import { ContentShimmer } from '../components/ContentShimmer';
 import { TrackingLink } from '../components/TrackingLink';
 import { apiClient } from '../api/client';
 
-export const Invoices = ({ invoices, onPreviewInvoice, selectedCenter }) => {
+export const Invoices = ({ 
+    invoices = [], 
+    onPreviewInvoice, 
+    selectedCenter, 
+    settings, 
+    shipments = [], 
+    selectedScope = '', 
+    onSelectScope, 
+    selectedEntity = '', 
+    onSelectEntity 
+}) => {
     const { hasPermission } = useAuth();
     const canViewPrice = hasPermission('costs.customer_price');
     const [searchVal, setSearchVal] = useState('');
     const [statusVal, setStatusVal] = useState('');
+    const entityOptions = useMemo(() => getEntityOptions(settings), [settings]);
+    const scopeVal = selectedScope;
+    const entityVal = selectedEntity;
+
+    const setEntityVal = (valOrFn) => {
+        if (typeof valOrFn === 'function') {
+            const next = valOrFn(entityVal);
+            onSelectEntity?.(next);
+        } else {
+            onSelectEntity?.(valOrFn);
+        }
+    };
+
+    const setScopeVal = (valOrFn) => {
+        if (typeof valOrFn === 'function') {
+            const next = valOrFn(scopeVal);
+            onSelectScope?.(next);
+        } else {
+            onSelectScope?.(valOrFn);
+        }
+    };
+
+    const shipmentMap = useMemo(() => {
+        const map = new Map();
+        (shipments || []).forEach(s => {
+            if (s.id) map.set(s.id, s);
+            if (s.awb) map.set(s.awb, s);
+        });
+        return map;
+    }, [shipments]);
+
+    const getInvoiceScopeAndEntity = useCallback((inv) => {
+        const ship = inv.shipment_id ? shipmentMap.get(inv.shipment_id) : (inv.awb ? shipmentMap.get(inv.awb) : null);
+        const entity = inv.entity || ship?.entity || DEFAULT_ENTITY;
+        const domIntl = inv.domestic_international || ship?.domestic_international || ((ship?.receiver_country && ship.receiver_country.toLowerCase() === 'india') ? 'Domestic' : 'International');
+        const isDom = domIntl === 'Domestic';
+        return { entity, isDom };
+    }, [shipmentMap]);
+
+    const scopeCounts = useMemo(() => {
+        let intl = 0;
+        let dom = 0;
+        let total = 0;
+        (invoices || []).forEach(i => {
+            const { entity, isDom } = getInvoiceScopeAndEntity(i);
+            if (entityVal && entity !== entityVal) return;
+
+            total += 1;
+            if (isDom) dom += 1;
+            else intl += 1;
+        });
+        return { all: total, intl, dom };
+    }, [invoices, entityVal, getInvoiceScopeAndEntity]);
+
+    const entityCounts = useMemo(() => {
+        const counts = { total: 0 };
+        entityOptions.forEach(e => { counts[e.name] = 0; });
+        (invoices || []).forEach(i => {
+            const { entity, isDom } = getInvoiceScopeAndEntity(i);
+            if (scopeVal === 'International' && isDom) return;
+            if (scopeVal === 'Domestic' && !isDom) return;
+
+            counts.total += 1;
+            const meta = getEntityMeta(entity, settings);
+            const key = meta.name;
+            counts[key] = (counts[key] || 0) + 1;
+        });
+        return counts;
+    }, [invoices, scopeVal, entityOptions, settings, getInvoiceScopeAndEntity]);
 
     const formatCurrency = (n) => '₹' + Number(n || 0).toLocaleString('en-IN');
     const formatDate = (d) => d ? new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '-';
 
     const filtered = (invoices || []).filter(i => {
+        const { entity, isDom } = getInvoiceScopeAndEntity(i);
+        if (entityVal && entity !== entityVal) return false;
+        if (scopeVal === 'International' && isDom) return false;
+        if (scopeVal === 'Domestic' && !isDom) return false;
+
         const matchesSearch = !searchVal || 
             (i.invoice_no || '').toLowerCase().includes(searchVal.toLowerCase()) ||
             (i.customer_name || '').toLowerCase().includes(searchVal.toLowerCase()) ||
@@ -41,7 +121,7 @@ export const Invoices = ({ invoices, onPreviewInvoice, selectedCenter }) => {
         return matchesSearch && matchesStatus;
     });
 
-    const tablePage = useTablePage(filtered, JSON.stringify([searchVal, statusVal, selectedCenter]));
+    const tablePage = useTablePage(filtered, JSON.stringify([searchVal, statusVal, selectedCenter, scopeVal, entityVal]));
 
     const exportToCSV = () => {
         if (!invoices || invoices.length === 0) return;
@@ -50,24 +130,16 @@ export const Invoices = ({ invoices, onPreviewInvoice, selectedCenter }) => {
             ...(canViewPrice ? ['Subtotal (INR)', 'GST (INR)', 'Total (INR)', 'Amount Paid (INR)', 'Balance Due (INR)'] : []),
             'Status'
         ];
-        const rows = invoices.map(i => [
-            `"${i.invoice_no}"`,
-            `"${i.date}"`,
-            `"${i.customer_name}"`,
-            `"${i.awb || ''}"`,
-            `"${i.courier || ''}"`,
-            ...(canViewPrice ? [i.amount || 0, i.gst || 0, i.total || 0, i.paid || 0, i.balance || 0] : []),
-            `"${i.status}"`
+        const rows = filtered.map(i => [
+            i.invoice_no || '',
+            i.date || '',
+            i.customer_name || '',
+            i.awb || '',
+            i.courier || '',
+            ...(canViewPrice ? [Number(i.amount || 0), Number(i.gst || 0), Number(i.total || 0), Number(i.paid || 0), Number(i.balance || 0)] : []),
+            i.status || ''
         ]);
-
-        const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map(e => e.join(','))].join('\n');
-        const encodedUri = encodeURI(csvContent);
-        const link = document.createElement('a');
-        link.setAttribute('href', encodedUri);
-        link.setAttribute('download', `FMC_Invoices_${businessDate()}.csv`);
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
+        exportToExcel(headers, rows, `FMC_Invoices_${businessDate()}.xlsx`, 'Invoices');
     };
 
     return (
@@ -79,9 +151,130 @@ export const Invoices = ({ invoices, onPreviewInvoice, selectedCenter }) => {
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                     <span className="pill-stat">Total: <strong>{invoices?.length || 0}</strong></span>
-                    <button className="btn btn-outline" onClick={exportToCSV} title="Export Invoices to CSV">
-                        <Download size={14} /> Export CSV
+                    <button className="btn btn-outline" disabled={!hasPermission('invoices.export')} onClick={exportToCSV} title="Export Invoices to Excel">
+                        <Download size={14} /> Export Excel
                     </button>
+                </div>
+            </div>
+
+            {/* Top Scope & Entity Switcher Bar (Matching Image Design & Entity Colors) */}
+            <div className="scope-entity-bar-sticky" style={{ marginBottom: '6px' }}>
+                {/* Left: Scope Selection */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '9px', flexWrap: 'wrap' }}>
+                    <span style={{ fontSize: '12px', fontWeight: 800, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                        SCOPE:
+                    </span>
+                    <div style={{ display: 'inline-flex', alignItems: 'center', gap: '7px', flexWrap: 'wrap' }}>
+                        <button
+                            type="button"
+                            className="scope-pill-btn"
+                            onClick={() => setScopeVal('')}
+                            style={!scopeVal ? {
+                                background: '#eff6ff',
+                                borderColor: '#93c5fd',
+                                color: '#1d4ed8',
+                                fontWeight: 700
+                            } : {}}
+                        >
+                            <Globe size={15} color={!scopeVal ? '#1d4ed8' : '#64748b'} />
+                            <span>Both: <strong>{scopeCounts.all}</strong></span>
+                        </button>
+                        <button
+                            type="button"
+                            className="scope-pill-btn"
+                            onClick={() => setScopeVal(scopeVal === 'International' ? '' : 'International')}
+                            style={scopeVal === 'International' ? {
+                                background: '#eff6ff',
+                                borderColor: '#93c5fd',
+                                color: '#1d4ed8',
+                                fontWeight: 700
+                            } : {}}
+                        >
+                            <Plane size={15} color={scopeVal === 'International' ? '#1d4ed8' : '#64748b'} />
+                            <span>Intl: <strong>{scopeCounts.intl}</strong></span>
+                        </button>
+                        <button
+                            type="button"
+                            className="scope-pill-btn"
+                            onClick={() => setScopeVal(scopeVal === 'Domestic' ? '' : 'Domestic')}
+                            style={scopeVal === 'Domestic' ? {
+                                background: '#fffbeb',
+                                borderColor: '#fcd34d',
+                                color: '#b45309',
+                                fontWeight: 700
+                            } : {}}
+                        >
+                            <Truck size={15} color={scopeVal === 'Domestic' ? '#b45309' : '#64748b'} />
+                            <span>Dom: <strong>{scopeCounts.dom}</strong></span>
+                        </button>
+                    </div>
+                </div>
+
+                {/* Right: Entity Selection */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '9px', flexWrap: 'wrap' }}>
+                    <span style={{ fontSize: '12px', fontWeight: 800, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                        ENTITY:
+                    </span>
+                    <div style={{ display: 'inline-flex', alignItems: 'center', gap: '7px', flexWrap: 'wrap' }}>
+                        <button
+                            type="button"
+                            className="entity-pill-btn"
+                            onClick={() => setEntityVal('')}
+                            style={!entityVal ? {
+                                background: '#eff6ff',
+                                borderColor: '#93c5fd',
+                                color: '#1d4ed8',
+                                fontWeight: 700
+                            } : {}}
+                        >
+                            <Building2 size={15} color={!entityVal ? '#1d4ed8' : '#64748b'} />
+                            <span>All: <strong>{entityCounts.total}</strong></span>
+                        </button>
+                        {entityOptions.map(ent => {
+                            const count = entityCounts[ent.name] ?? 0;
+                            const isSelected = entityVal === ent.name;
+                            const activeStyle = isSelected ? {
+                                background: ent.bg || '#eff6ff',
+                                borderColor: ent.border || ent.color || '#93c5fd',
+                                color: ent.accentColor || ent.color || '#1d4ed8',
+                                fontWeight: 700,
+                                boxShadow: `0 1px 3px ${ent.border || 'rgba(0,0,0,0.08)'}`
+                            } : {};
+                            return (
+                                <button
+                                    key={ent.id}
+                                    type="button"
+                                    className="entity-pill-btn"
+                                    onClick={() => setEntityVal(isSelected ? '' : ent.name)}
+                                    style={activeStyle}
+                                    title={`Filter by ${ent.name}`}
+                                >
+                                    <span>{ent.shortName || ent.name}: <strong>{count}</strong></span>
+                                </button>
+                            );
+                        })}
+                        {(entityVal || scopeVal || searchVal || statusVal) && (
+                            <button 
+                                type="button"
+                                className="entity-pill-btn" 
+                                onClick={() => {
+                                    setEntityVal('');
+                                    setScopeVal('');
+                                    setSearchVal('');
+                                    setStatusVal('');
+                                }}
+                                style={{
+                                    borderColor: '#fecdd3',
+                                    background: '#fff1f2',
+                                    color: '#e11d48',
+                                    fontWeight: 600
+                                }}
+                                title="Reset all filters"
+                            >
+                                <X size={13} /> Clear
+                            </button>
+                        )}
+                    </div>
                 </div>
             </div>
 
@@ -133,9 +326,14 @@ export const Invoices = ({ invoices, onPreviewInvoice, selectedCenter }) => {
                                         <td style={{ color: 'var(--text-muted)' }}>{formatDate(inv.date)}</td>
                                         <td><strong>{inv.customer_name}</strong></td>
                                         <td>
-                                            <div className="invoice-awb-cell">
+                                            <div className="invoice-awb-cell" style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
                                                 <TrackingLink awb={inv.awb} courier={inv.courier} className="status-pill in-transit" style={{ fontFamily: 'monospace' }} />
                                                 {inv.courier && <CourierLogo courier={inv.courier} height={15} />}
+                                                {inv.is_ddp !== undefined && (
+                                                    <span className={inv.is_ddp ? 'ddp-tag-paid' : 'ddp-tag-unpaid'} style={{ fontSize: '9.5px', padding: '1px 5px' }}>
+                                                        {inv.is_ddp ? '✓ DDP Paid' : 'DDP Not Paid'}
+                                                    </span>
+                                                )}
                                             </div>
                                         </td>
                                         {canViewPrice && (
@@ -153,9 +351,31 @@ export const Invoices = ({ invoices, onPreviewInvoice, selectedCenter }) => {
                                             </span>
                                         </td>
                                         <td className="invoice-actions-column">
-                                            <button className="btn btn-sm btn-primary-blue" title="View invoice" aria-label={`View invoice ${inv.invoice_no}`} onClick={() => onPreviewInvoice(inv)}>
-                                                <Printer size={12} style={{flexShrink: 0}} /> View
-                                            </button>
+                                            <div style={{ display: 'inline-flex', alignItems: 'center', gap: '5px' }}>
+                                                {inv.customer_phone && (
+                                                    <button
+                                                        type="button"
+                                                        className="btn-action-icon"
+                                                        title="WhatsApp Reminder"
+                                                        onClick={() => openWhatsApp({ phone: inv.customer_phone, message: CommTemplates.paymentReminder({ customerName: inv.customer_name, dueAmount: inv.balance || inv.total, invoiceNo: inv.invoice_no, awb: inv.awb }) })}
+                                                    >
+                                                        <MessageSquare size={13} color="#25D366" />
+                                                    </button>
+                                                )}
+                                                {inv.customer_email && (
+                                                    <button
+                                                        type="button"
+                                                        className="btn-action-icon"
+                                                        title="Email Notice"
+                                                        onClick={() => openEmail({ email: inv.customer_email, subject: `Invoice #${inv.invoice_no} Payment Notice`, body: CommTemplates.paymentReminder({ customerName: inv.customer_name, dueAmount: inv.balance || inv.total, invoiceNo: inv.invoice_no, awb: inv.awb }) })}
+                                                    >
+                                                        <Mail size={13} color="#3b82f6" />
+                                                    </button>
+                                                )}
+                                                <button className="btn btn-sm btn-primary-blue" title="View invoice" aria-label={`View invoice ${inv.invoice_no}`} onClick={() => onPreviewInvoice(inv)}>
+                                                    <Printer size={12} style={{flexShrink: 0}} /> View
+                                                </button>
+                                            </div>
                                         </td>
                                     </tr>
                                 ))
@@ -186,6 +406,276 @@ export const Accounts = props => {
     />;
 };
 
+
+const CarrierPayoutLedger = ({ postpaidAccounts = [], onRefresh, carrierFilter = '', onCarrierChange }) => {
+    const [accountFilter, setAccountFilter] = useState('');
+    const [searchVal, setSearchVal] = useState('');
+    const [dateFrom, setDateFrom] = useState('');
+    const [dateTo, setDateTo] = useState('');
+    const [page, setPage] = useState(1);
+    const pageSize = 15;
+    const loadEntries = useCallback(() => apiClient.getAccountingEntries({
+        kind: 'provider_payment,provider_deposit', provider: carrierFilter || undefined,
+        date_from: dateFrom || undefined, date_to: dateTo || undefined,
+        limit: pageSize, offset: (page - 1) * pageSize,
+    }), [carrierFilter, dateFrom, dateTo, page]);
+    const { data: entryData, loading, error: entriesError, reload: fetchEntries } = useRemoteData(loadEntries);
+    const entries = useMemo(() => entryData?.items || [], [entryData]);
+    const totalCount = entryData?.total_count || 0;
+
+    const filteredEntries = useMemo(() => {
+        return entries.filter(item => {
+            if (accountFilter && item.account !== accountFilter) return false;
+            if (searchVal) {
+                const s = searchVal.toLowerCase();
+                const match = [item.provider, item.account, item.reference, item.payment_mode, item.vendor, item.payment_details?.remarks]
+                    .some(val => String(val || '').toLowerCase().includes(s));
+                if (!match) return false;
+            }
+            return true;
+        });
+    }, [entries, accountFilter, searchVal]);
+
+    const accountsList = useMemo(() => {
+        return Array.from(new Set(entries.map(e => e.account).filter(Boolean))).sort();
+    }, [entries]);
+
+    const handleExport = () => {
+        if (!filteredEntries.length) {
+            alert('No carrier payout records to export.');
+            return;
+        }
+        const headers = ['Date', 'Carrier Partner', 'Transaction Type', 'Paid From Account', 'Amount (INR)', 'Payment Mode', 'Reference / UTR', 'Remarks'];
+        const rows = filteredEntries.map(e => [
+            e.date || '',
+            e.provider || '—',
+            e.kind === 'provider_deposit' ? 'Security Deposit' : 'Carrier Payout',
+            e.account || '—',
+            Number(e.amount || 0),
+            e.payment_mode || '—',
+            e.reference || '—',
+            e.payment_details?.remarks || e.vendor || ''
+        ]);
+        exportToExcel(headers, rows, `FMC_Carrier_Payouts_${businessDate()}.xlsx`, 'Carrier_Payouts');
+    };
+
+    const formatCurrency = (n) => '₹' + Number(n || 0).toLocaleString('en-IN');
+    const formatDate = (d) => d ? new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—';
+    const totalAmount = filteredEntries.reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
+
+    return (
+        <div className="dash-box" id="carrier-payout-history" style={{ marginTop: '8px' }}>
+            {entriesError && <p role="alert">Unable to load payouts. Use Refresh to retry.</p>}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px', marginBottom: '14px', borderBottom: '1px solid var(--card-border)', paddingBottom: '10px' }}>
+                <div>
+                    <h3 style={{ fontSize: '15px', fontWeight: 800, margin: 0, color: 'var(--text-main)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span>📜 Carrier Payout & Settlement History</span>
+                    </h3>
+                    <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: '4px 0 0' }}>
+                        Complete audit trail of payouts sent to courier partners, accounts debited, UTR numbers, and recorded references.
+                    </p>
+                </div>
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+                    <button 
+                        type="button" 
+                        className="btn btn-outline" 
+                        onClick={handleExport}
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '12px', padding: '6px 12px' }}
+                        title="Export Carrier Payouts to Excel"
+                    >
+                        <Download size={13} /> Export Payouts Excel
+                    </button>
+                    <button 
+                        type="button" 
+                        className="btn btn-outline" 
+                        onClick={() => { fetchEntries(); onRefresh?.(); }}
+                        style={{ fontSize: '12px', padding: '6px 10px' }}
+                        title="Refresh payout records"
+                    >
+                        <RotateCcw size={13} /> Refresh
+                    </button>
+                </div>
+            </div>
+
+            {/* Filter Bar */}
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '14px' }}>
+                <div style={{ position: 'relative', flex: 1, minWidth: 'min(180px, 100%)' }}>
+                    <Search size={13} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+                    <input 
+                        type="text" 
+                        className="filter-input" 
+                        placeholder="Search UTR, notes, accounts..." 
+                        style={{ paddingLeft: '30px', fontSize: '12px', width: '100%' }}
+                        value={searchVal}
+                        onChange={e => setSearchVal(e.target.value)}
+                    />
+                </div>
+
+                {/* Courier Filter */}
+                <select 
+                    className="filter-select" 
+                    value={carrierFilter} 
+                    onChange={e => { onCarrierChange?.(e.target.value); setPage(1); }}
+                    style={{ fontSize: '12px', fontWeight: carrierFilter ? 700 : 500 }}
+                >
+                    <option value="">🏢 All Carrier Partners</option>
+                    {postpaidAccounts.map(p => (
+                        <option key={p.name} value={p.name}>{p.name} Account</option>
+                    ))}
+                </select>
+
+                {/* Account Filter */}
+                <select 
+                    className="filter-select" 
+                    value={accountFilter} 
+                    onChange={e => setAccountFilter(e.target.value)}
+                    style={{ fontSize: '12px', fontWeight: accountFilter ? 700 : 500 }}
+                >
+                    <option value="">💳 All Payment Accounts</option>
+                    {accountsList.map(acc => (
+                        <option key={acc} value={acc}>{acc}</option>
+                    ))}
+                </select>
+
+                {/* Date range */}
+                <input 
+                    type="date" 
+                    className="filter-input" 
+                    style={{ fontSize: '12px', width: '130px' }}
+                    value={dateFrom}
+                    onChange={e => { setDateFrom(e.target.value); setPage(1); }}
+                    title="From Date"
+                />
+                <input 
+                    type="date" 
+                    className="filter-input" 
+                    style={{ fontSize: '12px', width: '130px' }}
+                    value={dateTo}
+                    onChange={e => { setDateTo(e.target.value); setPage(1); }}
+                    title="To Date"
+                />
+
+                {(carrierFilter || accountFilter || searchVal || dateFrom || dateTo) && (
+                    <button 
+                        type="button" 
+                        className="btn btn-outline"
+                        style={{ fontSize: '11.5px', padding: '4px 8px' }}
+                        onClick={() => { onCarrierChange?.(''); setAccountFilter(''); setSearchVal(''); setDateFrom(''); setDateTo(''); setPage(1); }}
+                    >
+                        Reset Filters
+                    </button>
+                )}
+            </div>
+
+            {/* Table */}
+            <div className="table-responsive" style={{ overflowX: 'auto' }}>
+                <table className="data-table" style={{ width: '100%', fontSize: '12.5px' }}>
+                    <thead>
+                        <tr>
+                            <th style={{ textAlign: 'left' }}>Date</th>
+                            <th style={{ textAlign: 'left' }}>Carrier Partner</th>
+                            <th style={{ textAlign: 'left' }}>Type</th>
+                            <th style={{ textAlign: 'left' }}>Paid From Account</th>
+                            <th style={{ textAlign: 'right' }}>Amount</th>
+                            <th style={{ textAlign: 'left' }}>Mode</th>
+                            <th style={{ textAlign: 'left' }}>Reference / UTR</th>
+                            <th style={{ textAlign: 'left' }}>Remarks / Notes</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {loading ? (
+                            <tr>
+                                <td colSpan={8} style={{ textAlign: 'center', padding: '24px' }}>
+                                    <ButtonSpinner text="Loading carrier payout records..." />
+                                </td>
+                            </tr>
+                        ) : filteredEntries.length === 0 ? (
+                            <tr>
+                                <td colSpan={8} style={{ textAlign: 'center', padding: '30px', color: 'var(--text-muted)' }}>
+                                    <div style={{ fontSize: '24px', marginBottom: '6px' }}>📭</div>
+                                    <strong>No carrier payment records found</strong>
+                                    <p style={{ margin: '4px 0 0', fontSize: '12px' }}>
+                                        {carrierFilter ? `No payouts recorded for ${carrierFilter}.` : 'Record payouts using the Courier Payment form on the right or via Record Financial Transaction.'}
+                                    </p>
+                                </td>
+                            </tr>
+                        ) : (
+                            filteredEntries.map(item => (
+                                <tr key={item.id}>
+                                    <td style={{ whiteSpace: 'nowrap', fontWeight: 600 }}>{formatDate(item.date)}</td>
+                                    <td style={{ whiteSpace: 'nowrap' }}>
+                                        <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                                            <CourierLogo courier={item.provider} height={16} />
+                                            <strong>{item.provider || 'Carrier Partner'}</strong>
+                                        </div>
+                                    </td>
+                                    <td>
+                                        <span className={`status-pill ${item.kind === 'provider_deposit' ? 'in-transit' : 'delivered'}`} style={{ fontSize: '10.5px' }}>
+                                            {item.kind === 'provider_deposit' ? 'Deposit' : 'Payout'}
+                                        </span>
+                                    </td>
+                                    <td style={{ fontWeight: 600, color: 'var(--primary-blue, #2563eb)' }}>
+                                        {item.account || '—'}
+                                    </td>
+                                    <td style={{ textAlign: 'right', fontWeight: 800, color: 'var(--emerald, #10b981)', fontSize: '13.5px' }}>
+                                        {formatCurrency(item.amount)}
+                                    </td>
+                                    <td>
+                                        <span style={{ fontSize: '11.5px', color: 'var(--text-main)' }}>{item.payment_mode || '—'}</span>
+                                    </td>
+                                    <td>
+                                        <code style={{ fontSize: '11.5px', background: 'var(--bg-app)', padding: '2px 6px', borderRadius: '4px', border: '1px solid var(--card-border)' }}>
+                                            {item.reference || '—'}
+                                        </code>
+                                    </td>
+                                    <td style={{ color: 'var(--text-muted)', fontSize: '12px', maxWidth: '200px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                        {item.payment_details?.remarks || item.vendor || '—'}
+                                    </td>
+                                </tr>
+                            ))
+                        )}
+                    </tbody>
+                </table>
+            </div>
+
+            {/* Footer Summary & Pagination */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px', marginTop: '12px', paddingTop: '10px', borderTop: '1px solid var(--card-border)', fontSize: '12px', color: 'var(--text-muted)' }}>
+                <div>
+                    Showing <strong>{filteredEntries.length}</strong> of <strong>{totalCount}</strong> transactions
+                    {filteredEntries.length > 0 && (
+                        <span style={{ marginLeft: '12px' }}>
+                            Total Filtered Payout: <strong style={{ color: 'var(--emerald, #10b981)' }}>{formatCurrency(totalAmount)}</strong>
+                        </span>
+                    )}
+                </div>
+                {totalCount > pageSize && (
+                    <div style={{ display: 'flex', gap: '6px' }}>
+                        <button 
+                            type="button" 
+                            className="btn btn-outline" 
+                            style={{ padding: '3px 8px', fontSize: '11.5px' }} 
+                            disabled={page <= 1}
+                            onClick={() => setPage(p => p - 1)}
+                        >
+                            &larr; Prev
+                        </button>
+                        <span style={{ padding: '4px 8px', fontWeight: 700 }}>Page {page} of {Math.ceil(totalCount / pageSize)}</span>
+                        <button 
+                            type="button" 
+                            className="btn btn-outline" 
+                            style={{ padding: '3px 8px', fontSize: '11.5px' }} 
+                            disabled={page >= Math.ceil(totalCount / pageSize)}
+                            onClick={() => setPage(p => p + 1)}
+                        >
+                            Next &rarr;
+                        </button>
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+};
+
 const LegacyAccounts = ({
     settings,
     onRefresh,
@@ -196,7 +686,9 @@ const LegacyAccounts = ({
     activeSection,
 }) => {
     const { hasPermission, currentUser } = useAuth();
-    const [tab, setTab] = useState('collections');
+    const [tabSelection, setTabSelection] = useState({ source: activeSection, value: null });
+    const setTab = value => setTabSelection({ source: activeSection, value });
+    const [selectedPostpaidCarrier, setSelectedPostpaidCarrier] = useState('');
     const [entry, setEntry] = useState({kind: 'expense', category: '', date: new Date().toLocaleDateString('en-CA'), provider: '', amount: '', reference: '', account: '', vendor: '', payment_mode: 'UPI', payment_details: {}});
     const [saving, setSaving] = useState(false);
     const [entryMessage, setEntryMessage] = useState('');
@@ -218,21 +710,13 @@ const LegacyAccounts = ({
     const formatCurrency = (n) => '₹' + Number(n || 0).toLocaleString('en-IN');
     const formatDate = (d) => d ? new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '-';
 
-    React.useEffect(() => {
-        if (!activeSection || activeSection === 'overview' || activeSection === 'shipment_accounts') { setTab('overview'); return; }
-        const s = activeSection.toLowerCase();
-        if (s.includes('wallet') || s === 'prepaid') {
-            setTab('wallets');
-        } else if (s.includes('provider') || s.includes('aramex') || s.includes('bluedart') || s.includes('fedex') || s.includes('dhl') || s === 'postpaid') {
-            setTab('postpaid');
-        } else if (s.includes('reconcil')) {
-            setTab('reconciliation');
-        } else if (s.includes('expense') || s.includes('transaction')) {
-            setTab('transactions');
-        } else if (s.includes('collection') || s.includes('check') || s.includes('receipt') || s.includes('money')) {
-            setTab('collections');
-        }
-    }, [activeSection]);
+    const section = (activeSection || '').toLowerCase();
+    const sectionTab = !section || ['overview', 'shipment_accounts'].includes(section) ? 'overview'
+        : /wallet|prepaid/.test(section) ? 'wallets'
+        : /provider|aramex|bluedart|fedex|dhl|postpaid/.test(section) ? 'postpaid'
+        : /reconcil/.test(section) ? 'reconciliation'
+        : /expense|transaction/.test(section) ? 'transactions' : 'collections';
+    const tab = tabSelection.source === activeSection && tabSelection.value ? tabSelection.value : sectionTab;
 
     if (!hasPermission('accounts.view')) {
         return <div className="dash-box" role="status"><h2>Accounts access required</h2><p>Your role does not have permission to view accounts. Contact your administrator if you need access.</p></div>;
@@ -380,7 +864,7 @@ const LegacyAccounts = ({
                                     👛 Prepaid Logistics Wallets (ICL, BRV, etc.)
                                 </h3>
                                 <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: '4px 0 0' }}>
-                                    Recharging a wallet is an internal fund transfer. Cost occurs only when the wallet is debited on booking shipments.
+                                    Recharging a wallet is an internal fund transfer. Charges occur only when the wallet is debited on booking shipments.
                                 </p>
                             </div>
                             <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
@@ -430,7 +914,7 @@ const LegacyAccounts = ({
                                     📋 Postpaid Courier Accounts (Aramex, Blue Dart, FedEx, DHL, etc.)
                                 </h3>
                                 <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: '4px 0 0' }}>
-                                    Shipments accrue predicted costs. Month-end carrier bills are reconciled, and supplier payouts reduce net payable.
+                                    Shipments accrue predicted carrier values. Month-end carrier bills are reconciled, and supplier payouts reduce net payable.
                                 </p>
                             </div>
                             <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
@@ -449,7 +933,21 @@ const LegacyAccounts = ({
                                         <CourierLogo courier={p.name} height={16} />
                                         <strong style={{ fontSize: '14px', color: 'var(--text-main)' }}>{p.name} Account</strong>
                                     </div>
-                                    <span className="status-pill in-transit" style={{ fontSize: '11px' }}>{p.payment_terms || '30 Days'}</span>
+                                    <span 
+                                        className="status-pill in-transit" 
+                                        style={{ 
+                                            fontSize: '11px', 
+                                            fontWeight: 600, 
+                                            background: 'rgba(59, 130, 246, 0.12)', 
+                                            color: 'var(--primary-blue)', 
+                                            border: '1px solid rgba(59, 130, 246, 0.25)', 
+                                            padding: '2px 8px', 
+                                            borderRadius: '12px' 
+                                        }}
+                                        title="Carrier Payment Terms (Configurable in Settings > Payments & Carriers)"
+                                    >
+                                        ⏱️ {p.payment_terms && p.payment_terms !== 'Not set' ? p.payment_terms : '30 Days'}
+                                    </span>
                                 </div>
 
                                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', margin: '8px 0', padding: '8px', background: 'var(--bg-app)', borderRadius: '6px' }}>
@@ -477,7 +975,7 @@ const LegacyAccounts = ({
                                         <strong style={{ color: 'var(--emerald)' }}>{formatCurrency(p.payments_made)}</strong>
                                     </div>
                                     {Number(p.unapplied_payments) > 0 && (
-                                        <div style={{ display: 'flex', justifyContent: 'space-between' }} title="Recorded payouts exceeding the remaining reconciled shipment costs. Review carrier records before treating this as refundable credit.">
+                                        <div style={{ display: 'flex', justifyContent: 'space-between' }} title="Recorded payouts exceeding the remaining reconciled shipment values. Review carrier records before treating this as refundable credit.">
                                             <span>Unapplied Payments:</span>
                                             <strong style={{ color: 'var(--emerald)' }}>{formatCurrency(p.unapplied_payments)}</strong>
                                         </div>
@@ -490,10 +988,32 @@ const LegacyAccounts = ({
                                         <span>Unbilled Shipments:</span>
                                         <strong>{p.unbilled_shipments_count ?? 0} shipments</strong>
                                     </div>
+                                    <div style={{ display: 'flex', gap: '6px', marginTop: '6px', paddingTop: '6px', borderTop: '1px solid var(--card-border)' }}>
+                                        <button 
+                                            type="button" 
+                                            className="btn btn-outline" 
+                                            style={{ flex: 1, padding: '4px 8px', fontSize: '11px', fontWeight: 600, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }}
+                                            onClick={() => {
+                                                setSelectedPostpaidCarrier(prev => prev === p.name ? '' : p.name);
+                                                document.getElementById('carrier-payout-history')?.scrollIntoView({ behavior: 'smooth' });
+                                            }}
+                                            title={`Filter payout history for ${p.name}`}
+                                        >
+                                            📜 {selectedPostpaidCarrier === p.name ? 'Showing History' : 'View Payout History'}
+                                        </button>
+                                    </div>
                                 </div>
                             </div>
                         ))}
                     </div>
+
+                    {/* Carrier Payouts & Transaction History Table */}
+                    <CarrierPayoutLedger 
+                        postpaidAccounts={accountsData.postpaid_accounts || []} 
+                        carrierFilter={selectedPostpaidCarrier}
+                        onCarrierChange={setSelectedPostpaidCarrier}
+                        onRefresh={onRefresh}
+                    />
                 </div>
             )}
 
@@ -627,34 +1147,13 @@ const LegacyAccounts = ({
     );
 };
 
-export const B2B = ({ b2bData, onOpenCustomerDrawer, onOpenB2BModal, onRefresh }) => {
+export const B2B = ({ b2bData, selectedCenter, onOpenCustomerDrawer, onOpenB2BModal, onRefresh }) => {
     const { hasPermission } = useAuth();
     const canViewPrice = hasPermission('costs.customer_price');
     const formatCurrency = (n) => '₹' + Number(n || 0).toLocaleString('en-IN');
-    const [timeoutExpired, setTimeoutExpired] = useState(false);
     const [isRefreshing, setIsRefreshing] = useState(false);
-
-    // Timeout safety fallback: if b2bData is null for more than 2 seconds, transition out of shimmer
-    React.useEffect(() => {
-        if (!b2bData) {
-            const timer = setTimeout(() => {
-                setTimeoutExpired(true);
-            }, 2000);
-            return () => clearTimeout(timer);
-        } else {
-            setTimeoutExpired(false);
-        }
-    }, [b2bData]);
-
-    const activeData = b2bData || (timeoutExpired ? {
-        companies: [],
-        total_credit_sales: 0,
-        collected: 0,
-        outstanding: 0,
-        due_this_week: 0,
-        overdue: 0,
-        aging: { not_due: 0, days1_30: 0, days31_60: 0, days61_90: 0, days90_plus: 0 }
-    } : null);
+    const activeData = b2bData;
+    const companyPage = useTablePage(b2bData?.companies || [], selectedCenter);
 
     if (!activeData) {
         return (
@@ -689,22 +1188,14 @@ export const B2B = ({ b2bData, onOpenCustomerDrawer, onOpenB2BModal, onRefresh }
             'Credit Period (Days)', 'Status'
         ];
         const rows = activeData.companies.map(c => [
-            `"${c.company}"`,
-            `"${c.contact_name}"`,
-            `"${c.mobile}"`,
-            ...(canViewPrice ? [c.credit_limit || 0, c.total_billed || 0, c.outstanding || 0] : []),
-            c.credit_period_days || 30,
-            `"${c.status}"`
+            c.company || '',
+            c.contact_name || '',
+            c.mobile || '',
+            ...(canViewPrice ? [Number(c.credit_limit || 0), Number(c.total_billed || 0), Number(c.outstanding || 0)] : []),
+            Number(c.credit_period_days || 30),
+            c.status || ''
         ]);
-
-        const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map(e => e.join(','))].join('\n');
-        const encodedUri = encodeURI(csvContent);
-        const link = document.createElement('a');
-        link.setAttribute('href', encodedUri);
-        link.setAttribute('download', `FMC_B2B_Accounts_${businessDate()}.csv`);
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
+        exportToExcel(headers, rows, `FMC_B2B_Accounts_${businessDate()}.xlsx`, 'B2B_Accounts');
     };
 
     return (
@@ -726,7 +1217,7 @@ export const B2B = ({ b2bData, onOpenCustomerDrawer, onOpenB2BModal, onRefresh }
                         </button>
                     )}
                     <button className="btn btn-outline" onClick={exportToCSV}>
-                        <Download size={14} /> Export CSV
+                        <Download size={14} /> Export Excel
                     </button>
                     <button className="btn btn-primary-blue" onClick={onOpenB2BModal}>
                         <Plus size={15} /> Add B2B Client
@@ -799,7 +1290,7 @@ export const B2B = ({ b2bData, onOpenCustomerDrawer, onOpenB2BModal, onRefresh }
                         </thead>
                         <tbody>
                             {activeData.companies && activeData.companies.length > 0 ? (
-                                activeData.companies.map(c => {
+                                companyPage.rows.map(c => {
                                     const util = c.credit_utilized_percent || 0;
                                     return (
                                         <tr key={c.id}>
@@ -829,9 +1320,31 @@ export const B2B = ({ b2bData, onOpenCustomerDrawer, onOpenB2BModal, onRefresh }
                                                 </span>
                                             </td>
                                             <td style={{ textAlign: 'center' }}>
-                                                <button className="btn btn-sm btn-outline" onClick={() => onOpenCustomerDrawer(c.id)}>
-                                                    Statement
-                                                </button>
+                                                <div style={{ display: 'inline-flex', alignItems: 'center', gap: '5px' }}>
+                                                    {c.mobile && (
+                                                        <button
+                                                            type="button"
+                                                            className="btn-action-icon"
+                                                            title="Send WhatsApp to Corporate Contact"
+                                                            onClick={() => openWhatsApp({ phone: c.mobile, message: c.outstanding > 0 ? CommTemplates.paymentReminder({ customerName: c.company, dueAmount: c.outstanding }) : CommTemplates.generalGreeting({ customerName: c.company }) })}
+                                                        >
+                                                            <MessageSquare size={13} color="#25D366" />
+                                                        </button>
+                                                    )}
+                                                    {c.email && (
+                                                        <button
+                                                            type="button"
+                                                            className="btn-action-icon"
+                                                            title="Send Corporate Email"
+                                                            onClick={() => openEmail({ email: c.email, subject: `Corporate Account Statement - ${c.company}`, body: c.outstanding > 0 ? CommTemplates.paymentReminder({ customerName: c.company, dueAmount: c.outstanding }) : CommTemplates.generalGreeting({ customerName: c.company }) })}
+                                                        >
+                                                            <Mail size={13} color="#3b82f6" />
+                                                        </button>
+                                                    )}
+                                                    <button className="btn btn-sm btn-outline" onClick={() => onOpenCustomerDrawer(c.id)}>
+                                                        Statement
+                                                    </button>
+                                                </div>
                                             </td>
                                         </tr>
                                     );
@@ -853,6 +1366,7 @@ export const B2B = ({ b2bData, onOpenCustomerDrawer, onOpenB2BModal, onRefresh }
                         </tbody>
                     </table>
                 </div>
+                <TablePagination {...companyPage} />
             </div>
         </div>
     );

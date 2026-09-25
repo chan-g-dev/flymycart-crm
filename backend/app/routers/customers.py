@@ -79,8 +79,9 @@ def get_customers(
     customer_rows = query.all()
     ids = [customer.id for customer in customer_rows]
     paid = shipment_payments_query(db).subquery()
-    balance = case((func.coalesce(paid.c.total, Shipment.price) > func.coalesce(paid.c.paid, 0), func.coalesce(paid.c.total, Shipment.price) - func.coalesce(paid.c.paid, 0)), else_=0)
-    stats = db.query(Shipment.customer_id, func.count(Shipment.id), func.sum(Shipment.price), func.sum(balance)).outerjoin(
+    billed_total = func.coalesce(Shipment.total_amount, Shipment.price + func.coalesce(Shipment.gst_amount, 0))
+    balance = case((func.coalesce(paid.c.total, billed_total) > func.coalesce(paid.c.paid, 0), func.coalesce(paid.c.total, billed_total) - func.coalesce(paid.c.paid, 0)), else_=0)
+    stats = db.query(Shipment.customer_id, func.count(Shipment.id), func.sum(billed_total), func.sum(balance)).outerjoin(
         paid, paid.c.shipment_id == Shipment.id).filter(Shipment.customer_id.in_(ids)).group_by(Shipment.customer_id).all() if ids else []
     by_customer = {row[0]: row[1:] for row in stats}
     result = []
@@ -97,29 +98,124 @@ def get_customers(
 
 @customers_router.get("/lookup")
 def lookup_customer_by_mobile(
-    mobile: str = Query(..., min_length=4),
+    mobile: str = Query("", max_length=150),
+    customer_type: Optional[str] = Query(None),
     ctx: Dict[str, Any] = Depends(require_permission(PermissionCode.CUSTOMERS_VIEW)),
     db: Session = Depends(get_db)
 ):
-    term = f"%{mobile.strip()}%"
-    customer = db.query(Customer).filter(Customer.mobile == mobile.strip()).first()
-    if not customer:
-        return {"found": False, "customer": None}
+    raw_query = mobile.strip()
+    digits_only = "".join(filter(str.isdigit, raw_query))
+    if len(raw_query) < 2 and not (not raw_query and customer_type == "B2B"):
+        return {"found": False, "customer": None, "matches": []}
+    matches = []
+    seen_ids = set()
+    seen_companies = set()
+
+    def add_customer(c, is_b2b_entity=False):
+        cid = f"b2b_{c.id}" if is_b2b_entity else c.id
+        if cid in seen_ids:
+            return
+        seen_ids.add(cid)
+        if is_b2b_entity:
+            if c.id in seen_companies:
+                return
+            matches.append({
+                "id": c.id,
+                "customer_id": None,
+                "b2b_company_id": c.id,
+                "name": c.contact_person or c.company_name,
+                "company": c.company_name,
+                "mobile": c.mobile,
+                "whatsapp": c.mobile,
+                "email": c.email or "",
+                "address": c.billing_address or "",
+                "id_proof": c.gst_number or "",
+                "id_proof_front": "",
+                "id_proof_back": "",
+                "customer_type": "B2B",
+                "center": "Main Hub (Bangalore)",
+                "credit_limit": c.credit_limit,
+                "credit_period_days": c.credit_period_days,
+                "is_b2b_corporate": True
+            })
+        else:
+            if c.b2b_company_id:
+                seen_companies.add(c.b2b_company_id)
+            matches.append({
+                "id": c.id,
+                "customer_id": c.id,
+                "b2b_company_id": c.b2b_company_id,
+                "name": c.name,
+                "company": c.company or "",
+                "mobile": c.mobile,
+                "whatsapp": c.whatsapp or c.mobile,
+                "email": c.email or "",
+                "address": c.address or "",
+                "id_proof": c.id_proof or "",
+                "id_proof_front": getattr(c, "id_proof_front", None) or "",
+                "id_proof_back": getattr(c, "id_proof_back", None) or "",
+                "customer_type": c.customer_type or "C2C",
+                "center": c.center,
+                "credit_limit": c.credit_limit,
+                "credit_period_days": c.credit_period_days,
+                "is_b2b_corporate": False
+            })
+
+    # 1. Search Customer table
+    cust_conditions = []
+    if digits_only and len(digits_only) >= 4:
+        last10 = digits_only[-10:] if len(digits_only) >= 10 else digits_only
+        cust_conditions.extend([
+            Customer.mobile.like(f"%{digits_only}%"),
+            Customer.mobile.like(f"%{last10}%"),
+            Customer.whatsapp.like(f"%{digits_only}%")
+        ])
+    if len(raw_query) >= 2:
+        q_like = f"%{raw_query.lower()}%"
+        cust_conditions.extend([
+            func.lower(Customer.name).like(q_like),
+            func.lower(Customer.company).like(q_like),
+            func.lower(Customer.email).like(q_like)
+        ])
+
+    cust_q = db.query(Customer)
+    if customer_type and customer_type != 'All':
+        cust_q = cust_q.filter(Customer.customer_type == customer_type)
+    if cust_conditions:
+        cust_q = cust_q.filter(or_(*cust_conditions))
+    
+    for c in cust_q.order_by(desc(Customer.created_at)).limit(15).all():
+        add_customer(c, is_b2b_entity=False)
+
+    # 2. Search B2BCompany table
+    b2b_conditions = []
+    if digits_only and len(digits_only) >= 4:
+        last10 = digits_only[-10:] if len(digits_only) >= 10 else digits_only
+        b2b_conditions.extend([
+            B2BCompany.mobile.like(f"%{digits_only}%"),
+            B2BCompany.mobile.like(f"%{last10}%")
+        ])
+    if len(raw_query) >= 2:
+        q_like = f"%{raw_query.lower()}%"
+        b2b_conditions.extend([
+            func.lower(B2BCompany.company_name).like(q_like),
+            func.lower(B2BCompany.contact_person).like(q_like),
+            func.lower(B2BCompany.email).like(q_like),
+            func.lower(B2BCompany.gst_number).like(q_like)
+        ])
+
+    if customer_type in (None, "All", "B2B"):
+        b2b_query = db.query(B2BCompany)
+        if b2b_conditions:
+            b2b_query = b2b_query.filter(or_(*b2b_conditions))
+        for b in b2b_query.order_by(desc(B2BCompany.created_at)).limit(10).all():
+            add_customer(b, is_b2b_entity=True)
+
+    primary = matches[0] if matches else None
     return {
-        "found": True,
-        "customer": {
-            "id": customer.id,
-            "name": customer.name,
-            "company": customer.company or "",
-            "mobile": customer.mobile,
-            "whatsapp": customer.whatsapp or customer.mobile,
-            "email": customer.email or "",
-            "address": customer.address or "",
-            "customer_type": customer.customer_type,
-            "center": customer.center,
-            "credit_limit": customer.credit_limit,
-            "credit_period_days": customer.credit_period_days
-        }
+        "found": bool(primary),
+        "customer": primary,
+        "matches": matches
     }
 
 @customers_router.get("/{customer_id}/360")
@@ -165,12 +261,27 @@ def get_customer_360(
         "created_at": customer.created_at.isoformat() if customer and customer.created_at else None
     }
 
+    refunds_by_awb = dict(
+        db.query(func.lower(Refund.awb), func.sum(Refund.amount))
+        .filter(Refund.status.in_(["Approved", "Refunded"]))
+        .group_by(func.lower(Refund.awb))
+        .all()
+    )
+
     shipments = []
     for s in shipments_raw:
+        s_awb = (s.awb or "").lower().strip()
+        s_refund = float(refunds_by_awb.get(s_awb, 0) or 0)
+        billed_val = getattr(s, "total_amount", None)
+        if billed_val is None:
+            billed_val = (s.price or 0.0) + (getattr(s, "gst_amount", 0.0) or 0.0)
+        base_gp = calculate_gross_profit(s.price or 0, s.provider_cost, s.actual_provider_cost, s.cost_reconciled)
         s_dict = {
             "id": s.id,
             "awb": s.awb,
             "date": s.date,
+            "pickup_date": s.pickup_date,
+            "delivery_date": s.delivery_date,
             "customer_id": s.customer_id,
             "customer_name": s.customer_name,
             "courier": s.courier,
@@ -180,29 +291,61 @@ def get_customer_360(
             "receiver_country": s.receiver_country,
             "chargeable_weight": s.chargeable_weight,
             "actual_weight": s.actual_weight,
+            "volumetric_weight": s.volumetric_weight,
             "price": s.price,
+            "is_gst_applicable": getattr(s, "is_gst_applicable", True),
+            "gst_rate": getattr(s, "gst_rate", 18.0) or 0.0,
+            "gst_amount": getattr(s, "gst_amount", 0.0) or 0.0,
+            "total_amount": billed_val,
             "provider_cost": s.provider_cost,
             "actual_provider_cost": s.actual_provider_cost,
             "cost_reconciled": s.cost_reconciled,
-            "gross_profit": calculate_gross_profit(s.price, s.provider_cost, s.actual_provider_cost, s.cost_reconciled),
+            "gross_profit": round(base_gp - s_refund, 2),
+            "refund_amount": s_refund,
             "payment_status": s.payment_status,
             "payment_method": s.payment_method,
-            "status": s.status
+            "paid_to": getattr(s, "paid_to", None),
+            "collected_by": getattr(s, "collected_by", None),
+            "domestic_international": s.domestic_international,
+            "is_ddp": bool(getattr(s, "is_ddp", False)),
+            "status": s.status,
+            "entity": getattr(s, "entity", "Globe Courier") or "Globe Courier"
         }
         shipments.append(mask_shipment_financials(s_dict, ctx))
 
     invoices = []
     try:
         inv_filter = or_(Invoice.customer_id.in_(customer_ids), Invoice.b2b_company_id == company.id) if company else Invoice.customer_id.in_(customer_ids)
-        inv_rows = db.query(Invoice).filter(inv_filter).order_by(desc(Invoice.created_at)).all()
+        inv_rows = db.query(Invoice).options(selectinload(Invoice.shipment_rel), selectinload(Invoice.customer_rel)).filter(inv_filter).order_by(desc(Invoice.created_at)).all()
         for inv in inv_rows:
+            is_ddp = bool(getattr(inv.shipment_rel, 'is_ddp', False)) if inv.shipment_rel else False
             invoices.append({
-                "id": inv.id, "invoice_no": inv.invoice_no, "date": inv.date,
-                "amount": float(inv.amount or 0), "gst": float(inv.gst or 0), "total": float(inv.total or 0),
-                "paid": float(inv.paid or 0), "balance": float(inv.balance or 0), "status": inv.status or "Due",
-                "awb": inv.awb, "courier": inv.courier, "service": inv.service
+                "id": inv.id,
+                "invoice_no": inv.invoice_no,
+                "date": inv.date,
+                "amount": float(inv.amount or 0),
+                "gst": float(inv.gst or 0),
+                "total": float(inv.total or 0),
+                "paid": float(inv.paid or 0),
+                "balance": float(inv.balance or 0),
+                "status": inv.status or "Due",
+                "awb": inv.awb,
+                "courier": inv.courier,
+                "service": inv.service,
+                "customer_name": inv.customer_name or (customer.name if customer else ""),
+                "customer_phone": getattr(inv, 'customer_phone', None) or (getattr(customer, 'whatsapp', None) or getattr(customer, 'mobile', None) or ""),
+                "customer_id": inv.customer_id,
+                "is_gst_invoice": bool(inv.is_gst_invoice) if inv.is_gst_invoice is not None else True,
+                "tax_rate": float(inv.tax_rate or 18.0),
+                "cgst": float(inv.cgst or 0),
+                "sgst": float(inv.sgst or 0),
+                "igst": float(inv.igst or 0),
+                "description": inv.description or "",
+                "is_ddp": is_ddp
             })
-    except Exception:
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
         invoices = []
 
     followups = []
@@ -240,12 +383,13 @@ def get_customer_360(
     except Exception:
         refunds = []
 
-    total_spent = sum(float(s.price or 0) for s in shipments_raw)
     try:
         paid = shipment_paid_map(db)
         billed = shipment_total_map(db, [s.id for s in shipments_raw])
-        total_outstanding = sum(max(0, billed.get(s.id, float(s.price or 0)) - paid.get(s.id, 0)) for s in shipments_raw)
+        total_spent = sum(billed.get(s.id, float(s.total_amount or s.price or 0)) for s in shipments_raw)
+        total_outstanding = sum(max(0, billed.get(s.id, float(s.total_amount or s.price or 0)) - paid.get(s.id, 0)) for s in shipments_raw)
     except Exception:
+        total_spent = sum(float(s.total_amount or s.price or 0) for s in shipments_raw)
         total_outstanding = 0.0
 
     if not can_view_customer_price(ctx):

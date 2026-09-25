@@ -86,7 +86,15 @@ class PermissionCode(str, Enum):
     # Search
     SEARCH_GLOBAL = "search.global"
 
+    # Dashboard Widgets
     DASHBOARDS_VIEW = "dashboards.view"
+    DASHBOARDS_BOOKING_TRENDS = "dashboards.booking_trends"
+    DASHBOARDS_RECENT_BOOKINGS = "dashboards.recent_bookings"
+    DASHBOARDS_FLEET_VOLUME = "dashboards.fleet_volume"
+    DASHBOARDS_ACCOUNTS_SNAPSHOT = "dashboards.accounts_snapshot"
+    DASHBOARDS_FINANCIAL_ANALYTICS = "dashboards.financial_analytics"
+    DASHBOARDS_FOLLOWUPS = "dashboards.followups"
+    DASHBOARDS_QUICK_ACTIONS = "dashboards.quick_actions"
 
     # Attendance
     ATTENDANCE_VIEW = "attendance.view"
@@ -122,6 +130,8 @@ FINANCIAL_PERMISSIONS = {
     PermissionCode.COSTS_NET_VALUE,
     PermissionCode.COSTS_MARGINS,
     PermissionCode.COSTS_VIEW,
+    PermissionCode.DASHBOARDS_ACCOUNTS_SNAPSHOT,
+    PermissionCode.DASHBOARDS_FINANCIAL_ANALYTICS,
     PermissionCode.REPORTS_EXPORT,
     PermissionCode.B2B_MANAGE_CREDIT,
     PermissionCode.SETTINGS_MANAGE,
@@ -146,55 +156,55 @@ DEFAULT_ROLE_PERMISSIONS: Dict[str, List[str]] = {
         "*",
     ],
     "manager": [
-        # Customers
-        PermissionCode.CUSTOMERS_VIEW,
-        PermissionCode.CUSTOMERS_ADD,
-        PermissionCode.CUSTOMERS_EDIT,
-        PermissionCode.CUSTOMERS_EXPORT,
-        # Shipments
-        PermissionCode.SHIPMENTS_VIEW,
-        PermissionCode.SHIPMENTS_ADD,
-        PermissionCode.SHIPMENTS_EDIT,
-        PermissionCode.SHIPMENTS_CANCEL,
-        PermissionCode.SHIPMENTS_EXPORT,
-        # Invoices
-        PermissionCode.INVOICES_VIEW,
-        PermissionCode.INVOICES_ADD,
-        PermissionCode.INVOICES_EDIT,
-        # Accounts
-        PermissionCode.ACCOUNTS_VIEW,
-        PermissionCode.ACCOUNTS_EDIT,
-        # Refunds
-        PermissionCode.REFUNDS_VIEW,
-        PermissionCode.REFUNDS_REQUEST,
-        PermissionCode.REFUNDS_APPROVE,
-        # Reports
-        PermissionCode.REPORTS_VIEW,
-        PermissionCode.REPORTS_VIEW_FINANCIAL,
-        # B2B
-        PermissionCode.B2B_VIEW,
-        PermissionCode.B2B_ADD,
-        PermissionCode.B2B_EDIT,
-        # Users
-        PermissionCode.USERS_VIEW,
-        PermissionCode.USERS_INVITE,
-        PermissionCode.USERS_EDIT,
-        # Settings
-        PermissionCode.SETTINGS_VIEW,
-        PermissionCode.SETTINGS_MANAGE,
-        # Reconciliation
-        PermissionCode.RECONCILIATION_VIEW,
-        PermissionCode.RECONCILIATION_RUN,
-        # Attendance
-        PermissionCode.ATTENDANCE_VIEW,
-        PermissionCode.ATTENDANCE_PUNCH,
-        PermissionCode.ATTENDANCE_MANAGE,
-        # Followups
-        PermissionCode.FOLLOWUPS_VIEW,
-        PermissionCode.FOLLOWUPS_ADD,
-        PermissionCode.FOLLOWUPS_EDIT,
-        # Search
-        PermissionCode.SEARCH_GLOBAL,
+        p.value for p in PermissionCode if p not in (PermissionCode.COSTS_NET_VALUE, PermissionCode.COSTS_MARGINS, PermissionCode.REPORTS_VIEW_FINANCIAL)
+    ],
+    "supervisor": [
+        PermissionCode.DASHBOARDS_VIEW, PermissionCode.DASHBOARDS_BOOKING_TRENDS, PermissionCode.DASHBOARDS_RECENT_BOOKINGS,
+        PermissionCode.DASHBOARDS_FLEET_VOLUME, PermissionCode.DASHBOARDS_FOLLOWUPS, PermissionCode.DASHBOARDS_QUICK_ACTIONS,
+        PermissionCode.ATTENDANCE_VIEW, PermissionCode.ATTENDANCE_PUNCH,
+        PermissionCode.USERS_VIEW, PermissionCode.CUSTOMERS_VIEW, PermissionCode.CUSTOMERS_ADD, PermissionCode.CUSTOMERS_EDIT, PermissionCode.CUSTOMERS_EXPORT,
+        PermissionCode.SHIPMENTS_VIEW, PermissionCode.SHIPMENTS_ADD, PermissionCode.SHIPMENTS_EDIT, PermissionCode.SHIPMENTS_CANCEL, PermissionCode.SHIPMENTS_EXPORT,
+        PermissionCode.INVOICES_VIEW, PermissionCode.INVOICES_ADD, PermissionCode.INVOICES_EDIT, PermissionCode.INVOICES_EXPORT, PermissionCode.INVOICES_PRINT,
+        PermissionCode.ACCOUNTS_VIEW, PermissionCode.ACCOUNTS_RECONCILE, PermissionCode.REFUNDS_VIEW, PermissionCode.REFUNDS_REQUEST, PermissionCode.REFUNDS_APPROVE,
+        PermissionCode.REPORTS_VIEW, PermissionCode.REPORTS_EOD, PermissionCode.REPORTS_WEEKLY, PermissionCode.REPORTS_CUSTOM_RANGE, PermissionCode.REPORTS_PRINT, PermissionCode.REPORTS_EXPORT,
+        PermissionCode.B2B_VIEW, PermissionCode.B2B_ADD, PermissionCode.B2B_EDIT, PermissionCode.FOLLOWUPS_VIEW, PermissionCode.FOLLOWUPS_ADD, PermissionCode.FOLLOWUPS_EDIT,
+        PermissionCode.SEARCH_GLOBAL, PermissionCode.SETTINGS_VIEW, PermissionCode.RECONCILIATION_VIEW,
+    ],
+    "account_executive": [
+        PermissionCode.DASHBOARDS_VIEW, PermissionCode.DASHBOARDS_BOOKING_TRENDS, PermissionCode.DASHBOARDS_RECENT_BOOKINGS,
+        PermissionCode.DASHBOARDS_FLEET_VOLUME, PermissionCode.DASHBOARDS_ACCOUNTS_SNAPSHOT, PermissionCode.DASHBOARDS_FINANCIAL_ANALYTICS,
+        PermissionCode.DASHBOARDS_FOLLOWUPS, PermissionCode.DASHBOARDS_QUICK_ACTIONS,
+        PermissionCode.ATTENDANCE_VIEW, PermissionCode.ATTENDANCE_PUNCH,
+        PermissionCode.CUSTOMERS_VIEW, PermissionCode.CUSTOMERS_ADD, PermissionCode.CUSTOMERS_EDIT, PermissionCode.CUSTOMERS_EXPORT,
+        PermissionCode.SHIPMENTS_VIEW, PermissionCode.SHIPMENTS_ADD, PermissionCode.SHIPMENTS_EDIT, PermissionCode.SHIPMENTS_CANCEL, PermissionCode.SHIPMENTS_EXPORT,
+        PermissionCode.INVOICES_VIEW, PermissionCode.INVOICES_ADD, PermissionCode.INVOICES_EDIT, PermissionCode.INVOICES_EXPORT, PermissionCode.INVOICES_PRINT,
+        PermissionCode.ACCOUNTS_VIEW, PermissionCode.ACCOUNTS_EDIT, PermissionCode.ACCOUNTS_RECONCILE, PermissionCode.ACCOUNTS_EXPORT,
+        PermissionCode.REFUNDS_VIEW, PermissionCode.REFUNDS_REQUEST,
+        PermissionCode.REPORTS_VIEW, PermissionCode.REPORTS_EOD, PermissionCode.REPORTS_WEEKLY, PermissionCode.REPORTS_EXPORT,
+        PermissionCode.B2B_VIEW, PermissionCode.B2B_ADD, PermissionCode.B2B_EDIT, PermissionCode.B2B_MANAGE_CREDIT, PermissionCode.B2B_EXPORT,
+        PermissionCode.FOLLOWUPS_VIEW, PermissionCode.FOLLOWUPS_ADD, PermissionCode.FOLLOWUPS_EDIT, PermissionCode.SEARCH_GLOBAL, PermissionCode.RECONCILIATION_VIEW,
+    ],
+    "operation_executive": [
+        PermissionCode.DASHBOARDS_VIEW, PermissionCode.DASHBOARDS_BOOKING_TRENDS, PermissionCode.DASHBOARDS_RECENT_BOOKINGS,
+        PermissionCode.DASHBOARDS_FLEET_VOLUME, PermissionCode.DASHBOARDS_FOLLOWUPS, PermissionCode.DASHBOARDS_QUICK_ACTIONS,
+        PermissionCode.ATTENDANCE_VIEW, PermissionCode.ATTENDANCE_PUNCH,
+        PermissionCode.CUSTOMERS_VIEW, PermissionCode.CUSTOMERS_ADD, PermissionCode.CUSTOMERS_EDIT,
+        PermissionCode.SHIPMENTS_VIEW, PermissionCode.SHIPMENTS_ADD, PermissionCode.SHIPMENTS_EDIT, PermissionCode.SHIPMENTS_CANCEL, PermissionCode.SHIPMENTS_EXPORT,
+        PermissionCode.INVOICES_VIEW, PermissionCode.INVOICES_ADD, PermissionCode.INVOICES_EDIT, PermissionCode.INVOICES_PRINT,
+        PermissionCode.REFUNDS_VIEW, PermissionCode.REFUNDS_REQUEST,
+        PermissionCode.REPORTS_VIEW, PermissionCode.REPORTS_EOD, PermissionCode.REPORTS_WEEKLY, PermissionCode.REPORTS_PRINT, PermissionCode.REPORTS_EXPORT,
+        PermissionCode.FOLLOWUPS_VIEW, PermissionCode.FOLLOWUPS_ADD, PermissionCode.FOLLOWUPS_EDIT, PermissionCode.SEARCH_GLOBAL, PermissionCode.RECONCILIATION_VIEW,
+    ],
+    "operations_executive": [
+        PermissionCode.DASHBOARDS_VIEW, PermissionCode.DASHBOARDS_BOOKING_TRENDS, PermissionCode.DASHBOARDS_RECENT_BOOKINGS,
+        PermissionCode.DASHBOARDS_FLEET_VOLUME, PermissionCode.DASHBOARDS_FOLLOWUPS, PermissionCode.DASHBOARDS_QUICK_ACTIONS,
+        PermissionCode.ATTENDANCE_VIEW, PermissionCode.ATTENDANCE_PUNCH,
+        PermissionCode.CUSTOMERS_VIEW, PermissionCode.CUSTOMERS_ADD, PermissionCode.CUSTOMERS_EDIT,
+        PermissionCode.SHIPMENTS_VIEW, PermissionCode.SHIPMENTS_ADD, PermissionCode.SHIPMENTS_EDIT, PermissionCode.SHIPMENTS_CANCEL, PermissionCode.SHIPMENTS_EXPORT,
+        PermissionCode.INVOICES_VIEW, PermissionCode.INVOICES_ADD, PermissionCode.INVOICES_EDIT, PermissionCode.INVOICES_PRINT,
+        PermissionCode.REFUNDS_VIEW, PermissionCode.REFUNDS_REQUEST,
+        PermissionCode.REPORTS_VIEW, PermissionCode.REPORTS_EOD, PermissionCode.REPORTS_WEEKLY, PermissionCode.REPORTS_PRINT, PermissionCode.REPORTS_EXPORT,
+        PermissionCode.FOLLOWUPS_VIEW, PermissionCode.FOLLOWUPS_ADD, PermissionCode.FOLLOWUPS_EDIT, PermissionCode.SEARCH_GLOBAL, PermissionCode.RECONCILIATION_VIEW,
     ],
     "operations_staff": [
         # Attendance (punch & personal view)

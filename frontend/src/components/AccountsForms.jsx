@@ -46,17 +46,30 @@ export function ExpenseEntry({ settings, accounts, providers = [], profiles = []
         let id = savedId;
         try {
             if (!id) {
-                const result = await apiClient.recordAccountingEntry({ ...entry, kind: entryKind, provider: entryKind === 'provider_payment' ? provider : null, shipment_id: entryKind === 'expense' ? linkedShipment?.id || null : null, center: center || null, category: entryKind === 'expense' ? entry.category.trim() : null, vendor: entry.vendor.trim(), account: entry.account.trim(), reference: entry.reference.trim(), amount: Number(entry.amount) });
+                const result = await apiClient.recordAccountingEntry({
+                    ...entry,
+                    kind: entryKind,
+                    provider: entryKind === 'provider_payment' ? provider : null,
+                    shipment_id: entryKind === 'expense' ? linkedShipment?.id || null : null,
+                    center: center || null,
+                    category: entryKind === 'expense' ? (entry.category || '').trim() : null,
+                    vendor: entryKind === 'expense' ? (entry.vendor || '').trim() : (provider || 'Courier Partner'),
+                    account: (entry.account || '').trim(),
+                    reference: (entry.reference || '').trim(),
+                    amount: Number(entry.amount)
+                });
                 id = result.id; setSavedId(id);
             }
             if (file) await apiClient.uploadExpenseBill(id, file);
             setEntry(old => ({ ...old, amount: '', reference: '', vendor: '' }));
             setSavedId(null); setFile(null);
             if (fileInput.current) fileInput.current.value = '';
-            setMessage(entryKind === 'provider_payment' ? 'Courier payment saved. Courier balances updated.' : 'Expense saved successfully.'); onClearShipment?.(); onSaved();
+            setMessage(entryKind === 'provider_payment' ? `Courier payment of ₹${Number(entry.amount).toLocaleString('en-IN')} to ${provider} saved successfully.` : 'Expense saved successfully.'); 
+            onClearShipment?.(); 
+            onSaved();
         } catch (error) {
             const detail = typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Please retry.';
-            setMessage(id ? `Expense saved; bill upload failed. ${detail} Retry attaches the bill without recording the expense again.` : `Unable to save expense. ${detail}`);
+            setMessage(id ? `Expense saved; bill upload failed. ${detail} Retry attaches the bill without recording the expense again.` : `Unable to save entry. ${detail}`);
             if (id) onSaved();
         } finally { setSaving(false); }
     };
@@ -101,7 +114,14 @@ export function TransactionDialog({ settings, accounts, providers, profiles = []
         event.preventDefault(); if (saving) return;
         setSaving(true); setError('');
         try {
-            await apiClient.recordAccountingEntry({ ...entry, amount: Number(entry.amount), center: center || null });
+            await apiClient.recordAccountingEntry({ 
+                ...entry, 
+                provider: ['provider_payment', 'provider_deposit'].includes(entry.kind) ? entry.provider : null,
+                transfer_to: entry.kind === 'transfer' ? entry.transfer_to : null,
+                vendor: ['provider_payment', 'provider_deposit'].includes(entry.kind) ? (entry.provider || 'Courier Partner') : null,
+                amount: Number(entry.amount), 
+                center: center || null 
+            });
             setEntry(old => ({ ...old, amount: '', reference: '' })); ref.current.close(); onSaved();
         } catch (err) { setError(typeof err.response?.data?.detail === 'string' ? err.response.data.detail : 'Unable to record transaction. Please retry.'); }
         finally { setSaving(false); }

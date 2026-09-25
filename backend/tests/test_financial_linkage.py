@@ -96,10 +96,10 @@ class FinancialLinkageTests(unittest.TestCase):
         customer = self.call('GET', '/api/customers')[0]
         profile = self.call('GET', f"/api/customers/{self.customer['id']}/360")
         for actual in (dashboard['total_sales'], accounts['total_sales'], overview['sales'],
-                       eod['total_sales'], monthly['revenue'], sum(d['revenue'] for d in weekly), customer['total_spend'], profile['total_spent']):
+                       eod['total_sales'], monthly['revenue'], sum(d['revenue'] for d in weekly)):
             self.assertAlmostEqual(actual, sales)
         for actual in (dashboard['total_sales_with_gst'], accounts['total_sales_with_gst'], overview['gross_sales'],
-                       eod['invoice_total'], monthly['invoice_total'], sum(i['total'] for i in invoices)):
+                       eod['invoice_total'], monthly['invoice_total'], sum(i['total'] for i in invoices), customer['total_spend'], profile['total_spent']):
             self.assertAlmostEqual(actual, billed)
         for actual in (dashboard['total_collected'], dashboard['today_collected'], accounts['total_collected'],
                        overview['collected'], eod['total_collected'], receipts['total_amount'], sum(i['paid'] for i in invoices)):
@@ -203,3 +203,67 @@ class FinancialLinkageTests(unittest.TestCase):
         self.assertEqual(wallet['total_usage'], 600)
         cash = next(a for a in self.call('GET', '/api/accounts/overview')['bank_accounts'] if a['name'] == 'QA Cash')
         self.assertEqual(cash['recorded_balance'], 180)
+
+    def test_dashboard_filters_use_full_history_and_collection_dates(self):
+        import datetime as dt
+        yesterday = (business_today() - dt.timedelta(days=1)).isoformat()
+        for index in range(12):
+            self.booking(awb=f'SCOPED-{index}', price=100, cost=20,
+                         center='Main Hub (Bangalore)', entity='Globe Courier',
+                         domestic_international='Domestic', receiver={'name': 'Receiver', 'city': 'Delhi', 'country': 'India'},
+                         payment_status='Unpaid')
+        older = self.booking(awb='SCOPED-OLDER', price=200, cost=0, date=yesterday,
+                             center='Main Hub (Bangalore)', entity='Globe Courier',
+                             domestic_international='Domestic', receiver={'name': 'Receiver', 'city': 'Delhi', 'country': 'India'},
+                             payment_status='Unpaid')
+        invoice = next(i for i in self.call('GET', '/api/invoices') if i['shipment_id'] == older['id'])
+        self.call('POST', f"/api/invoices/{invoice['id']}/payments", {
+            'amount': 50, 'payment_method': 'Cash', 'payment_details': self.cash,
+            'paid_to': 'QA Cash', 'collected_by': 'QA Admin'})
+        self.booking(awb='SCOPED-OTHER', price=900, cost=100,
+                     center='Delhi Regional Hub', entity='USU Enterprises',
+                     domestic_international='International', payment_status='Unpaid')
+        result = self.call('GET', '/api/dashboard/summary?center=Main%20Hub%20(Bangalore)&scope=Domestic&entity=Globe%20Courier')
+        self.assertEqual(result['today_shipments_count'], 12)
+        self.assertEqual(result['total_sales'], 1400)
+        self.assertEqual(result['today_collected'], 50)
+        self.assertEqual(result['total_collected'], 50)
+        self.assertAlmostEqual(result['pending_collection'], 1400 * 1.18 - 50)
+        self.assertEqual(result['active_volume'], 13)
+        self.assertEqual(result['scope_counts'], {'all': 13, 'dom': 13, 'intl': 0})
+        self.assertEqual(result['entity_summaries']['Globe Courier']['total_count'], 13)
+        self.assertEqual(sum(sum(day['centers'].values()) for day in result['booking_trend']), 13)
+        self.assertEqual(len(result['recent_shipments']), 10)
+        empty = self.call('GET', '/api/dashboard/summary?center=No%20Such%20Center')
+        self.assertEqual(empty['total_sales'], 0)
+        self.assertEqual(empty['today_collected'], 0)
+        self.assertEqual(empty['recent_shipments'], [])
+        self.call('GET', '/api/dashboard/summary?scope=bad', expected=422)
+        self.assertEqual(self.call('GET', '/api/dashboard/summary')['total_sales'], 2300)
+
+    def test_b2b_center_filter_and_failed_database_are_not_zero_success(self):
+        from unittest.mock import Mock
+        from fastapi import HTTPException
+        from app.routers.b2b import _b2b_summary
+        self.booking(awb='B2B-MAIN', customer_type='B2B', center='Main Hub (Bangalore)', price=100)
+        self.booking(awb='B2B-DELHI', customer_type='B2B', center='Delhi Regional Hub', price=200)
+        result = self.call('GET', '/api/b2b/summary?center=Main%20Hub%20(Bangalore)')
+        self.assertAlmostEqual(result['total_credit_sales'], 118)
+        result = self.call('GET', '/api/b2b/summary?center=Delhi%20Regional%20Hub')
+        self.assertAlmostEqual(result['total_credit_sales'], 236)
+        db = Mock()
+        db.query.side_effect = RuntimeError('database unavailable')
+        with self.assertRaises(HTTPException) as raised:
+            _b2b_summary(100, 0, {'is_super_admin': True}, db)
+        self.assertEqual(raised.exception.status_code, 503)
+
+    def test_shipment_profit_matches_customer_and_dashboard_excluding_gst(self):
+        ship = self.booking(awb='PROFIT-CONSISTENCY', price=1000, cost=600)
+        self.assertEqual(ship['gross_profit'], 400)
+        listed = next(s for s in self.call('GET', '/api/shipments') if s['id'] == ship['id'])
+        self.assertEqual(listed['gross_profit'], 400)
+        customer = self.call('GET', f"/api/customers/{self.customer['id']}/360")
+        self.assertEqual(customer['shipments'][0]['gross_profit'], 400)
+        dashboard = self.call('GET', '/api/dashboard/summary')
+        self.assertEqual(dashboard['recent_shipments'][0]['gross_profit'], 400)
+        self.assertEqual(dashboard['total_gross_profit'], 400)
