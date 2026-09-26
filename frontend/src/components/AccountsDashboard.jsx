@@ -24,13 +24,13 @@ export function ShipmentLedger({ report, accounts, filters, setFilters, onSearch
         </form>
         {ledger.error && <p role="alert" className="ao-alert">{ledger.error}<button onClick={refresh}>Retry</button></p>}
         <div className="ao-table-scroll" tabIndex={0} role="region" aria-label="Shipment accounts ledger">
-            <table className="ao-table"><thead><tr>{['Date', 'AWB', 'Courier', 'Customer', 'Destination', ...(canViewPrice ? ['Customer Sale (Incl. GST)'] : []), ...(costs ? ['Carrier Cost'] : []), ...(financial ? ['Sale Excl. GST', 'Expense', 'Profit'] : []), 'Payment Mode', 'Collection Status', 'Payment to Courier', 'Action'].map(name => <th key={name}>{name}</th>)}</tr></thead>
+            <table className="ao-table"><thead><tr>{['Date', 'AWB', 'Courier', 'Customer', 'Destination', ...(canViewPrice ? ['Customer Price'] : []), ...(costs ? ['Carrier Cost'] : []), ...(financial ? ['Profit'] : []), 'Payment Mode', 'Collection Status', 'Payment to Courier', 'Action'].map(name => <th key={name}>{name}</th>)}</tr></thead>
                 <tbody>{!ledger.loading && items.map(s => <tr key={s.id}>
                     <td>{dateLabel(s.date)}</td><td><TrackingLink awb={s.awb} courier={s.courier} /></td><td><CourierLogo courier={s.courier} height={13} /></td>
                     <td>{s.customer_name}</td><td>{s.destination || '—'}</td>
                     {canViewPrice && <td>{money(s.gross_sale)}</td>}
                     {costs && <td>{money(s.cost)}</td>}
-                    {financial && <><td>{money(s.sale)}</td><td>{money(s.expense)}</td><td><strong>{money(s.value)}</strong></td></>}
+                    {financial && <td><strong>{money(s.value)}</strong>{Number(s.refund_amount || 0) > 0 && <small style={{ display: 'block', color: '#dc2626', fontWeight: 700 }}>Refund: -{money(s.refund_amount)}</small>}</td>}
                     <td>{s.payment_mode || '—'}</td><td><span className={`ao-badge ${s.collection_status?.toLowerCase()}`}>{s.collection_status}</span></td>
                     <td><span className={`ao-badge ${s.courier_status?.toLowerCase()}`}>{s.courier_status}</span></td>
                     <td><button className="ao-icon-button" title="View shipment account details" onClick={() => onViewShipment(s)}><Eye size={12} /></button></td>

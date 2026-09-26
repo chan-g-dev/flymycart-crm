@@ -2029,9 +2029,16 @@ input:checked+.slider:before {
 }
 
 .customer-directory-scroll table.customer-directory-table thead th {
-    position: sticky;
+    position: sticky !important;
     top: 0;
-    z-index: 2;
+    z-index: 10;
+    background: #f8fafc;
+    box-shadow: 0 1.5px 0 var(--card-border);
+}
+
+[data-theme="dark"] .customer-directory-scroll table.customer-directory-table thead th {
+    background: #0f172a;
+    box-shadow: 0 1.5px 0 rgba(255, 255, 255, 0.1);
 }
 
 .customer-directory-scroll:focus-visible {
@@ -2039,19 +2046,36 @@ input:checked+.slider:before {
     outline-offset: 2px;
 }
 
-/* Tables grow with their rows so the mouse wheel stays on the page. */
+/* Invoices table with fixed/sticky headers and smooth scroll */
 .invoice-table-wrap {
-    max-height: none;
-    overflow-x: auto;
-    overflow-y: visible;
+    max-height: clamp(280px, calc(100dvh - 205px), 820px);
+    overflow: auto;
+    scrollbar-gutter: stable;
     scrollbar-width: thin;
-    scrollbar-color: var(--text-muted) transparent;
+    scrollbar-color: #94a3b8 var(--card-bg);
+}
+
+.invoice-table-wrap::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+.invoice-table-wrap::-webkit-scrollbar-thumb {
+    background: #94a3b8;
+    border-radius: 4px;
 }
 
 table.data-table.invoice-table thead th {
-    position: sticky;
+    position: sticky !important;
     top: 0;
-    z-index: 2;
+    z-index: 10;
+    background: #f8fafc;
+    box-shadow: 0 1.5px 0 var(--card-border);
+}
+
+[data-theme="dark"] table.data-table.invoice-table thead th {
+    background: #0f172a;
+    box-shadow: 0 1.5px 0 rgba(255, 255, 255, 0.1);
 }
 
 .invoice-table {
@@ -6281,6 +6305,419 @@ table.data-table.reconciliation-table :is(th, td):last-child {
     margin-right: auto;
 }
 
+/* Keep shipment column names visible while reviewing long shipment lists. */
+.shipment-directory-page .shipment-directory-scroll thead th {
+    position: sticky !important;
+    top: 0;
+    z-index: 5;
+    background: var(--card-bg, #ffffff);
+    background-clip: padding-box;
+    white-space: nowrap;
+    box-shadow: inset 0 -1px 0 var(--card-border, #e2e8f0);
+}
+
+[data-theme="dark"] .shipment-directory-page .shipment-directory-scroll thead th {
+    background: var(--card-bg, #111827);
+}
+
+/* Shipments uses the available app viewport; only its record grid scrolls. */
+@media (min-width: 1101px) {
+    .page-content > .shipment-directory-workspace {
+        flex: 1 1 0;
+        min-height: 0;
+        overflow: hidden;
+    }
+
+    .shipment-directory-workspace {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+    }
+
+    .shipment-directory-workspace > .page-header,
+    .shipment-directory-workspace > .scope-entity-bar-sticky,
+    .shipment-directory-workspace > .shipment-directory-filters {
+        flex: 0 0 auto;
+    }
+
+    .shipment-directory-workspace .page-header {
+        padding-block: 0px;
+        margin-bottom: 0px;
+    }
+
+    .shipment-directory-workspace .page-title {
+        font-size: 14.5px;
+        margin: 0;
+    }
+
+    .shipment-directory-workspace .page-subtitle {
+        font-size: 10px;
+        margin: 0;
+        line-height: 1.2;
+    }
+
+    .shipment-directory-workspace .page-header .btn {
+        padding: 3px 8px;
+        font-size: 10.5px;
+        height: 26px;
+        min-height: 26px;
+        gap: 4px;
+    }
+
+    .shipment-directory-workspace .scope-entity-bar-sticky {
+        margin: 0 !important;
+        padding: 4px 12px;
+        border-radius: 7px;
+        min-height: 32px;
+        gap: 10px;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+    }
+
+    .shipment-directory-workspace .scope-pill-btn,
+    .shipment-directory-workspace .entity-pill-btn {
+        padding: 3px 9px;
+        font-size: 11.5px;
+        height: 25px;
+        gap: 5px;
+        border-radius: 6px;
+        font-weight: 600;
+    }
+
+    .shipment-directory-workspace .scope-pill-btn svg,
+    .shipment-directory-workspace .entity-pill-btn svg {
+        width: 14px;
+        height: 14px;
+    }
+
+    .shipment-directory-filters {
+        display: grid;
+        grid-template-columns: minmax(160px, 1.2fr) minmax(285px, auto) repeat(4, minmax(85px, 0.65fr)) auto;
+        align-items: center;
+        gap: 6px !important;
+        flex-wrap: nowrap !important;
+        padding-block: 3px;
+        padding-inline: 4px;
+        margin: 0;
+    }
+
+    .shipment-directory-filters > * {
+        width: 100%;
+        min-width: 0 !important;
+        max-width: none;
+    }
+
+    .shipment-date-range-filter {
+        display: inline-flex !important;
+        align-items: center;
+        gap: 3px;
+        background: var(--card-bg, #ffffff);
+        border: 1px solid var(--card-border, #cbd5e1);
+        border-radius: 6px;
+        padding: 1px 6px;
+        height: 26px;
+        min-height: 26px;
+        font-size: 11px;
+        width: auto !important;
+        min-width: 285px !important;
+        max-width: 315px !important;
+        box-sizing: border-box;
+        overflow: visible;
+    }
+
+    .shipment-date-range-filter input[type="date"] {
+        border: none !important;
+        background: transparent !important;
+        padding: 0 1px !important;
+        height: 22px !important;
+        min-height: 22px !important;
+        font-size: 11px !important;
+        color: var(--text-main);
+        width: 108px !important;
+        min-width: 104px !important;
+        max-width: 115px !important;
+        outline: none !important;
+        box-shadow: none !important;
+        flex: 1 1 auto;
+    }
+
+    .shipment-date-range-filter input[type="date"]::-webkit-calendar-picker-indicator {
+        padding: 0;
+        margin: 0 1px 0 0;
+        cursor: pointer;
+        opacity: 0.75;
+    }
+
+    .shipment-directory-filters .filter-input,
+    .shipment-directory-filters .filter-select {
+        height: 26px;
+        min-height: 26px;
+        padding: 2px 6px;
+        font-size: 10.5px;
+    }
+
+    .shipment-directory-filters > button:last-child {
+        width: auto;
+        height: 26px;
+        min-height: 26px;
+        padding: 2px 8px;
+        font-size: 10.5px;
+        gap: 4px;
+        white-space: nowrap;
+    }
+
+    .shipment-directory-table-card {
+        flex: 1 1 0;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        margin-bottom: 0;
+        padding: 6px 8px 4px;
+    }
+
+    .shipment-directory-table-card .shipment-directory-scroll {
+        flex: 1 1 0;
+        min-height: 0;
+        max-height: none;
+        overflow: auto;
+        overscroll-behavior: contain;
+    }
+
+    .shipment-directory-table-card .table-pagination {
+        flex: 0 0 auto;
+        padding: 6px 10px;
+        font-size: 11px;
+    }
+}
+
+/* ==========================================================================
+   TABLE HORIZONTAL SCROLL NAVIGATION & SHIPMENT SECTION GOOD UI
+   ========================================================================== */
+
+.shipment-table-wrapper-relative {
+    position: relative;
+    width: 100%;
+    flex: 1 1 0;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.table-scroll-nav-toolbar {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+    margin-left: auto;
+}
+
+.btn-scroll-nav-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 5px 11px;
+    font-size: 11px;
+    font-weight: 700;
+    line-height: 1;
+    color: #1e40af;
+    background: #eff6ff;
+    border: 1.5px solid #bfdbfe;
+    border-radius: 9999px;
+    cursor: pointer;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    white-space: nowrap;
+    box-shadow: 0 1px 2px rgba(37, 99, 235, 0.08);
+}
+
+.btn-scroll-nav-pill:hover:not(:disabled) {
+    background: #2563eb;
+    border-color: #2563eb;
+    color: #ffffff;
+    transform: translateY(-1px);
+    box-shadow: 0 3px 10px rgba(37, 99, 235, 0.25);
+}
+
+.btn-scroll-nav-pill:active:not(:disabled) {
+    transform: translateY(0) scale(0.97);
+}
+
+.btn-scroll-nav-pill:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+    background: #f1f5f9;
+    border-color: #e2e8f0;
+    color: #94a3b8;
+    box-shadow: none;
+}
+
+[data-theme="dark"] .btn-scroll-nav-pill {
+    background: rgba(30, 58, 138, 0.35);
+    border-color: rgba(59, 130, 246, 0.4);
+    color: #93c5fd;
+}
+
+[data-theme="dark"] .btn-scroll-nav-pill:hover:not(:disabled) {
+    background: #2563eb;
+    border-color: #3b82f6;
+    color: #ffffff;
+    box-shadow: 0 3px 10px rgba(37, 99, 235, 0.4);
+}
+
+[data-theme="dark"] .btn-scroll-nav-pill:disabled {
+    background: rgba(30, 41, 59, 0.4);
+    border-color: rgba(255, 255, 255, 0.08);
+    color: #64748b;
+}
+
+/* Floating Table Scroll Buttons on container edges */
+.floating-table-scroll-btn {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    z-index: 25;
+    width: 34px;
+    height: 34px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.95);
+    color: #1d4ed8;
+    border: 1.5px solid #93c5fd;
+    box-shadow: 0 4px 14px rgba(37, 99, 235, 0.22), 0 1px 3px rgba(0, 0, 0, 0.08);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    backdrop-filter: blur(8px);
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    opacity: 0.88;
+}
+
+.floating-table-scroll-btn:hover {
+    opacity: 1;
+    background: #2563eb;
+    border-color: #2563eb;
+    color: #ffffff;
+    transform: translateY(-50%) scale(1.12);
+    box-shadow: 0 6px 20px rgba(37, 99, 235, 0.4);
+}
+
+.floating-scroll-left {
+    left: 8px;
+}
+
+.floating-scroll-right {
+    right: 8px;
+}
+
+[data-theme="dark"] .floating-table-scroll-btn {
+    background: rgba(15, 23, 42, 0.92);
+    border-color: rgba(59, 130, 246, 0.5);
+    color: #93c5fd;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+}
+
+[data-theme="dark"] .floating-table-scroll-btn:hover {
+    background: #2563eb;
+    color: #ffffff;
+    border-color: #3b82f6;
+}
+
+/* Table Pagination Scroll Controls & Good UI */
+.table-pagination {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 10px 14px;
+    background: #f8fafc;
+    border-top: 1px solid var(--card-border, #e2e8f0);
+    border-radius: 0 0 var(--radius-sm) var(--radius-sm);
+    font-size: 11.5px;
+    color: var(--text-main);
+}
+
+[data-theme="dark"] .table-pagination {
+    background: rgba(15, 23, 42, 0.6);
+}
+
+.table-pagination-info {
+    display: flex;
+    align-items: center;
+    color: var(--text-muted);
+    font-size: 11.5px;
+}
+
+.table-pagination-info strong {
+    color: var(--text-main);
+    margin: 0 2px;
+}
+
+.table-pagination-scroll-btns {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.btn-scroll-jump {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 10px;
+    font-size: 11px;
+    font-weight: 600;
+    border-radius: 6px;
+    background: #ffffff;
+    border: 1px solid var(--card-border, #cbd5e1);
+    color: var(--text-main);
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.btn-scroll-jump:hover:not(:disabled) {
+    background: #eff6ff;
+    border-color: #93c5fd;
+    color: #1d4ed8;
+}
+
+.btn-scroll-jump:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+[data-theme="dark"] .btn-scroll-jump {
+    background: #1e293b;
+    border-color: rgba(255, 255, 255, 0.1);
+    color: #e2e8f0;
+}
+
+[data-theme="dark"] .btn-scroll-jump:hover:not(:disabled) {
+    background: rgba(59, 130, 246, 0.2);
+    border-color: #3b82f6;
+    color: #93c5fd;
+}
+
+.table-pagination-controls {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.pagination-page-indicator {
+    font-size: 11.5px;
+    color: var(--text-muted);
+}
+
+.pagination-page-indicator strong {
+    color: var(--text-main);
+}
+
+/* Enhanced Table Scroll Container */
+.shipment-directory-scroll,
+.dash-bookings-scroll-wrap {
+    scroll-behavior: smooth;
+}
+
 
 .sidebar-brand-button {
     display: block;
@@ -6448,9 +6885,11 @@ table.data-table.reconciliation-table :is(th, td):last-child {
 }
 
 .customer-directory-scroll table.customer-directory-table thead th {
-    position: sticky;
+    position: sticky !important;
     top: 0;
-    z-index: 2;
+    z-index: 10;
+    background: #f8fafc;
+    box-shadow: 0 1.5px 0 var(--card-border);
 }
 
 .customer-directory-scroll:focus-visible {
@@ -6474,10 +6913,12 @@ table.data-table.reconciliation-table :is(th, td):last-child {
 .refund-directory-page table.refund-directory-table { width: 100%; table-layout: auto; }
 .refund-directory-page table.refund-directory-table :is(th, td) { padding: 9px 10px; line-height: 1.35; vertical-align: middle; }
 .refund-directory-page table.refund-directory-table th {
-    position: sticky;
+    position: sticky !important;
     top: 0;
-    z-index: 2;
+    z-index: 10;
     font-size: 9.5px;
+    background: #f8fafc;
+    box-shadow: 0 1.5px 0 var(--card-border);
 }
 .refund-directory-page table.refund-directory-table td { font-size: 11.5px; }
 .refund-directory-page table.refund-directory-table .status-pill { font-size: 9.5px; padding: 3px 7px; }
@@ -6502,10 +6943,12 @@ table.data-table.reconciliation-table :is(th, td):last-child {
 .followup-directory-page table.followup-directory-table { width: 100%; table-layout: auto; }
 .followup-directory-page table.followup-directory-table :is(th, td) { padding: 9px 10px; line-height: 1.35; vertical-align: middle; }
 .followup-directory-page table.followup-directory-table th {
-    position: sticky;
+    position: sticky !important;
     top: 0;
-    z-index: 2;
+    z-index: 10;
     font-size: 9.5px;
+    background: #f8fafc;
+    box-shadow: 0 1.5px 0 var(--card-border);
 }
 .followup-directory-page table.followup-directory-table td { font-size: 11.5px; }
 .followup-directory-page table.followup-directory-table .status-pill { font-size: 9.5px; padding: 3px 7px; display: inline-flex; align-items: center; justify-content: center; }
@@ -9975,6 +10418,20 @@ table.data-table.reconciliation-table :is(th, td):last-child {
     width: 100%;
     height: 100%;
     object-fit: cover;
+}
+
+.booking-kyc-pdf {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    background: #fff1f2;
+    color: #be123c;
+    font-size: 12px;
+    font-weight: 700;
 }
 
 .booking-kyc-preview-overlay {

@@ -54,6 +54,7 @@ const permissionLabels = {
     'attendance.view': 'View Attendance',
     'attendance.manage': 'Manage Attendance',
     'attendance.punch': 'Record Punches',
+    'attendance.leave': 'Mark Staff Leave',
     'costs.customer_price': 'Customer Sale Price',
     'costs.carrier_cost': 'Courier / Carrier Value',
     'costs.net_value': 'Profit',

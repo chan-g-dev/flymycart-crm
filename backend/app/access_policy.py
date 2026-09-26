@@ -7,7 +7,8 @@ ROLE_NAMES = {
     'supervisor': 'Supervisor',
     'account_executive': 'Account Executive',
     'operation_executive': 'Operation Executive',
-    'team_leader': 'Team Leader',
+    # Legacy code only: old team_leader records resolve to the existing Supervisor role.
+    'team_leader': 'Supervisor',
     'counter_staff': 'Counter Staff',
     'operations_executive': 'Operations Executive',
 }
@@ -37,7 +38,7 @@ COMMON = {'dashboards.view', 'dashboards.booking_trends', 'dashboards.recent_boo
           'dashboards.fleet_volume', 'dashboards.followups', 'dashboards.quick_actions',
           'customers.view', 'shipments.view', 'invoices.view', 'search.global',
           'followups.view', 'followups.add', 'followups.edit', 'refunds.view', 'refunds.request', 'settings.view',
-          'attendance.view', 'attendance.punch'}
+          }
 
 from app.permissions import PermissionCode
 
@@ -46,17 +47,6 @@ ROLE_DEFAULTS = {
         p.value for p in PermissionCode if p.value not in {'costs.net_value', 'costs.margins', 'reports.view_financial'}
     },
     'supervisor': COMMON | {
-        'customers.add', 'customers.edit', 'customers.export', 'customers.statement',
-        'shipments.add', 'shipments.edit', 'shipments.cancel', 'shipments.export',
-        'invoices.add', 'invoices.edit', 'invoices.export', 'invoices.print',
-        'refunds.approve',
-        'reports.view', 'reports.eod', 'reports.weekly', 'reports.custom_range', 'reports.print', 'reports.export',
-        'b2b.view', 'b2b.add', 'b2b.edit',
-        'accounts.view', 'accounts.reconcile',
-        'reconciliation.view',
-        'users.view',
-    },
-    'team_leader': COMMON | {
         'customers.add', 'customers.edit', 'customers.export', 'customers.statement',
         'shipments.add', 'shipments.edit', 'shipments.cancel', 'shipments.export',
         'invoices.add', 'invoices.edit', 'invoices.export', 'invoices.print',

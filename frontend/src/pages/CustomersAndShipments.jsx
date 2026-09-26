@@ -6,8 +6,8 @@ import TablePagination from '../components/TablePagination';
 import useTablePage from '../components/useTablePage';
 import ShipmentPaymentCells from '../components/ShipmentPaymentCells';
 import { businessDate } from '../utils/businessDates';
-import React, { useState, useDeferredValue, useMemo } from 'react';
-import { Plus, History, Trash2, Phone, Search, Mail, Building, Building2, MapPin, ArrowUpRight, FileText, Download, Calendar, Edit3, Tag, MessageSquare, Globe, Plane, Truck, X } from 'lucide-react';
+import React, { useState, useDeferredValue, useMemo, useRef, useEffect, useCallback } from 'react';
+import { Plus, History, Trash2, Phone, Search, Mail, Building, Building2, MapPin, ArrowUpRight, FileText, Download, Calendar, Edit3, Tag, MessageSquare, Globe, Plane, Truck, X, Eye, EyeOff, ChevronsLeft, ChevronsRight } from 'lucide-react';
 import '../components/DashboardSummary.css';
 import { useAuth } from '../context/authSession';
 import { CourierLogo } from '../components/CourierLogos';
@@ -389,6 +389,52 @@ export const Shipments = ({
     const [startDate, setStartDate] = useState('');
     const [endDate, setEndDate] = useState('');
     const [datePreset, setDatePreset] = useState('all');
+    const [showDdpStatus, setShowDdpStatus] = useState(() => {
+        try {
+            return window.localStorage.getItem('shipments.showDdpStatus') === 'true';
+        } catch {
+            return false;
+        }
+    });
+
+    const tableScrollRef = useRef(null);
+    const [canScrollLeft, setCanScrollLeft] = useState(false);
+    const [canScrollRight, setCanScrollRight] = useState(true);
+
+    const updateScrollState = useCallback(() => {
+        const el = tableScrollRef.current;
+        if (!el) return;
+        const { scrollLeft, scrollWidth, clientWidth } = el;
+        setCanScrollLeft(scrollLeft > 10);
+        setCanScrollRight(scrollLeft + clientWidth < scrollWidth - 10);
+    }, []);
+
+    const scrollToStart = useCallback(() => {
+        if (tableScrollRef.current) {
+            tableScrollRef.current.scrollTo({ left: 0, behavior: 'smooth' });
+        }
+    }, []);
+
+    const scrollToEnd = useCallback(() => {
+        if (tableScrollRef.current) {
+            tableScrollRef.current.scrollTo({
+                left: tableScrollRef.current.scrollWidth,
+                behavior: 'smooth'
+            });
+        }
+    }, []);
+
+    const toggleDdpStatus = () => {
+        setShowDdpStatus(current => {
+            const next = !current;
+            try {
+                window.localStorage.setItem('shipments.showDdpStatus', String(next));
+            } catch {
+                // The UI preference still works when browser storage is unavailable.
+            }
+            return next;
+        });
+    };
 
     const entityCounts = useMemo(() => {
         const counts = { total: 0 };
@@ -489,6 +535,18 @@ export const Shipments = ({
     const [isDeleting, setIsDeleting] = useState(false);
     const [selectedLabelShipment, setSelectedLabelShipment] = useState(null);
 
+    useEffect(() => {
+        const el = tableScrollRef.current;
+        if (!el) return;
+        updateScrollState();
+        el.addEventListener('scroll', updateScrollState, { passive: true });
+        window.addEventListener('resize', updateScrollState);
+        return () => {
+            el.removeEventListener('scroll', updateScrollState);
+            window.removeEventListener('resize', updateScrollState);
+        };
+    }, [updateScrollState, visibleShipments, tablePage.rows]);
+
     // Dynamic aggregated courier and provider list
     const availableCouriers = React.useMemo(() => {
         const fromSettings = settings?.couriers || [];
@@ -539,10 +597,10 @@ export const Shipments = ({
             'DDP Status', 
             'Actual Wt (kg)', 
             'Chargeable Wt (kg)', 
-            'Price (INR)', 
-            'Carrier Cost (INR)', 
-            'Profit Excl. GST (INR)', 
-            'Profit Incl. GST (INR)', 
+            'Customer Price (INR)',
+            'Carrier Cost (INR)',
+            'Refund (INR)',
+            'Profit (INR)',
             'Payment Status', 
             'Status'
         ];
@@ -561,18 +619,19 @@ export const Shipments = ({
             s.domestic_international === 'International' ? (s.is_ddp ? 'DDP Paid' : 'DDP Not Paid') : 'Domestic',
             Number(s.actual_weight || 0),
             Number(s.chargeable_weight || 0),
-            Number(s.price || 0),
+            Number(s.total_amount ?? (Number(s.price || 0) + Number(s.gst_amount || 0))),
             s.provider_cost !== null ? Number(s.provider_cost) : 'MASKED',
+            Number(s.refund_amount || 0),
             s.gross_profit !== null ? Number(s.gross_profit) : 'MASKED',
-            s.gross_profit != null ? Number(s.gross_profit) + Number(s.total_amount ?? (Number(s.price || 0) + Number(s.gst_amount || 0))) - Number(s.price || 0) : 'MASKED',
             s.payment_status || '',
             s.status || ''
         ]);
 
         const keepColumns = headers.map((_, index) => index).filter(index => {
-            if (index === 12 || index === 13) return hasPermission('costs.customer_price');
+            if (index === 13) return hasPermission('costs.customer_price');
             if (index === 14) return hasPermission('costs.carrier_cost') || hasPermission('costs.view');
-            if (index === 15 || index === 16) return hasPermission('costs.net_value') || hasPermission('reports.view_financial');
+            if (index === 15) return hasPermission('costs.customer_price');
+            if (index === 16) return hasPermission('costs.net_value') || hasPermission('reports.view_financial');
             return true;
         });
         headers = keepColumns.map(index => headers[index]);
@@ -600,7 +659,7 @@ export const Shipments = ({
                 <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-main)', whiteSpace: 'nowrap' }}>
                     {country}
                 </span>
-                {isIntl && (
+                {isIntl && showDdpStatus && (
                     <div style={{ marginTop: '3px' }}>
                         <span className={shipment?.is_ddp ? 'ddp-tag-paid' : 'ddp-tag-unpaid'}>
                             {shipment?.is_ddp ? '✓ DDP Paid' : 'DDP Not Paid'}
@@ -631,10 +690,10 @@ export const Shipments = ({
     };
 
     return (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+        <div className="shipment-directory-page shipment-directory-workspace">
             {/* 1. Page Header & Actions */}
             <div className="page-header" style={{ marginBottom: 0 }}>
-                <div className="shipment-directory-page">
+                <div>
                     <h2 className="page-title">📦 Shipment Master Engine</h2>
                     <p className="page-subtitle">Track parcel volumetric weights, selling prices, provider values, and delivery statuses</p>
                 </div>
@@ -783,7 +842,7 @@ export const Shipments = ({
             </div>
 
             {/* 3. Search & Filter Controls Bar */}
-            <div className="filter-bar" style={{ flexWrap: 'wrap', gap: '8px' }}>
+            <div className="filter-bar shipment-directory-filters">
                 <div style={{ position: 'relative', flex: 1, minWidth: 'min(200px, 100%)' }}>
                     <Search size={14} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
                     <input 
@@ -797,7 +856,7 @@ export const Shipments = ({
                 </div>
 
                 {/* Calendar Date Range Pickers */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: '4px', background: 'var(--card-bg, #ffffff)', border: '1px solid var(--card-border, #cbd5e1)', borderRadius: '6px', padding: '2px 8px', fontSize: '11.5px' }}>
+                <div className="shipment-date-range-filter">
                     <Calendar size={13} color="var(--primary-blue, #1e64f0)" />
                     <span style={{ color: 'var(--text-muted)' }}>From:</span>
                     <input
@@ -869,10 +928,53 @@ export const Shipments = ({
                 <select className="filter-select" value={billingType} onChange={e => setBillingType(e.target.value)}>
                     <option value="">All billing types</option><option value="prepaid">Prepaid</option><option value="postpaid">Postpaid</option>
                 </select>
+
+                <button
+                    type="button"
+                    className="btn btn-outline"
+                    onClick={toggleDdpStatus}
+                    aria-pressed={showDdpStatus}
+                    title={showDdpStatus ? 'Hide DDP payment status from shipment rows' : 'Show DDP payment status in shipment rows'}
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', whiteSpace: 'nowrap', color: showDdpStatus ? '#1d4ed8' : 'var(--text-muted)' }}
+                >
+                    {showDdpStatus ? <EyeOff size={14} /> : <Eye size={14} />}
+                    {showDdpStatus ? 'Hide DDP' : 'Show DDP'}
+                </button>
             </div>
 
-            <div className="table-card">
-                <div className="table-wrap shipment-directory-scroll" tabIndex={0} role="region" aria-label="Shipment directory">
+            <div className="table-card shipment-directory-table-card">
+                <div className="shipment-table-wrapper-relative">
+                    {/* Floating Side Jump Controls for fast navigation */}
+                    {canScrollLeft && (
+                        <button
+                            type="button"
+                            className="floating-table-scroll-btn floating-scroll-left"
+                            onClick={scrollToStart}
+                            title="Scroll Full Left"
+                            aria-label="Scroll to first columns"
+                        >
+                            <ChevronsLeft size={16} />
+                        </button>
+                    )}
+                    {canScrollRight && (
+                        <button
+                            type="button"
+                            className="floating-table-scroll-btn floating-scroll-right"
+                            onClick={scrollToEnd}
+                            title="Scroll Full Right"
+                            aria-label="Scroll to end columns"
+                        >
+                            <ChevronsRight size={16} />
+                        </button>
+                    )}
+
+                    <div 
+                        ref={tableScrollRef}
+                        className="table-wrap shipment-directory-scroll" 
+                        tabIndex={0} 
+                        role="region" 
+                        aria-label="Shipment directory"
+                    >
                     <table className="data-table shipment-directory-table">
                         <thead>
                             <tr>
@@ -882,9 +984,9 @@ export const Shipments = ({
                                 <th>Courier</th>
                                 <th>Carrier Billing</th><th>Destination</th>
                                 <th>Weight</th>
-                                {canViewCustomerPrice && <th>Customer Sale (INR)</th>}
+                                {canViewCustomerPrice && <th>Customer Price</th>}
                                 {canViewCarrierCost && <th>Carrier Cost</th>}
-                                {canViewNetValue && <th>Profit (Excl. GST)</th>}
+                                {canViewNetValue && <th>Profit</th>}
                                 <th>Payment Mode</th><th>Collection Status</th><th>Payment to Courier</th><th>Status</th>
                                 <th>Actions</th>
                             </tr>
@@ -899,7 +1001,7 @@ export const Shipments = ({
                                     const billed = Number(s.total_amount ?? (Number(s.price || 0) + Number(s.gst_amount || 0)));
                                     const cost = s.cost_reconciled ? Number(s.actual_provider_cost ?? s.provider_cost ?? 0) : Number(s.provider_cost || 0);
                                     const refund = Number(s.refund_amount || 0);
-                                    const profit = (s.gross_profit !== undefined && s.gross_profit !== null) ? Number(s.gross_profit) : (Number(s.price || 0) - cost - refund);
+                                    const profit = (s.gross_profit !== undefined && s.gross_profit !== null) ? Number(s.gross_profit) : (billed - cost - refund);
                                     const isProfitVisible = canViewNetValue;
 
                                     return (
@@ -962,6 +1064,7 @@ export const Shipments = ({
                                                     ) : (
                                                         '—'
                                                     )}
+                                                    {refund > 0 && <div style={{ fontSize: '9.5px', color: '#dc2626', fontWeight: 700 }}>Refund: -{formatCurrency(refund)}</div>}
                                                 </td>
                                             )}
                                             <ShipmentPaymentCells shipment={s} />
@@ -1006,6 +1109,7 @@ export const Shipments = ({
                             )}
                         </tbody>
                     </table>
+                </div>
                 </div>
                 <TablePagination {...tablePage} />
             </div>

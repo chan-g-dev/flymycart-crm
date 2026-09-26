@@ -1,7 +1,7 @@
 import ShipmentPaymentCells from '../components/ShipmentPaymentCells';
 import '../components/DashboardSummary.css';
-import React, { useRef, useState, useMemo } from 'react';
-import { Package, CircleDollarSign, Wallet, Building2, PhoneCall, RotateCcw, Plus, FileText, ClipboardList, RefreshCw, Phone, ShieldCheck, X, Globe, Plane, Truck } from 'lucide-react';
+import React, { useRef, useState, useMemo, useEffect, useCallback } from 'react';
+import { Package, CircleDollarSign, Wallet, Building2, PhoneCall, RotateCcw, Plus, FileText, ClipboardList, RefreshCw, Phone, ShieldCheck, X, Globe, Plane, Truck, Eye, EyeOff, ChevronsLeft, ChevronsRight } from 'lucide-react';
 import { CourierLogo } from '../components/CourierLogos';
 import { useAuth } from '../context/authSession';
 import { TableSkeleton, CardSkeleton } from '../components/LoadingSpinner';
@@ -54,12 +54,69 @@ export const Dashboard = ({
 
     const quickActionsDialog = useRef(null);
     const [carrierGstMode, setCarrierGstMode] = useState('excl');
+    const [showDdpStatus, setShowDdpStatus] = useState(() => {
+        try {
+            return window.localStorage.getItem('shipments.showDdpStatus') === 'true';
+        } catch {
+            return false;
+        }
+    });
     const entityOptions = useMemo(() => getEntityOptions(settings), [settings]);
     const [chartTypes, setChartTypes] = useState({ sales: 'donut', margin: 'donut', aging: 'donut' });
     const chartSelector = (key, title) => <ChartTypeSelect title={title} value={chartTypes[key]} onChange={value => setChartTypes(previous => ({ ...previous, [key]: value }))} options={[[ 'donut', 'Donut' ], [ 'bar', 'Bar' ], [ 'horizontal', 'Horizontal bar' ], [ 'dot', 'Dot' ]]} />;
     const runQuickAction = (action) => {
         quickActionsDialog.current?.close();
         action?.();
+    };
+    const recentTableScrollRef = useRef(null);
+    const [recentCanScrollLeft, setRecentCanScrollLeft] = useState(false);
+    const [recentCanScrollRight, setRecentCanScrollRight] = useState(true);
+
+    const updateRecentScrollState = useCallback(() => {
+        const el = recentTableScrollRef.current;
+        if (!el) return;
+        const { scrollLeft, scrollWidth, clientWidth } = el;
+        setRecentCanScrollLeft(scrollLeft > 10);
+        setRecentCanScrollRight(scrollLeft + clientWidth < scrollWidth - 10);
+    }, []);
+
+    const scrollToRecentStart = useCallback(() => {
+        if (recentTableScrollRef.current) {
+            recentTableScrollRef.current.scrollTo({ left: 0, behavior: 'smooth' });
+        }
+    }, []);
+
+    const scrollToRecentEnd = useCallback(() => {
+        if (recentTableScrollRef.current) {
+            recentTableScrollRef.current.scrollTo({
+                left: recentTableScrollRef.current.scrollWidth,
+                behavior: 'smooth'
+            });
+        }
+    }, []);
+
+    useEffect(() => {
+        const el = recentTableScrollRef.current;
+        if (!el) return;
+        updateRecentScrollState();
+        el.addEventListener('scroll', updateRecentScrollState, { passive: true });
+        window.addEventListener('resize', updateRecentScrollState);
+        return () => {
+            el.removeEventListener('scroll', updateRecentScrollState);
+            window.removeEventListener('resize', updateRecentScrollState);
+        };
+    }, [updateRecentScrollState, recent.items]);
+
+    const toggleDdpStatus = () => {
+        setShowDdpStatus(current => {
+            const next = !current;
+            try {
+                window.localStorage.setItem('shipments.showDdpStatus', String(next));
+            } catch {
+                // The preference remains available for the current page session.
+            }
+            return next;
+        });
     };
     const formatCurrency = (n) => '₹' + Number(n || 0).toLocaleString('en-IN');
     const formatCompactCurrency = (n) => {
@@ -737,13 +794,54 @@ export const Dashboard = ({
                         <div className="recent-bookings-controls">
                             <label>Booking date <input type="date" value={recent.date} onChange={event => recent.setDate(event.target.value)} /></label>
                             {recent.date && <button type="button" className="recent-bookings-button" onClick={() => recent.setDate('')}>All dates</button>}
+                            <button
+                                type="button"
+                                className="recent-bookings-button"
+                                onClick={toggleDdpStatus}
+                                aria-pressed={showDdpStatus}
+                                title={showDdpStatus ? 'Hide DDP payment status from recent bookings' : 'Show DDP payment status in recent bookings'}
+                                style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', whiteSpace: 'nowrap' }}
+                            >
+                                {showDdpStatus ? <EyeOff size={14} /> : <Eye size={14} />}
+                                {showDdpStatus ? 'Hide DDP' : 'Show DDP'}
+                            </button>
                             <a href="javascript:void(0)" onClick={() => onNavigate('shipments')} className="box-link" style={{ fontWeight: 600 }}>
                                 View All Shipments &rarr;
                             </a>
                         </div>
                     </div>
 
-                    <div className="dash-bookings-scroll-wrap" role="region" aria-label="Recent bookings" aria-busy={recent.loading} tabIndex={0}>
+                    <div className="shipment-table-wrapper-relative">
+                        {recentCanScrollLeft && (
+                            <button
+                                type="button"
+                                className="floating-table-scroll-btn floating-scroll-left"
+                                onClick={scrollToRecentStart}
+                                title="Scroll Full Left"
+                                aria-label="Scroll table full left"
+                            >
+                                <ChevronsLeft size={15} />
+                            </button>
+                        )}
+                        {recentCanScrollRight && (
+                            <button
+                                type="button"
+                                className="floating-table-scroll-btn floating-scroll-right"
+                                onClick={scrollToRecentEnd}
+                                title="Scroll Full Right"
+                                aria-label="Scroll table full right"
+                            >
+                                <ChevronsRight size={15} />
+                            </button>
+                        )}
+                        <div 
+                            ref={recentTableScrollRef}
+                            className="dash-bookings-scroll-wrap" 
+                            role="region" 
+                            aria-label="Recent bookings" 
+                            aria-busy={recent.loading} 
+                            tabIndex={0}
+                        >
                         <table className="data-table">
                             <thead>
                                 <tr>
@@ -753,7 +851,7 @@ export const Dashboard = ({
                                     <th style={{ minWidth: '110px', textAlign: 'center' }}>Courier</th>
                                     <th style={{ minWidth: '140px', textAlign: 'left' }}>Destination</th>
                                     <th style={{ minWidth: '95px', textAlign: 'center' }}>Weight</th>
-                                    {canViewPrice && <th style={{ minWidth: '110px', textAlign: 'right' }}>Customer Sale</th>}
+                                    {canViewPrice && <th style={{ minWidth: '120px', textAlign: 'right' }}>Customer Price</th>}
                                     {canViewCost && <th style={{ minWidth: '110px', textAlign: 'right' }}>Carrier Cost</th>}
                                     {financial && <th style={{ minWidth: '110px', textAlign: 'right' }}>Profit</th>}
                                     <th>Payment Mode</th><th>Collection Status</th><th>Payment to Courier</th><th style={{ minWidth: '125px', textAlign: 'center' }}>Status</th><th>Action</th>
@@ -834,7 +932,7 @@ export const Dashboard = ({
                                                         <span>{flag}</span>
                                                         <span>{s.receiver_city || s.receiver_country}</span>
                                                     </div>
-                                                    {(s.domestic_international === 'International' || (s.receiver_country && s.receiver_country !== 'India')) && (
+                                                    {showDdpStatus && (s.domestic_international === 'International' || (s.receiver_country && s.receiver_country !== 'India')) && (
                                                         <div style={{ marginTop: '2px' }}>
                                                             <span className={s.is_ddp ? 'ddp-tag-paid' : 'ddp-tag-unpaid'}>
                                                                 {s.is_ddp ? '✓ DDP Paid' : 'DDP Not Paid'}
@@ -863,11 +961,7 @@ export const Dashboard = ({
                                                         <strong style={{ color: profit >= 0 ? 'var(--emerald)' : 'var(--rose)', fontSize: '11.5px' }}>
                                                             {formatCurrency(profit)}
                                                         </strong>
-                                                        {refund > 0 && (
-                                                            <div style={{ fontSize: '9.5px', color: '#d97706', fontWeight: 600 }}>
-                                                                (-{formatCurrency(refund)} refund)
-                                                            </div>
-                                                        )}
+                                                        {refund > 0 && <div style={{ fontSize: '9.5px', color: '#dc2626', fontWeight: 700 }}>Refund: -{formatCurrency(refund)}</div>}
                                                     </td>
                                                 )}
                                                 <ShipmentPaymentCells shipment={s} />
@@ -883,6 +977,7 @@ export const Dashboard = ({
                                 })()}
                             </tbody>
                         </table>
+                    </div>
                     </div>
                     {!recent.loading && !recent.error && recent.total > 0 && <div className="recent-bookings-pagination">
                         <span role="status">Showing {(recent.page - 1) * 10 + 1}-{Math.min(recent.page * 10, recent.total)} of {recent.total} bookings</span>
@@ -907,7 +1002,7 @@ export const Dashboard = ({
                             <div className="dash-box-header">
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                                     <Package size={15} color="var(--primary-blue)" />
-                                    <h3>Operational Volume</h3>
+                                    <h3>Active Volume</h3>
                                 </div>
                                 <a href="javascript:void(0)" onClick={() => onNavigate('shipments')} className="box-link">
                                     View all &rarr;
@@ -927,7 +1022,7 @@ export const Dashboard = ({
                                 flexShrink: 0
                             }}>
                                 <div>
-                                    <span style={{ fontSize: '11px', color: '#64748b', fontWeight: 600 }}>Active Fleet Volume</span>
+                                    <span style={{ fontSize: '11px', color: '#64748b', fontWeight: 600 }}>Active Shipments</span>
                                     <div style={{ fontSize: '18px', fontWeight: 700, color: '#0f172a' }}>
                                         {totalFleetVolume} <span style={{ fontSize: '12px', fontWeight: 500, color: '#64748b' }}>Shipments</span>
                                     </div>

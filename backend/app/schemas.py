@@ -136,6 +136,19 @@ class ParcelInfo(ParcelBox):
     chargeable_weight: float = 0.0
     boxes: List[ParcelBox] = Field(default_factory=list)
 
+
+def validate_id_document(value: Optional[str]) -> Optional[str]:
+    if value is None or value == '':
+        return value
+    if len(value) > 7_000_000:
+        raise ValueError('ID proof document must be 5MB or smaller')
+    if value.startswith('data:') and not value.startswith((
+        'data:image/png;base64,', 'data:image/jpeg;base64,',
+        'data:image/webp;base64,', 'data:application/pdf;base64,'
+    )):
+        raise ValueError('ID proof must be PNG, JPG, WebP, or PDF')
+    return value
+
 class ReceiverInfo(BaseModel):
     email: Optional[str] = None
     state: Optional[str] = None
@@ -149,6 +162,11 @@ class ReceiverInfo(BaseModel):
     id_proof_front: Optional[str] = None
     id_proof_back: Optional[str] = None
 
+    @field_validator('id_proof_front', 'id_proof_back')
+    @classmethod
+    def validate_documents(cls, value):
+        return validate_id_document(value)
+
 class SenderInfo(BaseModel):
     email: Optional[str] = None
     id_proof: Optional[str] = None
@@ -157,6 +175,11 @@ class SenderInfo(BaseModel):
     name: Optional[str] = None
     phone: Optional[str] = None
     address: Optional[str] = None
+
+    @field_validator('id_proof_front', 'id_proof_back')
+    @classmethod
+    def validate_documents(cls, value):
+        return validate_id_document(value)
 
 class ShipmentCreate(BaseModel):
     payment_details: Dict[str, str] = Field(default_factory=dict)

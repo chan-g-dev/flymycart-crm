@@ -127,6 +127,35 @@ class IndividualAccessTests(unittest.TestCase):
         self.assertEqual(self.save({'users.manage_permissions': 'allow'}).status_code, 200)
         self.assertEqual(self.save({}).status_code, 409)
 
+    def test_final_super_admin_cannot_be_deleted(self):
+        response = self.client.delete('/users/admin', headers=self.admin)
+        self.assertEqual(response.status_code, 400, response.text)
+        self.assertIn('final active Super Admin', response.json()['detail'])
+
+    def test_super_admin_can_delete_self_when_another_active_super_admin_exists(self):
+        with self.sessions() as db:
+            second = UserProfile(id='admin-2', email='admin2@example.com', display_name='Second Admin', role='super_admin', status='active')
+            second.roles.append(db.query(Role).filter_by(name='SUPER_ADMIN').one())
+            db.add(second)
+            db.commit()
+        response = self.client.delete('/users/admin', headers=self.admin)
+        self.assertEqual(response.status_code, 200, response.text)
+        with self.sessions() as db:
+            self.assertIsNone(db.get(UserProfile, 'admin'))
+            self.assertIsNotNone(db.get(UserProfile, 'admin-2'))
+
+    def test_super_admin_role_can_change_when_another_active_super_admin_exists(self):
+        with self.sessions() as db:
+            second = UserProfile(id='admin-2', email='admin2@example.com', display_name='Second Admin', role='super_admin', status='active')
+            second.roles.append(db.query(Role).filter_by(name='SUPER_ADMIN').one())
+            db.add(second)
+            db.commit()
+        changed = self.client.put('/users/admin-2/roles', headers=self.admin, json={'role_ids': ['manager']})
+        self.assertEqual(changed.status_code, 200, changed.text)
+        blocked = self.client.put('/users/admin/roles', headers=self.admin, json={'role_ids': ['manager']})
+        self.assertEqual(blocked.status_code, 400, blocked.text)
+        self.assertIn('final active Super Admin', blocked.json()['detail'])
+
     def test_editor_catalog_covers_permissions_and_marks_protected(self):
         from app.permissions import PermissionCode
         response = self.client.get('/users/a/access', headers=self.admin)

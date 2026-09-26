@@ -19,6 +19,7 @@ import {
     CheckSquare,
     Square,
     FileArchive,
+    FileText,
     SlidersHorizontal
 } from 'lucide-react';
 
@@ -158,6 +159,63 @@ export default function KycStorageSettings({ canManage }) {
         }
     };
 
+    const imageExtension = (src) => {
+        if (String(src || '').startsWith('data:application/pdf')) return 'pdf';
+        const mime = String(src || '').match(/^data:image\/(png|jpe?g|webp);/i)?.[1]?.toLowerCase();
+        if (mime === 'jpeg' || mime === 'jpg') return 'jpg';
+        if (mime === 'webp') return 'webp';
+        return 'png';
+    };
+
+    const isPdfDocument = src => String(src || '').startsWith('data:application/pdf');
+
+    const renderProofFiles = (record, party) => {
+        const person = party === 'sender' ? (record.sender_name || 'Sender') : (record.receiver_name || 'Receiver');
+        const files = [
+            ['front', record[`${party}_front`]],
+            ['back', record[`${party}_back`]],
+        ].filter(([, src]) => Boolean(src));
+        if (!files.length) return <span className="text-muted" style={{ fontSize: '11px' }}>No Proof File</span>;
+
+        return (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                {files.map(([side, src]) => {
+                    const titleSide = side[0].toUpperCase() + side.slice(1);
+                    const filename = `${record.awb}_${party}_id_proof_${side}.${imageExtension(src)}`;
+                    return (
+                        <div key={side} style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                            <button
+                                type="button"
+                                className="kyc-thumb-btn"
+                                onClick={() => setPreviewImage({
+                                    title: `${record.awb} - ${person} ${titleSide} Copy`,
+                                    src,
+                                    filename,
+                                })}
+                                title={`Preview ${party} ${side} copy`}
+                            >
+                                {isPdfDocument(src) ? <FileText size={19} color="#ef4444" /> : <img src={src} alt={`${person} ID proof ${side} copy`} className="kyc-thumb" />}
+                                <span style={{ position: 'absolute', left: '3px', bottom: '2px', padding: '1px 4px', borderRadius: '4px', background: 'rgba(15,23,42,.82)', color: '#fff', fontSize: '8px', fontWeight: 700 }}>
+                                    {titleSide}
+                                </span>
+                                <Eye size={12} className="kyc-thumb-eye" />
+                            </button>
+                            <button
+                                type="button"
+                                className="btn btn-sm btn-outline"
+                                style={{ padding: '4px 6px', height: '28px', color: '#1e64f0', borderColor: '#cbd5e1' }}
+                                onClick={() => handleDownloadImage(src, filename)}
+                                title={`Download ${party} ${side} copy`}
+                            >
+                                <Download size={13} />
+                            </button>
+                        </div>
+                    );
+                })}
+            </div>
+        );
+    };
+
     // Bulk ZIP Exporter
     const handleDownloadZipBatch = async () => {
         const targetRecords = selectedIds.size > 0
@@ -178,8 +236,8 @@ export default function KycStorageSettings({ canManage }) {
 
             const manifestHeaders = [
                 'AWB', 'Date', 'Type',
-                'Sender Name', 'Sender Phone', 'Sender ID Proof Number', 'Sender File Saved',
-                'Receiver Name', 'Receiver Phone', 'Receiver ID Proof Number', 'Receiver File Saved'
+                'Sender Name', 'Sender Phone', 'Sender ID Proof Number', 'Sender Front Saved', 'Sender Back Saved',
+                'Receiver Name', 'Receiver Phone', 'Receiver ID Proof Number', 'Receiver Front Saved', 'Receiver Back Saved'
             ];
             const manifestRows = [];
 
@@ -191,30 +249,23 @@ export default function KycStorageSettings({ canManage }) {
                 const safeSender = (r.sender_name || 'Sender').replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 20);
                 const subFolder = folder.folder(`${safeAwb}_${safeSender}`);
 
-                let hasSenderImg = 'No';
-                let hasReceiverImg = 'No';
-
-                if (r.sender_image) {
+                const files = [
+                    ['sender_front', 'sender_id_proof_front'],
+                    ['sender_back', 'sender_id_proof_back'],
+                    ['receiver_front', 'receiver_id_proof_front'],
+                    ['receiver_back', 'receiver_id_proof_back'],
+                ];
+                const saved = Object.fromEntries(files.map(([key]) => [key, 'No']));
+                for (const [key, filename] of files) {
+                    if (!r[key]) continue;
                     try {
-                        const blob = await fetchImageBlob(r.sender_image);
+                        const blob = await fetchImageBlob(r[key]);
                         if (blob) {
-                            subFolder.file(`sender_id_proof_${safeAwb}.png`, blob);
-                            hasSenderImg = 'Yes';
+                            subFolder.file(`${filename}_${safeAwb}.${imageExtension(r[key])}`, blob);
+                            saved[key] = 'Yes';
                         }
                     } catch (e) {
-                        console.warn('Could not add sender img:', e);
-                    }
-                }
-
-                if (r.receiver_image) {
-                    try {
-                        const blob = await fetchImageBlob(r.receiver_image);
-                        if (blob) {
-                            subFolder.file(`receiver_id_proof_${safeAwb}.png`, blob);
-                            hasReceiverImg = 'Yes';
-                        }
-                    } catch (e) {
-                        console.warn('Could not add receiver img:', e);
+                        console.warn(`Could not add ${key}:`, e);
                     }
                 }
 
@@ -225,11 +276,13 @@ export default function KycStorageSettings({ canManage }) {
                     r.sender_name || '',
                     r.sender_phone || '',
                     r.sender_id_proof || '',
-                    hasSenderImg,
+                    saved.sender_front,
+                    saved.sender_back,
                     r.receiver_name || '',
                     r.receiver_phone || '',
                     r.receiver_id_proof || '',
-                    hasReceiverImg
+                    saved.receiver_front,
+                    saved.receiver_back
                 ]);
 
                 processed++;
@@ -657,64 +710,10 @@ export default function KycStorageSettings({ canManage }) {
                                                 {r.receiver_id_proof && r.receiver_id_proof !== '—' && <code className="kyc-doc-num" style={{ marginTop: '2px', display: 'inline-block' }}>{r.receiver_id_proof}</code>}
                                             </td>
                                             <td>
-                                                {r.sender_image ? (
-                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                                        <button
-                                                            type="button"
-                                                            className="kyc-thumb-btn"
-                                                            onClick={() => setPreviewImage({ 
-                                                                title: `${r.awb} - Sender ID Proof (${r.sender_name || 'Sender'})`, 
-                                                                src: r.sender_image,
-                                                                filename: `${r.awb}_sender_id_proof.png`
-                                                            })}
-                                                            title="Preview Sender ID Proof"
-                                                        >
-                                                            <img src={r.sender_image} alt="Sender ID Proof" className="kyc-thumb" />
-                                                            <Eye size={12} className="kyc-thumb-eye" />
-                                                        </button>
-                                                        <button
-                                                            type="button"
-                                                            className="btn btn-sm btn-outline"
-                                                            style={{ padding: '4px 7px', height: '28px', color: '#1e64f0', borderColor: '#cbd5e1' }}
-                                                            onClick={() => handleDownloadImage(r.sender_image, `${r.awb}_sender_id_proof.png`)}
-                                                            title="Download Sender ID Proof"
-                                                        >
-                                                            <Download size={13} />
-                                                        </button>
-                                                    </div>
-                                                ) : (
-                                                    <span className="text-muted" style={{ fontSize: '11px' }}>No Proof File</span>
-                                                )}
+                                                {renderProofFiles(r, 'sender')}
                                             </td>
                                             <td>
-                                                {r.receiver_image ? (
-                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                                        <button
-                                                            type="button"
-                                                            className="kyc-thumb-btn"
-                                                            onClick={() => setPreviewImage({ 
-                                                                title: `${r.awb} - Receiver ID Proof (${r.receiver_name || 'Receiver'})`, 
-                                                                src: r.receiver_image,
-                                                                filename: `${r.awb}_receiver_id_proof.png`
-                                                            })}
-                                                            title="Preview Receiver ID Proof"
-                                                        >
-                                                            <img src={r.receiver_image} alt="Receiver ID Proof" className="kyc-thumb" />
-                                                            <Eye size={12} className="kyc-thumb-eye" />
-                                                        </button>
-                                                        <button
-                                                            type="button"
-                                                            className="btn btn-sm btn-outline"
-                                                            style={{ padding: '4px 7px', height: '28px', color: '#1e64f0', borderColor: '#cbd5e1' }}
-                                                            onClick={() => handleDownloadImage(r.receiver_image, `${r.awb}_receiver_id_proof.png`)}
-                                                            title="Download Receiver ID Proof"
-                                                        >
-                                                            <Download size={13} />
-                                                        </button>
-                                                    </div>
-                                                ) : (
-                                                    <span className="text-muted" style={{ fontSize: '11px' }}>No Proof File</span>
-                                                )}
+                                                {renderProofFiles(r, 'receiver')}
                                             </td>
                                             {canManage && (
                                                 <td style={{ textAlign: 'center' }}>
@@ -879,7 +878,11 @@ export default function KycStorageSettings({ canManage }) {
                             </div>
                         </div>
                         <div className="kyc-modal-body" style={{ textAlign: 'center', background: '#020617', padding: '16px', borderRadius: '0 0 8px 8px' }}>
-                            <img src={previewImage.src} alt="KYC Document Preview" className="kyc-modal-img" style={{ maxHeight: '70vh', maxWidth: '100%', objectFit: 'contain', borderRadius: '6px' }} />
+                            {isPdfDocument(previewImage.src) ? (
+                                <iframe src={previewImage.src} title="KYC PDF Document Preview" style={{ width: '100%', height: '70vh', border: 0, borderRadius: '6px', background: '#fff' }} />
+                            ) : (
+                                <img src={previewImage.src} alt="KYC Document Preview" className="kyc-modal-img" style={{ maxHeight: '70vh', maxWidth: '100%', objectFit: 'contain', borderRadius: '6px' }} />
+                            )}
                         </div>
                     </div>
                 </div>

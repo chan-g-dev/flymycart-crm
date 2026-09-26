@@ -115,8 +115,8 @@ def get_weekly_operations_report(
         Refund.status.in_(["Approved", "Refunded"]),
         func.coalesce(Refund.approval_date, Refund.request_date).between(start_text, end_text)
     )
-    if center and center != "All Centers":
-        ref_q = ref_q.filter(Refund.awb.in_(db.query(Shipment.awb).filter(Shipment.center == center)))
+    filtered_awbs = apply_report_filters(db.query(Shipment.awb), scope, entity, center)
+    ref_q = ref_q.filter(Refund.awb.in_(filtered_awbs))
     daily_refunds = dict(ref_q.group_by(func.coalesce(Refund.approval_date, Refund.request_date)).all())
     total_refunds = round(float(sum(daily_refunds.values())), 2)
 
@@ -127,6 +127,7 @@ def get_weekly_operations_report(
         revenue = float(row[2] or 0) if row else 0.0
         cost = float(row[4] or 0) if row else 0.0
         rev_with_gst = float(row[3] or 0) if row else 0.0
+        refund = round(float(daily_refunds.get(day, 0) or 0), 2)
         gst_val = round(rev_with_gst - revenue, 2)
         days.append({
             "date": day,
@@ -136,8 +137,9 @@ def get_weekly_operations_report(
             "gst_total": gst_val if can_view_price else None,
             "collections": round(float(daily_collections.get(day, 0) or 0), 2) if can_view_price else None,
             "provider_cost": cost if can_view_cost else None,
-            "gross_profit": round(revenue - cost, 2) if can_view_profit else None,
-            "gross_profit_with_gst": round(rev_with_gst - cost, 2) if can_view_profit else None,
+            "refunds_total": refund if can_view_profit else None,
+            "gross_profit": round(rev_with_gst - cost - refund, 2) if can_view_profit else None,
+            "gross_profit_with_gst": round(rev_with_gst - cost - refund, 2) if can_view_profit else None,
         })
 
     expenses, expense_breakdown = expense_summary(db, start_text, end_text)
@@ -164,8 +166,8 @@ def get_weekly_operations_report(
         "invoice_total": total_sales_with_gst if can_view_price else None,
         "total_collected": total_col if can_view_price else None,
         "total_provider_cost": total_cost if can_view_cost else None,
-        "gross_profit": round(total_sales - total_cost, 2) if can_view_profit else None,
-        "gross_profit_with_gst": round(total_sales_with_gst - total_cost, 2) if can_view_profit else None,
+        "gross_profit": round(total_sales_with_gst - total_cost - total_refunds, 2) if can_view_profit else None,
+        "gross_profit_with_gst": round(total_sales_with_gst - total_cost - total_refunds, 2) if can_view_profit else None,
         "refunds_total": total_refunds if can_view_profit else None,
         "net_profit": net_profit if can_view_profit else None,
         "net_profit_with_gst": net_profit_with_gst if can_view_profit else None,
@@ -248,16 +250,15 @@ def get_eod_report(
             ),
             Refund.status.in_(["Approved", "Refunded"])
         )
-        if center and center != "All Centers":
-            ref_q = ref_q.filter(Refund.awb.in_(db.query(Shipment.awb).filter(Shipment.center == center)))
+        ref_q = ref_q.filter(Refund.awb.in_([s.awb for s in shipments]))
         refunds_amt = round(float(sum(float(r.amount or 0) for r in ref_q.all())), 2)
     except Exception:
         refunds_amt = 0.0
 
-    gross_profit = round(sales_total - total_cost, 2)
+    gross_profit = round(billed_total - total_cost - refunds_amt, 2)
     expenses, expense_breakdown = expense_summary(db, target_date, target_date)
     exp_val = expenses if expenses is not None else 0.0
-    net_profit = round(sales_total - total_cost - refunds_amt - exp_val, 2)
+    net_profit = round(gross_profit - exp_val, 2)
     can_view_price = can_view_customer_price(ctx)
     can_view_cost = can_view_costs(ctx)
     can_view_profit = can_view_values(ctx) and can_view_cost and can_view_price
@@ -276,8 +277,7 @@ def get_eod_report(
             s_refund = float(refunds_by_awb.get(s_awb, 0) or 0)
             row = ShipmentOut.model_validate(s).model_dump()
             billed_val = getattr(s, "total_amount", None) or ((s.price or 0.0) + (getattr(s, "gst_amount", 0.0) or 0.0))
-            base_gp = calculate_gross_profit(s.price or 0, s.provider_cost, s.actual_provider_cost, s.cost_reconciled)
-            row['gross_profit'] = round(base_gp - s_refund, 2)
+            row['gross_profit'] = round(calculate_gross_profit(billed_val, s.provider_cost, s.actual_provider_cost, s.cost_reconciled) - s_refund, 2)
             row['refund_amount'] = s_refund
             formatted_shipments.append(mask_shipment_financials(row, ctx))
         except Exception:
@@ -299,10 +299,10 @@ def get_eod_report(
         "pending_collection": max(0.0, pending) if can_view_price else None,
         "total_provider_cost": total_cost if can_view_cost else None,
         "gross_profit": gross_profit if can_view_profit else None,
-        "gross_profit_with_gst": round(billed_total - total_cost, 2) if can_view_profit else None,
+        "gross_profit_with_gst": gross_profit if can_view_profit else None,
         "refunds_amount": refunds_amt if can_view_profit else None,
         "net_profit": net_profit if can_view_profit else None,
-        "net_profit_with_gst": round(billed_total - total_cost - refunds_amt - exp_val, 2) if can_view_profit else None,
+        "net_profit_with_gst": net_profit if can_view_profit else None,
         "collections_by_method": by_method if can_view_price else {},
         "collections_by_employee": by_employee if can_view_price else {},
         "shipments": formatted_shipments
@@ -345,14 +345,13 @@ def get_monthly_pl_report(
             ),
             Refund.status.in_(["Approved", "Refunded"])
         )
-        if center and center != "All Centers":
-            ref_q = ref_q.filter(Refund.awb.in_(db.query(Shipment.awb).filter(Shipment.center == center)))
+        ref_q = ref_q.filter(Refund.awb.in_([s.awb for s in shipments]))
         refunds_total = round(float(sum(float(r.amount or 0) for r in ref_q.all())), 2)
     except Exception:
         refunds_total = 0.0
 
-    gross_profit = round(revenue - actual_cost, 2)
-    gross_profit_with_gst = round(invoice_total - actual_cost, 2)
+    gross_profit = round(invoice_total - actual_cost - refunds_total, 2)
+    gross_profit_with_gst = gross_profit
     expenses, expense_breakdown = expense_summary(db, target_month + "-01", target_month + "-31")
 
     postpaid_carrier_payments = 0.0
@@ -381,8 +380,8 @@ def get_monthly_pl_report(
         postpaid_payments_breakdown = {}
 
     exp_val = expenses if expenses is not None else 0.0
-    net_profit = round(revenue - actual_cost - refunds_total - exp_val, 2)
-    net_profit_with_gst = round(invoice_total - actual_cost - refunds_total - exp_val, 2)
+    net_profit = round(gross_profit - exp_val, 2)
+    net_profit_with_gst = net_profit
 
     can_view_price = can_view_customer_price(ctx)
     can_view_cost = can_view_costs(ctx)

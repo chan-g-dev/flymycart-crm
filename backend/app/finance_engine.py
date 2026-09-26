@@ -49,22 +49,22 @@ def calculate_volumetric_and_chargeable_weight(
 
 
 def calculate_gross_profit(
-    selling_price: float,
+    billed_amount: float,
     provider_cost: float,
     actual_provider_cost: Optional[float] = None,
     cost_reconciled: bool = False
 ) -> float:
     """
-    Gross Profit = Customer Selling Price - Provider Cost.
-    Selling price excludes customer GST. Uses actual_provider_cost only when reconciled,
-    otherwise falls back to predicted provider_cost.
+    Shipment Profit = Final Customer Billed Amount - Carrier Cost.
+    The billed amount already reflects whether GST applies. Uses actual provider
+    cost only when reconciled, otherwise falls back to predicted provider cost.
     """
-    price = float(selling_price or 0.0)
+    billed = float(billed_amount or 0.0)
     if cost_reconciled and actual_provider_cost is not None:
         effective_cost = float(actual_provider_cost)
     else:
         effective_cost = float(provider_cost or 0.0)
-    return round(price - effective_cost, 2)
+    return round(billed - effective_cost, 2)
 
 
 def calculate_b2b_aging_buckets(

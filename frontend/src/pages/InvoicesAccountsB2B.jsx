@@ -10,8 +10,8 @@ import AccountsOverview from '../components/AccountsOverview';
 import { businessDate } from '../utils/businessDates';
 import { providerCostLabel } from '../utils/costLabels';
 import AccountChecks from '../components/AccountChecks';
-import React, { useState, useMemo, useCallback } from 'react';
-import { Scale, Plus, Printer, CreditCard, FileText, Download, Building2, RotateCcw, Search, Globe, Plane, Truck, X } from 'lucide-react';
+import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
+import { Scale, Plus, Printer, CreditCard, FileText, Download, Building2, RotateCcw, Search, Globe, Plane, Truck, X, Eye, EyeOff, ChevronsLeft, ChevronsRight } from 'lucide-react';
 import { DEFAULT_ENTITY, getEntityMeta, getEntityOptions } from '../utils/entityConstants';
 import { useAuth } from '../context/authSession';
 import { CourierLogo } from '../components/CourierLogos';
@@ -34,6 +34,51 @@ export const Invoices = ({
     const canViewPrice = hasPermission('costs.customer_price');
     const [searchVal, setSearchVal] = useState('');
     const [statusVal, setStatusVal] = useState('');
+    const [showDdpStatus, setShowDdpStatus] = useState(() => {
+        try {
+            return window.localStorage.getItem('invoices.showDdpStatus') === 'true';
+        } catch {
+            return false;
+        }
+    });
+
+    const toggleDdpStatus = () => {
+        setShowDdpStatus(curr => {
+            const next = !curr;
+            try {
+                window.localStorage.setItem('invoices.showDdpStatus', String(next));
+            } catch {}
+            return next;
+        });
+    };
+
+    const invoiceScrollRef = useRef(null);
+    const [canScrollLeft, setCanScrollLeft] = useState(false);
+    const [canScrollRight, setCanScrollRight] = useState(true);
+
+    const updateScrollState = useCallback(() => {
+        const el = invoiceScrollRef.current;
+        if (!el) return;
+        const { scrollLeft, scrollWidth, clientWidth } = el;
+        setCanScrollLeft(scrollLeft > 10);
+        setCanScrollRight(scrollLeft + clientWidth < scrollWidth - 10);
+    }, []);
+
+    const scrollToStart = useCallback(() => {
+        if (invoiceScrollRef.current) {
+            invoiceScrollRef.current.scrollTo({ left: 0, behavior: 'smooth' });
+        }
+    }, []);
+
+    const scrollToEnd = useCallback(() => {
+        if (invoiceScrollRef.current) {
+            invoiceScrollRef.current.scrollTo({
+                left: invoiceScrollRef.current.scrollWidth,
+                behavior: 'smooth'
+            });
+        }
+    }, []);
+
     const entityOptions = useMemo(() => getEntityOptions(settings), [settings]);
     const scopeVal = selectedScope;
     const entityVal = selectedEntity;
@@ -122,6 +167,18 @@ export const Invoices = ({
     });
 
     const tablePage = useTablePage(filtered, JSON.stringify([searchVal, statusVal, selectedCenter, scopeVal, entityVal]));
+
+    useEffect(() => {
+        const el = invoiceScrollRef.current;
+        if (!el) return;
+        updateScrollState();
+        el.addEventListener('scroll', updateScrollState, { passive: true });
+        window.addEventListener('resize', updateScrollState);
+        return () => {
+            el.removeEventListener('scroll', updateScrollState);
+            window.removeEventListener('resize', updateScrollState);
+        };
+    }, [updateScrollState, filtered, tablePage.rows]);
 
     const exportToCSV = () => {
         if (!invoices || invoices.length === 0) return;
@@ -278,7 +335,7 @@ export const Invoices = ({
                 </div>
             </div>
 
-            <div className="filter-bar invoice-filters">
+            <div className="filter-bar invoice-filters" style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
                 <input 
                     type="text" 
                     className="filter-input" 
@@ -294,11 +351,52 @@ export const Invoices = ({
                     <option value="Due">Due / Unpaid</option>
                     <option value="Overdue">Overdue</option>
                 </select>
+                <button
+                    type="button"
+                    className="btn btn-outline"
+                    onClick={toggleDdpStatus}
+                    aria-pressed={showDdpStatus}
+                    title={showDdpStatus ? 'Hide DDP payment status from invoice rows' : 'Show DDP payment status in invoice rows'}
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', whiteSpace: 'nowrap', color: showDdpStatus ? '#1d4ed8' : 'var(--text-muted)' }}
+                >
+                    {showDdpStatus ? <EyeOff size={14} /> : <Eye size={14} />}
+                    {showDdpStatus ? 'Hide DDP' : 'Show DDP'}
+                </button>
             </div>
 
             <div className="table-card invoice-table-card">
-                <div className="table-wrap invoice-table-wrap" tabIndex={0} role="region" aria-label="Invoices table, scroll to view more invoices">
-                    <table className="data-table invoice-table">
+                <div className="shipment-table-wrapper-relative">
+                    {canScrollLeft && (
+                        <button
+                            type="button"
+                            className="floating-table-scroll-btn floating-scroll-left"
+                            onClick={scrollToStart}
+                            title="Scroll Full Left"
+                            aria-label="Scroll table full left"
+                        >
+                            <ChevronsLeft size={16} />
+                        </button>
+                    )}
+                    {canScrollRight && (
+                        <button
+                            type="button"
+                            className="floating-table-scroll-btn floating-scroll-right"
+                            onClick={scrollToEnd}
+                            title="Scroll Full Right"
+                            aria-label="Scroll table full right"
+                        >
+                            <ChevronsRight size={16} />
+                        </button>
+                    )}
+
+                    <div 
+                        ref={invoiceScrollRef}
+                        className="table-wrap invoice-table-wrap" 
+                        tabIndex={0} 
+                        role="region" 
+                        aria-label="Invoices table, scroll to view more invoices"
+                    >
+                        <table className="data-table invoice-table">
                         <thead>
                             <tr>
                                 <th>Invoice #</th>
@@ -329,11 +427,15 @@ export const Invoices = ({
                                             <div className="invoice-awb-cell" style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
                                                 <TrackingLink awb={inv.awb} courier={inv.courier} className="status-pill in-transit" style={{ fontFamily: 'monospace' }} />
                                                 {inv.courier && <CourierLogo courier={inv.courier} height={15} />}
-                                                {inv.is_ddp !== undefined && (
-                                                    <span className={inv.is_ddp ? 'ddp-tag-paid' : 'ddp-tag-unpaid'} style={{ fontSize: '9.5px', padding: '1px 5px' }}>
-                                                        {inv.is_ddp ? '✓ DDP Paid' : 'DDP Not Paid'}
-                                                    </span>
-                                                )}
+                                                {showDdpStatus && (() => {
+                                                    const ddpVal = inv.is_ddp !== undefined ? inv.is_ddp : shipmentMap.get(inv.shipment_id || inv.awb)?.is_ddp;
+                                                    if (ddpVal === undefined) return null;
+                                                    return (
+                                                        <span className={ddpVal ? 'ddp-tag-paid' : 'ddp-tag-unpaid'} style={{ fontSize: '9.5px', padding: '1px 5px' }}>
+                                                            {ddpVal ? '✓ DDP Paid' : 'DDP Not Paid'}
+                                                        </span>
+                                                    );
+                                                })()}
                                             </div>
                                         </td>
                                         {canViewPrice && (
@@ -382,6 +484,7 @@ export const Invoices = ({
                             )}
                         </tbody>
                     </table>
+                    </div>
                 </div>
                 <TablePagination {...tablePage} />
             </div>

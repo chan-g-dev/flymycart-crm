@@ -15,7 +15,7 @@ from sqlalchemy import desc
 from app.database import get_db
 from app.models import (
     UserProfile, User, Role, Permission, UserRole, RolePermission,
-    UserCenterAccess, AppSession, AuditLog, UserInvitation
+    UserCenterAccess, AppSession, AuditLog, UserInvitation, UserPermissionOverride, SystemSettings
 )
 from app.schemas import (
     InviteUserRequest, RoleCreateRequest, RoleUpdateRequest,
@@ -278,8 +278,18 @@ def delete_staff_user(
     if not profile:
         raise HTTPException(status_code=404, detail="User not found.")
 
-    if profile.id == ctx["user_id"]:
-        raise HTTPException(status_code=400, detail="You cannot delete your own account.")
+    if role_code(profile) == "super_admin":
+        active_super_admins = sum(
+            1 for candidate in db.query(UserProfile).filter(
+                UserProfile.status.in_(["active", "approved"])
+            ).all() if role_code(candidate) == "super_admin"
+        )
+        if active_super_admins <= 1:
+            raise HTTPException(status_code=400, detail="The final active Super Admin cannot be deleted.")
+    if profile.email.lower() == "admin@flymycart.com":
+        settings_row = db.query(SystemSettings).filter_by(id=1).with_for_update().first()
+        if settings_row:
+            settings_row.config_json = {**(settings_row.config_json or {}), "bootstrapAdminDeleted": True}
 
     # Clear association rows explicitly so deletion works consistently across
     # SQLite and production databases, including older schemas without cascades.
@@ -291,7 +301,13 @@ def delete_staff_user(
     )
     db.query(UserRole).filter(UserRole.user_id == profile.id).delete(synchronize_session=False)
     db.query(UserCenterAccess).filter(UserCenterAccess.user_id == profile.id).delete(synchronize_session=False)
+    db.expire(profile, ["roles", "centers"])
+    db.query(UserPermissionOverride).filter(UserPermissionOverride.user_id == profile.id).delete(synchronize_session=False)
+    db.query(AppSession).filter(AppSession.user_id == profile.id).delete(synchronize_session=False)
     db.query(UserInvitation).filter(UserInvitation.email == profile.email).delete(synchronize_session=False)
+    db.query(User).filter(
+        (User.id == profile.auth_user_id) | (User.id == profile.id) | (User.email == profile.email)
+    ).delete(synchronize_session=False)
 
     db.delete(profile)
     db.commit()
@@ -519,13 +535,27 @@ def update_user_roles(
     if profile.id == ctx["user_id"] and not ctx.get("is_super_admin", False):
         raise HTTPException(status_code=400, detail="Staff cannot edit their own roles or permissions.")
 
-    if role_code(profile) == 'super_admin':
-        raise HTTPException(400, 'Super Admin role assignments are protected.')
     old_roles = [r.name for r in profile.roles]
     selected_roles = [resolve_role(db, role_id) for role_id in payload.role_ids]
     selected_roles = [role for role in selected_roles if role]
     if not selected_roles:
         raise HTTPException(status_code=400, detail="Select a valid staff role.")
+    selected_is_super_admin = any(role.name == "SUPER_ADMIN" for role in selected_roles)
+    current_is_super_admin = role_code(profile) == "super_admin"
+    if selected_is_super_admin and not ctx.get("is_super_admin"):
+        raise HTTPException(status_code=403, detail="Only a Super Admin can assign the Super Admin role.")
+    if current_is_super_admin and not selected_is_super_admin and profile.status in ("active", "approved"):
+        active_super_admins = sum(
+            1 for candidate in db.query(UserProfile).filter(
+                UserProfile.status.in_(["active", "approved"])
+            ).all() if role_code(candidate) == "super_admin"
+        )
+        if active_super_admins <= 1:
+            raise HTTPException(status_code=400, detail="The final active Super Admin cannot change to another role.")
+        if profile.email.lower() == "admin@flymycart.com":
+            settings_row = db.query(SystemSettings).filter_by(id=1).with_for_update().first()
+            if settings_row:
+                settings_row.config_json = {**(settings_row.config_json or {}), "bootstrapAdminDeleted": True}
 
     # Delete current user_roles
     db.query(UserRole).filter(UserRole.user_id == profile.id).delete(synchronize_session=False)

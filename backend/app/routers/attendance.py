@@ -12,7 +12,7 @@ from sqlalchemy import func, desc, or_
 from pydantic import BaseModel, Field
 
 from app.database import get_db
-from app.models import AttendanceRecord, User, UserProfile, SystemSettings
+from app.models import AttendanceRecord, LeaveRequest, User, UserProfile, SystemSettings
 from app.business_dates import business_today, business_now
 from app.dependencies import require_permission, get_current_session_context
 from app.permissions import PermissionCode
@@ -21,20 +21,20 @@ from app.auth import create_audit_log
 attendance_router = APIRouter(prefix="/api/attendance", tags=["Attendance"])
 
 def get_all_active_staff_names(db: Session) -> List[str]:
-    """Returns unique list of verified operational staff names directly from active UserProfiles (excluding super admins)."""
+    """Return every active staff member, including managers and super admins."""
     names = set()
     try:
-        profiles = db.query(UserProfile.display_name, UserProfile.role).filter(UserProfile.status == "active").all()
-        for u, r in profiles:
-            if u and u.strip() and r != "super_admin" and u.strip().lower() not in ["fly my cart"]:
+        profiles = db.query(UserProfile.display_name).filter(func.lower(UserProfile.status) == "active").all()
+        for (u,) in profiles:
+            if u and u.strip():
                 names.add(u.strip())
     except Exception:
         pass
     try:
         if not names:
-            users = db.query(User.name, User.role).filter(User.is_active == True).all()
-            for u, r in users:
-                if u and u.strip() and r != "super_admin" and u.strip().lower() not in ["fly my cart"]:
+            users = db.query(User.name).filter(User.is_active == True).all()
+            for (u,) in users:
+                if u and u.strip():
                     names.add(u.strip())
     except Exception:
         pass
@@ -42,13 +42,37 @@ def get_all_active_staff_names(db: Session) -> List[str]:
         if not names:
             records = db.query(AttendanceRecord.staff_name).distinct().all()
             for r in records:
-                if r[0] and r[0].strip() and r[0].strip().lower() not in ["fly my cart", "gangabathina chanakya", "admin"]:
+                if r[0] and r[0].strip():
                     names.add(r[0].strip())
     except Exception:
         pass
 
 
     return sorted(list(names))
+
+
+def role_department(role_name: Optional[str]) -> str:
+    normalized = (role_name or "staff").strip().lower().replace(" ", "_")
+    if normalized in ("team_leader", "teamleader", "team_lead"):
+        normalized = "supervisor"
+    return "SUPER ADMIN" if normalized == "super_admin" else normalized.replace("_", " ").title()
+
+
+def get_active_staff_details(db: Session) -> List[Dict[str, str]]:
+    """Return staff identity and department derived from assigned database roles."""
+    details: Dict[str, Dict[str, str]] = {}
+    for profile in db.query(UserProfile).filter(func.lower(UserProfile.status) == "active").all():
+        name = (profile.display_name or "").strip()
+        if not name:
+            continue
+        assigned_role = profile.roles[0].name if profile.roles else (profile.role or profile.requested_role)
+        details[name.casefold()] = {"name": name, "role": assigned_role or "staff", "department": role_department(assigned_role)}
+    if not details:
+        for user in db.query(User).filter(User.is_active == True).all():
+            name = (user.name or "").strip()
+            if name:
+                details[name.casefold()] = {"name": name, "role": user.role or "staff", "department": role_department(user.role)}
+    return sorted(details.values(), key=lambda item: item["name"].casefold())
 
 
 def parse_time_to_minutes(time_str: str) -> Optional[int]:
@@ -100,6 +124,84 @@ class PunchRequest(BaseModel):
     notes: Optional[str] = None
 
 
+class BulkPunchRequest(BaseModel):
+    event: str = Field(pattern="^(LOGIN|LOGOUT|LUNCH START|LUNCH END|BREAK START|BREAK END)$")
+    date: Optional[str] = None
+    time: Optional[str] = None
+    notes: Optional[str] = None
+
+
+class LeaveCreateRequest(BaseModel):
+    staff_name: Optional[str] = Field(default=None, max_length=150)
+    leave_type: str = Field(default="Casual", pattern="^(Casual|Sick|Earned|Unpaid|Other)$")
+    start_date: str
+    end_date: str
+    reason: str = Field(min_length=3, max_length=1000)
+
+
+class AttendanceScheduleRequest(BaseModel):
+    expected_login: str = Field(pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
+    expected_logout: str = Field(pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
+    grace_period_min: int = Field(ge=0, le=120)
+    expected_work_min: int = Field(ge=60, le=1440)
+
+
+def get_attendance_schedule(db: Session) -> Dict[str, Any]:
+    row = db.query(SystemSettings).filter_by(id=1).first()
+    saved = ((row.config_json or {}).get("attendanceSchedule", {})) if row else {}
+    return {
+        "expected_login": saved.get("expected_login", "09:00"),
+        "expected_logout": saved.get("expected_logout", "18:00"),
+        "grace_period_min": int(saved.get("grace_period_min", 15)),
+        "expected_work_min": int(saved.get("expected_work_min", 480)),
+    }
+
+
+def serialize_leave(item: LeaveRequest) -> Dict[str, Any]:
+    return {
+        "id": item.id, "staff_name": item.staff_name, "leave_type": item.leave_type,
+        "start_date": item.start_date, "end_date": item.end_date, "reason": item.reason,
+        "status": item.status, "reviewed_by_name": item.reviewed_by_name,
+        "review_notes": item.review_notes,
+        "created_at": item.created_at.isoformat() if item.created_at else None,
+    }
+
+
+def validate_attendance_event(existing_events: List[AttendanceRecord], new_event: str) -> None:
+    """Enforce a safe daily punch sequence while allowing multiple completed breaks."""
+    ordered = sorted(existing_events, key=lambda item: (parse_time_to_minutes(item.time) or -1, item.created_at or item.timestamp))
+    events = [item.event for item in ordered]
+
+    if new_event == "LOGIN":
+        if "LOGIN" in events:
+            raise HTTPException(409, "Login has already been recorded for this staff member today.")
+        return
+    if "LOGIN" not in events:
+        raise HTTPException(409, "Record Login before recording another attendance action.")
+    if "LOGOUT" in events:
+        raise HTTPException(409, "Attendance is already closed with Logout for this staff member today.")
+
+    open_event = None
+    for event in events:
+        if event in ("LUNCH START", "BREAK START"):
+            open_event = event
+        elif event == "LUNCH END" and open_event == "LUNCH START":
+            open_event = None
+        elif event == "BREAK END" and open_event == "BREAK START":
+            open_event = None
+
+    if new_event == "LUNCH START" and open_event:
+        raise HTTPException(409, "End the current lunch or break before starting lunch.")
+    if new_event == "BREAK START" and open_event:
+        raise HTTPException(409, "End the current lunch or break before starting a break.")
+    if new_event == "LUNCH END" and open_event != "LUNCH START":
+        raise HTTPException(409, "Lunch In must be recorded before Lunch Out.")
+    if new_event == "BREAK END" and open_event != "BREAK START":
+        raise HTTPException(409, "Break In must be recorded before Break Out.")
+    if new_event == "LOGOUT" and open_event:
+        raise HTTPException(409, "End the current lunch or break before Logout.")
+
+
 @attendance_router.get("/staff-list")
 def get_staff_list(
     ctx: Dict[str, Any] = Depends(require_permission("attendance.view")),
@@ -113,7 +215,148 @@ def get_staff_list(
         staff = [ctx.get("display_name") or "Staff"]
     else:
         staff = get_all_active_staff_names(db)
-    return {"staff": staff, "total_count": len(staff)}
+    details = get_active_staff_details(db) if is_admin else [{
+        "name": staff[0], "role": ctx.get("role", "staff"), "department": role_department(ctx.get("role"))
+    }]
+    return {"staff": staff, "staff_details": details, "total_count": len(staff)}
+
+
+@attendance_router.get("/schedule")
+def read_attendance_schedule(
+    ctx: Dict[str, Any] = Depends(require_permission("attendance.view")),
+    db: Session = Depends(get_db),
+):
+    return get_attendance_schedule(db)
+
+
+@attendance_router.put("/schedule")
+def update_attendance_schedule(
+    payload: AttendanceScheduleRequest,
+    request: Request,
+    ctx: Dict[str, Any] = Depends(require_permission("attendance.manage")),
+    db: Session = Depends(get_db),
+):
+    if not (ctx.get("is_super_admin") or ctx.get("permissions", {}).get("attendance.manage")):
+        raise HTTPException(403, "You do not have permission to update attendance timings.")
+    row = db.query(SystemSettings).filter_by(id=1).with_for_update().first()
+    if not row:
+        row = SystemSettings(id=1, config_json={})
+        db.add(row)
+        db.flush()
+    before = get_attendance_schedule(db)
+    value = payload.model_dump()
+    row.config_json = {**(row.config_json or {}), "attendanceSchedule": value}
+    create_audit_log(
+        db, ctx.get("user_id"), ctx.get("display_name"), "attendance.schedule_updated", "system_settings",
+        "update", resource_id="attendanceSchedule", before_data=before, after_data=value,
+        ip_address=request.client.host if request.client else None, auto_commit=False,
+    )
+    db.commit()
+    return value
+
+
+@attendance_router.get("/leaves")
+def get_leave_requests(
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    status: Optional[str] = None,
+    ctx: Dict[str, Any] = Depends(require_permission("attendance.view")),
+    db: Session = Depends(get_db),
+):
+    is_admin = ctx.get("is_super_admin") or bool(ctx.get("permissions", {}).get("attendance.manage"))
+    query = db.query(LeaveRequest)
+    if not is_admin:
+        query = query.filter(LeaveRequest.staff_name == (ctx.get("display_name") or "Staff"))
+    if date_from:
+        query = query.filter(LeaveRequest.end_date >= date_from)
+    if date_to:
+        query = query.filter(LeaveRequest.start_date <= date_to)
+    if status:
+        query = query.filter(func.lower(LeaveRequest.status) == status.lower())
+    items = query.order_by(LeaveRequest.created_at.desc()).limit(500).all()
+    return {"leaves": [serialize_leave(item) for item in items], "total_count": len(items)}
+
+
+@attendance_router.post("/leaves", status_code=201)
+def create_leave_request(
+    payload: LeaveCreateRequest,
+    request: Request,
+    ctx: Dict[str, Any] = Depends(require_permission("attendance.view")),
+    db: Session = Depends(get_db),
+):
+    try:
+        start = datetime.date.fromisoformat(payload.start_date)
+        end = datetime.date.fromisoformat(payload.end_date)
+    except ValueError as exc:
+        raise HTTPException(422, "Leave dates must use YYYY-MM-DD format.") from exc
+    if end < start:
+        raise HTTPException(422, "Leave end date cannot be before the start date.")
+    if (end - start).days > 365:
+        raise HTTPException(422, "A leave request cannot exceed 366 days.")
+    can_mark_leave = ctx.get("is_super_admin") or bool(ctx.get("permissions", {}).get("attendance.manage")) or bool(ctx.get("permissions", {}).get("attendance.leave"))
+    if not can_mark_leave:
+        raise HTTPException(403, "You do not have permission to mark staff leave.")
+    staff_name = (payload.staff_name or "").strip()
+    if staff_name not in get_all_active_staff_names(db):
+        raise HTTPException(422, "Select an active staff member.")
+    overlap = db.query(LeaveRequest).filter(
+        LeaveRequest.staff_name == staff_name,
+        LeaveRequest.status.in_(["Pending", "Approved"]),
+        LeaveRequest.end_date >= payload.start_date,
+        LeaveRequest.start_date <= payload.end_date,
+    ).first()
+    if overlap:
+        raise HTTPException(409, "An active leave request already overlaps these dates.")
+    punches = db.query(AttendanceRecord).filter(
+        AttendanceRecord.staff_name == staff_name,
+        AttendanceRecord.date.between(payload.start_date, payload.end_date),
+    ).first()
+    if punches:
+        raise HTTPException(409, "Attendance punches already exist within this leave period.")
+    item = LeaveRequest(
+        user_id=ctx.get("user_id"), staff_name=staff_name, leave_type=payload.leave_type,
+        start_date=payload.start_date, end_date=payload.end_date, reason=payload.reason.strip(),
+        status="Approved", reviewed_by_user_id=ctx.get("user_id"),
+        reviewed_by_name=ctx.get("display_name"), reviewed_at=datetime.datetime.utcnow(),
+    )
+    db.add(item)
+    db.flush()
+    create_audit_log(
+        db, ctx.get("user_id"), ctx.get("display_name"), "attendance.leave_created", "leave_request",
+        "create", resource_id=item.id, after_data=serialize_leave(item),
+        ip_address=request.client.host if request.client else None, auto_commit=False,
+    )
+    db.commit()
+    db.refresh(item)
+    return serialize_leave(item)
+
+
+@attendance_router.delete("/leaves/{leave_id}")
+def cancel_leave_request(
+    leave_id: str,
+    request: Request,
+    ctx: Dict[str, Any] = Depends(require_permission("attendance.view")),
+    db: Session = Depends(get_db),
+):
+    item = db.get(LeaveRequest, leave_id)
+    if not item:
+        raise HTTPException(404, "Leave request not found.")
+    can_mark_leave = ctx.get("is_super_admin") or bool(ctx.get("permissions", {}).get("attendance.manage")) or bool(ctx.get("permissions", {}).get("attendance.leave"))
+    if not can_mark_leave:
+        raise HTTPException(403, "You do not have permission to cancel staff leave.")
+    before = serialize_leave(item)
+    item.status = "Cancelled"
+    item.reviewed_by_user_id = ctx.get("user_id")
+    item.reviewed_by_name = ctx.get("display_name")
+    item.reviewed_at = datetime.datetime.utcnow()
+    create_audit_log(
+        db, ctx.get("user_id"), ctx.get("display_name"), "attendance.leave_cancelled", "leave_request",
+        "cancel", resource_id=item.id, before_data=before, after_data=serialize_leave(item),
+        ip_address=request.client.host if request.client else None, auto_commit=False,
+    )
+    db.commit()
+    db.refresh(item)
+    return serialize_leave(item)
 
 
 @attendance_router.get("/summary")
@@ -121,16 +364,21 @@ def get_attendance_summary(
     date_from: Optional[str] = None,
     date_to: Optional[str] = None,
     staff_name: Optional[str] = None,
-    expected_work_min: int = Query(480, ge=60, le=1440),
-    grace_period_min: int = Query(15, ge=0, le=120),
-    expected_login: str = Query("09:00 AM"),
-    expected_logout: str = Query("06:00 PM"),
+    expected_work_min: Optional[int] = Query(None, ge=60, le=1440),
+    grace_period_min: Optional[int] = Query(None, ge=0, le=120),
+    expected_login: Optional[str] = None,
+    expected_logout: Optional[str] = None,
     ctx: Dict[str, Any] = Depends(require_permission("attendance.view")),
     db: Session = Depends(get_db)
 ):
     """Calculates attendance summary KPIs, present/absent counts, and staff summary cards."""
     if ctx.get("permissions", {}).get("attendance.view") is False:
         raise HTTPException(403, "Access to attendance has been restricted by Super Admin.")
+    schedule = get_attendance_schedule(db)
+    expected_work_min = expected_work_min if expected_work_min is not None else schedule["expected_work_min"]
+    grace_period_min = grace_period_min if grace_period_min is not None else schedule["grace_period_min"]
+    expected_login = expected_login or schedule["expected_login"]
+    expected_logout = expected_logout or schedule["expected_logout"]
     start_date = date_from or business_today().isoformat()
     end_date = date_to or start_date
     if start_date > end_date:
@@ -173,6 +421,19 @@ def get_attendance_summary(
             grouped[key] = []
         grouped[key].append(r)
 
+    approved_leaves = db.query(LeaveRequest).filter(
+        LeaveRequest.status == "Approved",
+        LeaveRequest.end_date >= start_date,
+        LeaveRequest.start_date <= end_date,
+    ).all()
+    leave_days = set()
+    for leave in approved_leaves:
+        current = max(datetime.date.fromisoformat(leave.start_date), d_start)
+        leave_end = min(datetime.date.fromisoformat(leave.end_date), d_end)
+        while current <= leave_end:
+            leave_days.add((leave.staff_name, current.isoformat()))
+            current += datetime.timedelta(days=1)
+
     exp_login_min = parse_time_to_minutes(expected_login) or 540  # 9:00 AM = 540 min
     exp_logout_min = parse_time_to_minutes(expected_logout) or 1080 # 6:00 PM = 1080 min
 
@@ -181,6 +442,7 @@ def get_attendance_summary(
     on_time_days = 0
     no_logout_count = 0
     total_work_minutes_all = 0
+    on_leave_days = 0
 
     staff_metrics = {name: {"present": 0, "absent": 0, "total_work_min": 0, "late": 0, "on_time": 0} for name in all_staff}
 
@@ -191,6 +453,9 @@ def get_attendance_summary(
             day_events = grouped.get(key, [])
 
             if not day_events:
+                if key in leave_days:
+                    on_leave_days += 1
+                    continue
                 staff_metrics[s_name]["absent"] += 1
                 continue
 
@@ -244,7 +509,7 @@ def get_attendance_summary(
                 on_time_days += 1
                 staff_metrics[s_name]["on_time"] += 1
 
-    absent_days = max(0, total_staff_days - present_days)
+    absent_days = max(0, total_staff_days - present_days - on_leave_days)
     avg_work_min = int(total_work_minutes_all / present_days) if present_days > 0 else 0
 
     staff_summaries = []
@@ -277,6 +542,7 @@ def get_attendance_summary(
         "total_staff_days": total_staff_days,
         "present_days": present_days,
         "absent_days": absent_days,
+        "on_leave_days": on_leave_days,
         "late_days": late_days,
         "on_time_days": on_time_days,
         "avg_work_time_str": format_minutes_to_hours_str(avg_work_min),
@@ -351,10 +617,10 @@ def get_daily_breakdown(
     date_to: Optional[str] = None,
     staff_name: Optional[str] = None,
     search: Optional[str] = None,
-    expected_work_min: int = Query(480, ge=60, le=1440),
-    grace_period_min: int = Query(15, ge=0, le=120),
-    expected_login: str = Query("09:00 AM"),
-    expected_logout: str = Query("06:00 PM"),
+    expected_work_min: Optional[int] = Query(None, ge=60, le=1440),
+    grace_period_min: Optional[int] = Query(None, ge=0, le=120),
+    expected_login: Optional[str] = None,
+    expected_logout: Optional[str] = None,
     limit: int = Query(300, ge=1, le=1000),
     ctx: Dict[str, Any] = Depends(require_permission("attendance.view")),
     db: Session = Depends(get_db)
@@ -362,6 +628,11 @@ def get_daily_breakdown(
     """Calculates daily login/logout time breakdown, work duration, differences and status."""
     if ctx.get("permissions", {}).get("attendance.view") is False:
         raise HTTPException(403, "Access to attendance has been restricted by Super Admin.")
+    schedule = get_attendance_schedule(db)
+    expected_work_min = expected_work_min if expected_work_min is not None else schedule["expected_work_min"]
+    grace_period_min = grace_period_min if grace_period_min is not None else schedule["grace_period_min"]
+    expected_login = expected_login or schedule["expected_login"]
+    expected_logout = expected_logout or schedule["expected_logout"]
     start_date = date_from or business_today().isoformat()
     end_date = date_to or start_date
     if start_date > end_date:
@@ -386,6 +657,15 @@ def get_daily_breakdown(
         if key not in grouped:
             grouped[key] = []
         grouped[key].append(r)
+
+    leave_query = db.query(LeaveRequest).filter(
+        LeaveRequest.status == "Approved",
+        LeaveRequest.end_date >= start_date,
+        LeaveRequest.start_date <= end_date,
+    )
+    if not is_admin:
+        leave_query = leave_query.filter(LeaveRequest.staff_name == user_display)
+    approved_leaves = leave_query.all()
 
     rows = []
     for (s_name, date_str), events in grouped.items():
@@ -479,6 +759,22 @@ def get_daily_breakdown(
             "status": status_label
         })
 
+    for leave in approved_leaves:
+        current = max(datetime.date.fromisoformat(leave.start_date), datetime.date.fromisoformat(start_date))
+        leave_end = min(datetime.date.fromisoformat(leave.end_date), datetime.date.fromisoformat(end_date))
+        while current <= leave_end:
+            key = (leave.staff_name, current.isoformat())
+            if key not in grouped:
+                rows.append({
+                    "staff_name": leave.staff_name, "date": current.isoformat(),
+                    "login_time": "-", "logout_time": "-", "work_time_str": "-",
+                    "expected_str": format_minutes_to_hours_str(expected_work_min),
+                    "login_diff": "-", "login_status": "leave", "logout_diff": "-",
+                    "logout_status": "leave", "work_diff": "-", "status": "On Leave",
+                    "leave_type": leave.leave_type,
+                })
+            current += datetime.timedelta(days=1)
+
     # Sort rows by date desc, staff_name asc
     rows.sort(key=lambda x: (x["date"], x["staff_name"]), reverse=True)
 
@@ -506,6 +802,18 @@ def record_punch(
     # Regular staff can only punch for themselves unless they have attendance.manage or is_super_admin
     is_admin = ctx.get("is_super_admin") or bool(ctx.get("permissions", {}).get("attendance.manage"))
     staff_name = payload.staff_name.strip() if is_admin else (ctx.get("display_name") or payload.staff_name.strip())
+
+    existing_events = db.query(AttendanceRecord).filter(
+        AttendanceRecord.staff_name == staff_name,
+        AttendanceRecord.date == date_str,
+    ).all()
+    approved_leave = db.query(LeaveRequest).filter(
+        LeaveRequest.staff_name == staff_name, LeaveRequest.status == "Approved",
+        LeaveRequest.start_date <= date_str, LeaveRequest.end_date >= date_str,
+    ).first()
+    if approved_leave:
+        raise HTTPException(409, f"{staff_name} is marked on leave for this date.")
+    validate_attendance_event(existing_events, payload.event)
 
     record = AttendanceRecord(
         id=f"att_{uuid.uuid4().hex[:16]}",
@@ -538,4 +846,58 @@ def record_punch(
     return {
         "id": record.id,
         "message": f"{payload.event} recorded successfully for {staff_name} at {time_str}."
+    }
+
+
+@attendance_router.post("/punch-bulk", status_code=201)
+def record_bulk_punch(
+    payload: BulkPunchRequest,
+    request: Request,
+    ctx: Dict[str, Any] = Depends(require_permission("attendance.manage")),
+    db: Session = Depends(get_db),
+):
+    """Record one action for every eligible active staff member in one transaction."""
+    if ctx.get("permissions", {}).get("attendance.manage") is False or ctx.get("permissions", {}).get("attendance.punch") is False:
+        raise HTTPException(403, "Managing attendance has been restricted by Super Admin.")
+
+    ist_now = business_now()
+    date_str = payload.date or ist_now.strftime("%Y-%m-%d")
+    time_str = payload.time or ist_now.strftime("%I:%M:%S %p")
+    recorded, skipped = [], []
+    for staff_name in get_all_active_staff_names(db):
+        approved_leave = db.query(LeaveRequest).filter(
+            LeaveRequest.staff_name == staff_name, LeaveRequest.status == "Approved",
+            LeaveRequest.start_date <= date_str, LeaveRequest.end_date >= date_str,
+        ).first()
+        if approved_leave:
+            skipped.append({"staff_name": staff_name, "reason": "Staff member is marked on leave."})
+            continue
+        existing = db.query(AttendanceRecord).filter(
+            AttendanceRecord.staff_name == staff_name, AttendanceRecord.date == date_str
+        ).all()
+        try:
+            validate_attendance_event(existing, payload.event)
+        except HTTPException as exc:
+            skipped.append({"staff_name": staff_name, "reason": exc.detail})
+            continue
+        record = AttendanceRecord(
+            id=f"att_{uuid.uuid4().hex[:16]}", user_id=ctx.get("user_id"), staff_name=staff_name,
+            date=date_str, event=payload.event, time=time_str,
+            notes=payload.notes or f"Bulk action: {payload.event}",
+            ip_address=request.client.host if request.client else None,
+            timestamp=datetime.datetime.utcnow(),
+        )
+        db.add(record)
+        recorded.append(staff_name)
+        create_audit_log(
+            db=db, actor_user_id=ctx.get("user_id"), actor_name=ctx.get("display_name"),
+            event_type="attendance.bulk_punch", resource_type="attendance_record", resource_id=record.id,
+            action="punch", after_data={"staff": staff_name, "event": payload.event, "date": date_str, "time": time_str},
+            ip_address=request.client.host if request.client else None, auto_commit=False,
+        )
+    db.commit()
+    return {
+        "message": f"{payload.event} recorded for {len(recorded)} staff; {len(skipped)} skipped.",
+        "recorded_count": len(recorded), "skipped_count": len(skipped),
+        "recorded": recorded, "skipped": skipped,
     }

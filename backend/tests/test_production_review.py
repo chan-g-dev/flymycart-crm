@@ -87,6 +87,7 @@ class ProductionReviewTests(unittest.TestCase):
     def test_booking_retry_and_invoice(self):
         payload = {'awb': 'TEST-PRODUCTION', 'date': '2026-09-16', 'customer_name': 'Test Customer',
                    'customer_mobile': '9000000001', 'receiver': {'name': 'Receiver', 'city': 'Delhi', 'country': 'India'},
+                   'sender': {'id_proof': 'TEST-ID', 'id_proof_front': 'front-image', 'id_proof_back': 'back-image'},
                    'parcel': {'actual_weight': 2}, 'courier': 'Aramex', 'provider_type': 'postpaid',
                    'provider_name': 'Aramex', 'price': 1000, 'provider_cost': 600, 'payment_status': 'Unpaid'}
         headers = {'Idempotency-Key': 'test-booking-key-12345'}
@@ -96,6 +97,11 @@ class ProductionReviewTests(unittest.TestCase):
         self.assertEqual(second.json()['id'], first.json()['id'])
         with self.sessions() as db:
             self.assertEqual(db.query(Shipment).count(), 1)
+            shipment = db.query(Shipment).one()
+            customer = db.query(Customer).one()
+            self.assertEqual((shipment.id_proof_front, shipment.id_proof_back), ('front-image', 'back-image'))
+            self.assertIsNone(customer.id_proof_front)
+            self.assertIsNone(customer.id_proof_back)
             self.assertEqual(db.query(Invoice).one().total, 1180)
             self.assertTrue(db.query(Invoice).one().invoice_no.startswith('CUSTOM-'))
 
@@ -120,7 +126,7 @@ class ProductionReviewTests(unittest.TestCase):
             later = get_workspace_overview(date_to=dt.date(2026,9,17), ctx=CTX, db=db)
             self.assertEqual(next(r['recorded_balance'] for r in later['bank_accounts'] if r['name']=='Refund Cash'), -100)
 
-    def test_profit_excludes_sales_gst_and_retains_gst_in_billed_totals(self):
+    def test_shipment_profit_uses_final_billed_total(self):
         with self.sessions() as db:
             for index, (gst, total) in enumerate([(180, 1180), (140, None), (0, 1000)]):
                 db.add(Shipment(id=f'gst-{index}', customer_name='Test', awb=f'GST-{index}',
@@ -141,8 +147,8 @@ class ProductionReviewTests(unittest.TestCase):
             self.assertEqual(result['net_with_gst'], 1445)
             ledger = get_shipment_ledger(center='Main', limit=10, offset=0, ctx=CTX, db=db)
             rows = {row['id']: row for row in ledger['items']}
-            self.assertEqual([rows[f'gst-{i}']['value'] for i in range(3)], [350, 400, 400])
-            self.assertEqual([rows[f'gst-{i}']['value_with_gst'] for i in range(3)], [530, 540, 400])
+            self.assertEqual([rows[f'gst-{i}']['value'] for i in range(3)], [555, 540, 400])
+            self.assertEqual([rows[f'gst-{i}']['value_with_gst'] for i in range(3)], [555, 540, 400])
             self.assertEqual(rows['gst-1']['gross_sale'], 1140)
             self.assertEqual(rows['gst-2']['gross_sale'], 1000)
             hidden = get_shipment_ledger(center='Main', limit=10, offset=0, ctx={'permissions': {}}, db=db)
@@ -153,18 +159,18 @@ class ProductionReviewTests(unittest.TestCase):
             for report in [get_eod_report('2026-09-16', CTX, db), get_monthly_pl_report('2026-09', CTX, db)]:
                 self.assertEqual(report['invoice_total'], 3320)
                 self.assertEqual(report['gst_total'], 320)
-                self.assertEqual(report['gross_profit'], 1200)
-                self.assertEqual(report['net_profit'], 1125)
+                self.assertEqual(report['gross_profit'], 1495)
+                self.assertEqual(report['net_profit'], 1445)
                 self.assertEqual(report['net_profit_with_gst'], 1445)
-                self.assertEqual(report['gross_profit_with_gst'], 1520)
+                self.assertEqual(report['gross_profit_with_gst'], 1495)
             weekly = get_weekly_operations_report('2026-09-16', CTX, db)
             day = next(row for row in weekly['daily'] if row['date'] == '2026-09-16')
             self.assertEqual(day['revenue_with_gst'], 3320)
-            self.assertEqual(day['gross_profit'], 1200)
-            self.assertEqual(day['gross_profit_with_gst'], 1520)
+            self.assertEqual(day['gross_profit'], 1495)
+            self.assertEqual(day['gross_profit_with_gst'], 1495)
             dashboard = get_dashboard_summary(CTX, db)
             self.assertEqual(dashboard['total_sales_with_gst'], 3320)
-            self.assertEqual(dashboard['total_gross_profit'], 1200)
+            self.assertEqual(dashboard['total_gross_profit'], 1495)
             self.assertEqual(dashboard['center_summaries']['Main']['total_sales_with_gst'], 3320)
 
     def test_profit_respects_reconciliation_and_zero_actual_cost(self):

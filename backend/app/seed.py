@@ -17,9 +17,10 @@ from app.auth import hash_password
 
 def migrate_database_schema(db: Session):
     """Ensures newly added columns exist in live Postgres or SQLite tables if running against pre-existing tables."""
-    from app.models import PaymentRequest, AttendanceRecord
+    from app.models import PaymentRequest, AttendanceRecord, LeaveRequest
     PaymentRequest.__table__.create(bind=db.bind, checkfirst=True)
     AttendanceRecord.__table__.create(bind=db.bind, checkfirst=True)
+    LeaveRequest.__table__.create(bind=db.bind, checkfirst=True)
     if db.bind.dialect.name == 'postgresql':
         db.execute(text('ALTER TABLE payment_requests ENABLE ROW LEVEL SECURITY'))
         db.execute(text("""DO $$ BEGIN
@@ -284,6 +285,7 @@ STANDARD_PERMISSIONS = [
     ("attendance", "view", "attendance.view", "Attendance", False, "View staff attendance summaries and time breakdown"),
     ("attendance", "manage", "attendance.manage", "Attendance", False, "Manage and configure organization-wide attendance & timings"),
     ("attendance", "punch", "attendance.punch", "Attendance", False, "Record daily attendance punch in/out events"),
+    ("attendance", "leave", "attendance.leave", "Attendance", False, "Mark or cancel staff leave records"),
     # Settings
     ("settings", "view", "settings.view", "Settings", False, "View system configuration and carrier parameters"),
     ("settings", "manage", "settings.manage", "Settings", True, "Modify company details, banks, and API keys"),
@@ -358,12 +360,32 @@ def seed_permissions_and_roles(db: Session):
                 if not db.query(RolePermission).filter_by(role_id=role.id, permission_id=permission.id).first():
                     db.add(RolePermission(role_id=role.id, permission_id=permission.id,
                                           scope='all' if code == 'super_admin' else 'center'))
-    config.config_json = {**(config.config_json or {}), 'companyRolePolicyV4': True}
+    attendance_policy_initialized = (config.config_json or {}).get('attendanceManagerPolicyV1', False)
+    if not attendance_policy_initialized:
+        attendance_codes = {'attendance.view', 'attendance.manage', 'attendance.punch', 'attendance.leave'}
+        attendance_permission_ids = [permissions[code].id for code in attendance_codes]
+        protected_names = {'SUPER_ADMIN', 'Manager'}
+        for role in db.query(Role).all():
+            if role.name not in protected_names:
+                db.query(RolePermission).filter(
+                    RolePermission.role_id == role.id,
+                    RolePermission.permission_id.in_(attendance_permission_ids),
+                ).delete(synchronize_session=False)
+        manager_role = db.query(Role).filter_by(name='Manager').first()
+        if manager_role:
+            for code in attendance_codes:
+                permission = permissions[code]
+                if not db.query(RolePermission).filter_by(role_id=manager_role.id, permission_id=permission.id).first():
+                    db.add(RolePermission(role_id=manager_role.id, permission_id=permission.id, scope='center'))
+    config.config_json = {**(config.config_json or {}), 'companyRolePolicyV4': True, 'attendanceManagerPolicyV1': True}
     db.commit()
 
 
 def seed_super_admin(db: Session):
     """Ensures Super Admin Fly My Cart (admin@flymycart.com) is always seeded and active."""
+    settings_row = db.query(SystemSettings).filter_by(id=1).first()
+    if settings_row and (settings_row.config_json or {}).get("bootstrapAdminDeleted"):
+        return
     prof = db.query(UserProfile).filter(
         (UserProfile.id == SUPERADMIN_ID) | (UserProfile.email == SUPERADMIN_EMAIL)
     ).first()

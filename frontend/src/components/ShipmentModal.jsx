@@ -6,7 +6,7 @@ import { businessDate } from '../utils/businessDates';
 import { paymentOptions } from '../utils/businessOptions';
 import { ENTITY_OPTIONS, DEFAULT_ENTITY, getEntityMeta } from '../utils/entityConstants';
 import React, { useState, useEffect, useRef } from 'react';
-import { X, CheckCircle2, Loader2, Search, Building2, User, MapPin, Package, Truck, Receipt, Plus, Trash2, Calculator, Check, Globe, Plane, Upload, ChevronDown, Printer, SlidersHorizontal } from 'lucide-react';
+import { X, CheckCircle2, Loader2, Search, Building2, User, MapPin, Package, Truck, Receipt, Plus, Trash2, Calculator, Check, Globe, Plane, Upload, ChevronDown, Printer, SlidersHorizontal, FileText } from 'lucide-react';
 import ParcelLabelModal from './ParcelLabelModal';
 import { useAuth } from '../context/authSession';
 import { apiClient } from '../api/client';
@@ -730,8 +730,12 @@ const ShipmentModalForm = ({ isOpen, onClose, onCreated, settings, initialEntity
 
     const handleImageUpload = (key, file) => {
         if (!file) return;
+        if (!(file.type.startsWith('image/') || file.type === 'application/pdf')) {
+            alert('Please select a PNG, JPG, WebP, or PDF document.');
+            return;
+        }
         if (file.size > 5 * 1024 * 1024) {
-            alert('File is too large. Please select an image under 5MB.');
+            alert('File is too large. Please select a document under 5MB.');
             return;
         }
         const reader = new FileReader();
@@ -867,17 +871,12 @@ const ShipmentModalForm = ({ isOpen, onClose, onCreated, settings, initialEntity
         }
 
         if (!form.id_proof_front) {
-            alert('Please upload the Sender ID proof image');
+            alert('Please upload the front copy of the Sender ID proof');
             return;
         }
 
-        if (!form.receiver_id_proof || !form.receiver_id_proof.trim()) {
-            alert('Please enter the mandatory Receiver ID Proof');
-            return;
-        }
-
-        if (!form.receiver_id_proof_front) {
-            alert('Please upload the Receiver ID proof image');
+        if (!form.id_proof_back) {
+            alert('Please upload the back copy of the Sender ID proof');
             return;
         }
 
@@ -1122,8 +1121,8 @@ const ShipmentModalForm = ({ isOpen, onClose, onCreated, settings, initialEntity
 
     const checks = [
         ['Customer & Sender details', !!(form.customer_name && form.sender_phone && form.sender_email && form.sender_address && form.sender_city && form.sender_state && form.sender_zip)],
-        ['Sender ID Proof & image', !!(form.sender_id_proof && form.id_proof_front)],
-        ['Receiver details & ID proof', !!(form.receiver_name && form.receiver_phone && form.receiver_email && form.receiver_country && form.receiver_address && form.receiver_city && form.receiver_state && form.receiver_zip && form.receiver_id_proof && form.receiver_id_proof_front)],
+        ['Sender ID Proof (front & back)', !!(form.sender_id_proof && form.id_proof_front && form.id_proof_back)],
+        ['Receiver details', !!(form.receiver_name && form.receiver_phone && form.receiver_email && form.receiver_country && form.receiver_address && form.receiver_city && form.receiver_state && form.receiver_zip)],
         ['Parcel measured', Number(form.actual_weight) > 0],
         ['Customer Price & provider account', !!(Number(taxableBase) > 0 && form.provider_name && (!canEnterShipmentCosts || form.provider_cost !== ''))],
     ];
@@ -1359,16 +1358,17 @@ const ShipmentModalForm = ({ isOpen, onClose, onCreated, settings, initialEntity
 
                                 <div className="booking-field booking-wide booking-kyc-upload-row">
                                     <label className="booking-field-label">
-                                        Sender ID Proof Image <span className="required-star">*</span>
+                                        Sender ID Proof Document <span className="required-star">*</span>
                                         <span className="booking-field-hint" style={{ display: 'inline', marginLeft: '8px', fontWeight: 'normal' }}>
-                                            (Upload a clear, legible photo of government-issued ID proof)
+                                            (Upload clear, legible copies of both sides)
                                         </span>
                                     </label>
-                                    <div className="booking-kyc-grid" style={{ gridTemplateColumns: '1fr' }}>
+                                    <div className="booking-kyc-grid">
                                         <div className="booking-kyc-box">
+                                            <div className="booking-kyc-box-title">Front Copy <span className="required-star">*</span></div>
                                             {form.id_proof_front ? (
                                                 <div className="booking-kyc-preview-wrap">
-                                                    <img src={form.id_proof_front} alt="Sender ID Proof" className="booking-kyc-img" />
+                                                    {String(form.id_proof_front).startsWith('data:application/pdf') ? <div className="booking-kyc-pdf"><FileText size={30} /><span>PDF Front Copy</span></div> : <img src={form.id_proof_front} alt="Front copy of sender ID proof" className="booking-kyc-img" />}
                                                     <div className="booking-kyc-preview-overlay">
                                                         <button
                                                             type="button"
@@ -1382,12 +1382,41 @@ const ShipmentModalForm = ({ isOpen, onClose, onCreated, settings, initialEntity
                                             ) : (
                                                 <label className="booking-kyc-dropzone">
                                                     <Upload size={18} />
-                                                    <span className="booking-kyc-upload-text">Upload Sender ID Photo</span>
-                                                    <span className="booking-kyc-upload-hint">PNG, JPG, WebP up to 5MB</span>
+                                                    <span className="booking-kyc-upload-text">Upload Front Copy</span>
+                                                    <span className="booking-kyc-upload-hint">PNG, JPG, WebP or PDF up to 5MB</span>
                                                     <input
                                                         type="file"
-                                                        accept="image/*"
+                                                        accept="image/png,image/jpeg,image/webp,application/pdf"
                                                         onChange={e => handleImageUpload('id_proof_front', e.target.files[0])}
+                                                        className="booking-kyc-file-input"
+                                                    />
+                                                </label>
+                                            )}
+                                        </div>
+                                        <div className="booking-kyc-box">
+                                            <div className="booking-kyc-box-title">Back Copy <span className="required-star">*</span></div>
+                                            {form.id_proof_back ? (
+                                                <div className="booking-kyc-preview-wrap">
+                                                    {String(form.id_proof_back).startsWith('data:application/pdf') ? <div className="booking-kyc-pdf"><FileText size={30} /><span>PDF Back Copy</span></div> : <img src={form.id_proof_back} alt="Back copy of sender ID proof" className="booking-kyc-img" />}
+                                                    <div className="booking-kyc-preview-overlay">
+                                                        <button
+                                                            type="button"
+                                                            className="btn btn-sm btn-outline text-rose"
+                                                            onClick={() => setForm(prev => ({ ...prev, id_proof_back: '' }))}
+                                                        >
+                                                            <Trash2 size={13} /> Remove
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            ) : (
+                                                <label className="booking-kyc-dropzone">
+                                                    <Upload size={18} />
+                                                    <span className="booking-kyc-upload-text">Upload Back Copy</span>
+                                                    <span className="booking-kyc-upload-hint">PNG, JPG, WebP or PDF up to 5MB</span>
+                                                    <input
+                                                        type="file"
+                                                        accept="image/png,image/jpeg,image/webp,application/pdf"
+                                                        onChange={e => handleImageUpload('id_proof_back', e.target.files[0])}
                                                         className="booking-kyc-file-input"
                                                     />
                                                 </label>
@@ -1447,25 +1476,23 @@ const ShipmentModalForm = ({ isOpen, onClose, onCreated, settings, initialEntity
                                     }
                                 })}
                                 {field('receiver_id_proof', 'Receiver ID Proof', { 
-                                    required: true,
                                     placeholder: 'Enter Consignee ID / Passport / National ID / Tax Number', 
-                                    hint: form.domestic_international === 'Domestic'
-                                        ? 'Mandatory consignee ID proof for domestic shipments'
-                                        : 'Mandatory consignee ID proof for customs clearance & international shipments'
+                                    hint: 'Optional'
                                 })}
 
                                 <div className="booking-field booking-wide booking-kyc-upload-row">
                                     <label className="booking-field-label">
-                                        Receiver ID Proof Image <span className="required-star">*</span>
+                                        Receiver ID Proof Document
                                         <span className="booking-field-hint" style={{ display: 'inline', marginLeft: '8px', fontWeight: 'normal' }}>
-                                            (Upload a clear, legible photo of consignee ID proof / customs document)
+                                            (Optional — upload clear, legible copies when available)
                                         </span>
                                     </label>
-                                    <div className="booking-kyc-grid" style={{ gridTemplateColumns: '1fr' }}>
+                                    <div className="booking-kyc-grid">
                                         <div className="booking-kyc-box">
+                                            <div className="booking-kyc-box-title">Front Copy (Optional)</div>
                                             {form.receiver_id_proof_front ? (
                                                 <div className="booking-kyc-preview-wrap">
-                                                    <img src={form.receiver_id_proof_front} alt="Receiver ID Proof" className="booking-kyc-img" />
+                                                    {String(form.receiver_id_proof_front).startsWith('data:application/pdf') ? <div className="booking-kyc-pdf"><FileText size={30} /><span>PDF Front Copy</span></div> : <img src={form.receiver_id_proof_front} alt="Front copy of receiver ID proof" className="booking-kyc-img" />}
                                                     <div className="booking-kyc-preview-overlay">
                                                         <button
                                                             type="button"
@@ -1479,12 +1506,41 @@ const ShipmentModalForm = ({ isOpen, onClose, onCreated, settings, initialEntity
                                             ) : (
                                                 <label className="booking-kyc-dropzone">
                                                     <Upload size={18} />
-                                                    <span className="booking-kyc-upload-text">Upload Receiver ID Photo</span>
-                                                    <span className="booking-kyc-upload-hint">PNG, JPG, WebP up to 5MB</span>
+                                                    <span className="booking-kyc-upload-text">Upload Front Copy</span>
+                                                    <span className="booking-kyc-upload-hint">PNG, JPG, WebP or PDF up to 5MB</span>
                                                     <input
                                                         type="file"
-                                                        accept="image/*"
+                                                        accept="image/png,image/jpeg,image/webp,application/pdf"
                                                         onChange={e => handleImageUpload('receiver_id_proof_front', e.target.files[0])}
+                                                        className="booking-kyc-file-input"
+                                                    />
+                                                </label>
+                                            )}
+                                        </div>
+                                        <div className="booking-kyc-box">
+                                            <div className="booking-kyc-box-title">Back Copy (Optional)</div>
+                                            {form.receiver_id_proof_back ? (
+                                                <div className="booking-kyc-preview-wrap">
+                                                    {String(form.receiver_id_proof_back).startsWith('data:application/pdf') ? <div className="booking-kyc-pdf"><FileText size={30} /><span>PDF Back Copy</span></div> : <img src={form.receiver_id_proof_back} alt="Back copy of receiver ID proof" className="booking-kyc-img" />}
+                                                    <div className="booking-kyc-preview-overlay">
+                                                        <button
+                                                            type="button"
+                                                            className="btn btn-sm btn-outline text-rose"
+                                                            onClick={() => setForm(prev => ({ ...prev, receiver_id_proof_back: '' }))}
+                                                        >
+                                                            <Trash2 size={13} /> Remove
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            ) : (
+                                                <label className="booking-kyc-dropzone">
+                                                    <Upload size={18} />
+                                                    <span className="booking-kyc-upload-text">Upload Back Copy</span>
+                                                    <span className="booking-kyc-upload-hint">PNG, JPG, WebP or PDF up to 5MB</span>
+                                                    <input
+                                                        type="file"
+                                                        accept="image/png,image/jpeg,image/webp,application/pdf"
+                                                        onChange={e => handleImageUpload('receiver_id_proof_back', e.target.files[0])}
                                                         className="booking-kyc-file-input"
                                                     />
                                                 </label>
@@ -1884,7 +1940,7 @@ const ShipmentModalForm = ({ isOpen, onClose, onCreated, settings, initialEntity
                                     <span>{money(gst)}</span>
                                 </div>
                                 <div className="booking-calc-row booking-calc-total">
-                                    <span>Total Billed Amount</span>
+                                    <span>Customer Price</span>
                                     <strong className="text-emerald">{money(invoiceTotal)}</strong>
                                 </div>
 

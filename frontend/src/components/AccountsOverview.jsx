@@ -73,9 +73,9 @@ export default function AccountsOverview({ data, selectedCenter, activeSection, 
                 if (!result.items.length) break;
             }
             if (!financial) {
-                exportRows([['Date', 'AWB', 'Courier', 'Customer', 'Destination', 'Customer Sale Incl. GST', ...(costAccess ? ['Carrier Cost'] : []), 'Payment Mode', 'Collection Status', 'Payment to Courier'], ...rows.map(s => [s.date, s.awb, s.courier, s.customer_name, s.destination, s.gross_sale, ...(costAccess ? [s.cost] : []), s.payment_mode, s.collection_status, s.courier_status])], `Shipment_Accounts_${businessDate()}.csv`);
+                exportRows([['Date', 'AWB', 'Courier', 'Customer', 'Destination', 'Customer Price', ...(costAccess ? ['Carrier Cost'] : []), 'Payment Mode', 'Collection Status', 'Payment to Courier'], ...rows.map(s => [s.date, s.awb, s.courier, s.customer_name, s.destination, s.gross_sale, ...(costAccess ? [s.cost] : []), s.payment_mode, s.collection_status, s.courier_status])], `Shipment_Accounts_${businessDate()}.csv`);
             } else {
-            exportRows([['Date', 'AWB', 'Courier', 'Customer', 'Destination', 'Sale Excl. GST INR', 'Sale Incl. GST INR', 'Carrier Cost INR', 'Expense INR', 'Profit Excl. GST INR', 'Profit Incl. GST INR', 'Payment Mode', 'Collection Status', 'Courier Status'], ...rows.map(s => [s.date, s.awb, s.courier, s.customer_name, s.destination, s.sale, s.gross_sale, s.cost, s.expense, s.value, s.value_with_gst, s.payment_mode, s.collection_status, s.courier_status])], `Shipment_Accounts_${businessDate()}.csv`);
+            exportRows([['Date', 'AWB', 'Courier', 'Customer', 'Destination', 'Customer Price INR', 'Carrier Cost INR', 'Refund INR', 'Profit INR', 'Payment Mode', 'Collection Status', 'Courier Status'], ...rows.map(s => [s.date, s.awb, s.courier, s.customer_name, s.destination, s.gross_sale, s.cost, s.refund_amount || 0, s.value, s.payment_mode, s.collection_status, s.courier_status])], `Shipment_Accounts_${businessDate()}.csv`);
             }
         } catch { setNotice('Export failed. Please try again.'); }
         finally { setExporting(false); }
@@ -171,12 +171,8 @@ export default function AccountsOverview({ data, selectedCenter, activeSection, 
                     {/* Financial Breakdown Grid */}
                     <div className="ao-shipment-financial-grid">
                         <div className="ao-shipment-fin-box highlight">
-                            <span className="lbl">Customer Sale (Incl. GST)</span>
+                            <span className="lbl">Customer Price</span>
                             <span className="val">{money(selectedShipment.gross_sale)}</span>
-                        </div>
-                        <div className="ao-shipment-fin-box">
-                            <span className="lbl">Sale (Excl. GST)</span>
-                            <span className="val">{money(selectedShipment.sale)}</span>
                         </div>
 
                         {costAccess && (
@@ -186,18 +182,22 @@ export default function AccountsOverview({ data, selectedCenter, activeSection, 
                             </div>
                         )}
 
+                        {Number(selectedShipment.refund_amount || 0) > 0 && (
+                            <div className="ao-shipment-fin-box">
+                                <span className="lbl">Refund</span>
+                                <span className="val" style={{ color: '#dc2626' }}>-{money(selectedShipment.refund_amount)}</span>
+                            </div>
+                        )}
+
                         {financial && (
                             <>
                                 <div className="ao-shipment-fin-box">
                                     <span className="lbl">Operating Expense</span>
                                     <span className="val" style={{ color: '#8b5cf6' }}>{money(selectedShipment.expense)}</span>
                                 </div>
-                                <div className="ao-shipment-fin-box profit" style={{ gridColumn: 'span 2' }}>
+                                <div className="ao-shipment-fin-box profit">
                                     <span className="lbl">Profit</span>
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginTop: '2px' }}>
-                                        <span className="val">{money(selectedShipment.value)}</span>
-                                        <small style={{ fontSize: '11px', color: '#059669', fontWeight: 600 }}>Incl. GST: {money(selectedShipment.value_with_gst)}</small>
-                                    </div>
+                                    <span className="val">{money(selectedShipment.value)}</span>
                                 </div>
                             </>
                         )}

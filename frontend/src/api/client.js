@@ -227,7 +227,13 @@ export const apiClient = {
     getAttendanceEvents: (params) => api.get('/attendance/events', { params }).then(res => res.data),
     getAttendanceDailyBreakdown: (params) => api.get('/attendance/daily-breakdown', { params }).then(res => res.data),
     recordAttendancePunch: (data) => api.post('/attendance/punch', data).then(res => res.data),
+    recordBulkAttendancePunch: (data) => api.post('/attendance/punch-bulk', data).then(res => res.data),
     getAttendanceStaffList: () => api.get('/attendance/staff-list').then(res => res.data),
+    getAttendanceSchedule: () => api.get('/attendance/schedule').then(res => res.data),
+    updateAttendanceSchedule: (data) => api.put('/attendance/schedule', data).then(res => res.data),
+    getLeaveRequests: (params) => api.get('/attendance/leaves', { params }).then(res => res.data),
+    createLeaveRequest: (data) => api.post('/attendance/leaves', data).then(res => res.data),
+    cancelLeave: (id) => api.delete(`/attendance/leaves/${id}`).then(res => res.data),
 
     // Generic Request helper
     request: (urlOrConfig, options = {}) => {

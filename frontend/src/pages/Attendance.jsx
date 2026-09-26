@@ -1,24 +1,10 @@
 import { useRemoteData } from '../utils/useRemoteData';
 import { LoadingSpinner } from '../components/LoadingSpinner';
 import React, { useState, useCallback, useMemo } from 'react';
-import { Users, CheckCircle2, XCircle, Clock, Calendar, LogIn, LogOut, Coffee, Play, Search, Eye, Plus, X, TrendingUp } from 'lucide-react';
+import { Users, CheckCircle2, XCircle, Clock, Calendar, LogIn, LogOut, Coffee, Play, Search, Eye, Plus, X, TrendingUp, Utensils } from 'lucide-react';
 import { apiClient } from '../api/client';
 import { businessDate, formatBusinessDate } from '../utils/businessDates';
 import { useAuth } from '../context/authSession';
-
-const STAFF_DEPARTMENTS = {
-    'Umesh': 'Operations',
-    'Asma': 'Accounts',
-    'Ravi': 'Sales',
-    'Suresh': 'Operations',
-    'Praveen': 'Customer Support',
-    'Naseer': 'Logistics',
-    'Karthik': 'Admin',
-    'Nawaz': 'Management',
-    'Lata': 'Finance',
-    'Uma': 'Operations',
-    'Akash': 'Logistics'
-};
 
 const AVATAR_COLORS = [
     { bg: '#3b82f6', text: '#ffffff' }, // Blue
@@ -55,45 +41,106 @@ export function Attendance() {
     const [punchNotes, setPunchNotes] = useState('');
     const [punchLoading, setPunchLoading] = useState(false);
     const [actionMsg, setActionMsg] = useState('');
+    const [isLeaveModalOpen, setIsLeaveModalOpen] = useState(false);
+    const [leaveForm, setLeaveForm] = useState({ staff_name: userName, leave_type: 'Casual', start_date: todayStr, end_date: todayStr, reason: '' });
+    const [isScheduleOpen, setIsScheduleOpen] = useState(false);
+    const [scheduleForm, setScheduleForm] = useState({ expected_login: '09:00', expected_logout: '18:00', grace_period_min: 15, expected_work_min: 480 });
 
     const requestData = useCallback(async () => {
         const params = { date_from: selectedDate, date_to: selectedDate };
-        const [staff, breakdown, events, summary] = await Promise.all([
+        const [staff, breakdown, events, summary, leaves, schedule] = await Promise.all([
             apiClient.getAttendanceStaffList(),
             apiClient.getAttendanceDailyBreakdown(params),
             apiClient.getAttendanceEvents(params),
             apiClient.getAttendanceSummary({ ...params, date_from: summaryPeriod === 'month' ? selectedDate.slice(0, 8) + '01' : selectedDate }),
+            apiClient.getLeaveRequests(),
+            apiClient.getAttendanceSchedule(),
         ]);
-        return { staff: staff.staff || [], breakdown: breakdown.entries || [], events: events.events || [], summary };
+        return { staff: staff.staff || [], staffDetails: staff.staff_details || [], breakdown: breakdown.entries || [], events: events.events || [], summary, leaves: leaves.leaves || [], schedule };
     }, [selectedDate, summaryPeriod]);
     const { data, loading, error, reload: fetchData } = useRemoteData(requestData);
     const staffList = useMemo(() => data?.staff || [], [data]);
+    const staffDetails = useMemo(() => data?.staffDetails || [], [data]);
     const breakdownData = useMemo(() => data?.breakdown || [], [data]);
     const eventsData = data?.events || [];
     const summary = data?.summary;
+    const leaveRequests = data?.leaves || [];
+    const attendanceSchedule = data?.schedule || scheduleForm;
     const periodKpis = {
         total: summary?.total_staff_days || 0,
         present: summary?.present_days || 0,
         absent: summary?.absent_days || 0,
         late: summary?.late_days || 0,
-        onLeave: 0,
+        onLeave: summary?.on_leave_days || 0,
     };
     const canPunch = hasPermission('attendance.punch');
+    const canMarkLeave = Boolean(isSuperAdmin || hasPermission('attendance.manage') || hasPermission('attendance.leave'));
 
-    // Handle Direct Punch (Punch In, Break, Resume, Punch Out)
+    const saveSchedule = async (e) => {
+        e.preventDefault();
+        setPunchLoading(true);
+        try {
+            await apiClient.updateAttendanceSchedule({
+                ...scheduleForm,
+                grace_period_min: Number(scheduleForm.grace_period_min),
+                expected_work_min: Number(scheduleForm.expected_work_min),
+            });
+            setIsScheduleOpen(false);
+            setActionMsg('✓ Attendance timing defaults updated');
+            await fetchData();
+        } catch (err) {
+            alert(err.message || 'Failed to update attendance timings');
+        } finally {
+            setPunchLoading(false);
+        }
+    };
+
+    const submitLeave = async (e) => {
+        e.preventDefault();
+        setPunchLoading(true);
+        try {
+            await apiClient.createLeaveRequest(leaveForm);
+            setLeaveForm(current => ({ ...current, reason: '' }));
+            setActionMsg(`✓ ${leaveForm.staff_name} marked on leave`);
+            await fetchData();
+        } catch (err) {
+            alert(err.message || 'Failed to mark staff leave');
+        } finally {
+            setPunchLoading(false);
+        }
+    };
+
+    const cancelLeave = async (id) => {
+        setPunchLoading(true);
+        try {
+            await apiClient.cancelLeave(id);
+            setActionMsg('✓ Staff leave cancelled');
+            await fetchData();
+        } catch (err) {
+            alert(err.message || 'Failed to cancel leave');
+        } finally {
+            setPunchLoading(false);
+        }
+    };
+
+    // Record an attendance event for the staff member selected in the action bar.
     const handleDirectAction = async (eventType) => {
+        if (!punchStaff) return;
         setPunchLoading(true);
         try {
             const now = new Date();
             const timeStr = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' });
-            await apiClient.recordAttendancePunch({
-                staff_name: userName,
-                event: eventType,
-                time: timeStr,
-                date: todayStr,
-                notes: `Quick action: ${eventType}`
-            });
-            setActionMsg(`✓ ${eventType} recorded successfully at ${timeStr}`);
+            if (punchStaff === '__all__') {
+                const result = await apiClient.recordBulkAttendancePunch({
+                    event: eventType, time: timeStr, date: selectedDate, notes: `Bulk action: ${eventType}`
+                });
+                setActionMsg(`✓ ${eventType}: ${result.recorded_count} staff recorded, ${result.skipped_count} skipped`);
+            } else {
+                await apiClient.recordAttendancePunch({
+                    staff_name: punchStaff, event: eventType, time: timeStr, date: selectedDate, notes: `Quick action: ${eventType}`
+                });
+                setActionMsg(`✓ ${eventType} recorded for ${punchStaff} at ${timeStr}`);
+            }
             setTimeout(() => setActionMsg(''), 4000);
             await fetchData();
         } catch (err) {
@@ -132,17 +179,14 @@ export function Attendance() {
 
     // Build unified table rows combining all staff and breakdown data
     const allStaffMembers = useMemo(() => {
-        const set = new Set(staffList);
-        breakdownData.forEach(b => {
-            if (b.staff_name) set.add(b.staff_name);
-        });
-        return Array.from(set);
-    }, [staffList, breakdownData]);
+        return Array.from(new Set(staffList));
+    }, [staffList]);
 
     const tableRows = useMemo(() => {
         return allStaffMembers.map((name, idx) => {
             const entry = breakdownData.find(b => b.staff_name === name);
-            const dept = STAFF_DEPARTMENTS[name] || 'Operations';
+            const staffMeta = staffDetails.find(item => item.name === name);
+            const dept = staffMeta?.department || 'Staff';
             const dateFmt = formatBusinessDate(selectedDate);
 
             // Determine status
@@ -151,7 +195,10 @@ export function Attendance() {
             let logoutTime = '-';
             let workingHours = '-';
 
-            if (entry && entry.login_time && entry.login_time !== '—' && entry.login_time !== '-') {
+            if (entry?.status === 'On Leave') {
+                status = 'On Leave';
+                workingHours = entry.leave_type || 'Leave';
+            } else if (entry && entry.login_time && entry.login_time !== '—' && entry.login_time !== '-') {
                 loginTime = entry.login_time;
                 logoutTime = entry.logout_time !== '—' ? entry.logout_time : '-';
                 workingHours = entry.work_time_str !== '—' && entry.work_time_str !== '0h 0m' ? entry.work_time_str : (logoutTime !== '-' ? '0h 0m' : 'In Progress');
@@ -171,7 +218,7 @@ export function Attendance() {
                 rawEntry: entry
             };
         });
-    }, [allStaffMembers, breakdownData, selectedDate]);
+    }, [allStaffMembers, breakdownData, selectedDate, staffDetails]);
 
     // Filter table rows by search and department
     const filteredRows = useMemo(() => {
@@ -187,7 +234,7 @@ export function Attendance() {
     // KPI Metrics calculation
     const kpis = useMemo(() => {
         const total = tableRows.length;
-        const present = tableRows.filter(r => r.status === 'Present').length;
+        const present = tableRows.filter(r => r.status === 'Present' || r.status === 'Late').length;
         const late = tableRows.filter(r => r.status === 'Late').length;
         const absent = tableRows.filter(r => r.status === 'Absent').length;
         const onLeave = tableRows.filter(r => r.status === 'On Leave').length;
@@ -218,9 +265,9 @@ export function Attendance() {
 
     // Available Departments for dropdown
     const availableDepts = useMemo(() => {
-        const set = new Set(Object.values(STAFF_DEPARTMENTS));
+        const set = new Set(staffDetails.map(item => item.department).filter(Boolean));
         return ['All', ...Array.from(set)];
-    }, []);
+    }, [staffDetails]);
 
     return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', paddingBottom: '30px' }}>
@@ -282,7 +329,29 @@ export function Attendance() {
                         </span>
                     </div>
 
+                    {canManageAttendance && (
+                        <button
+                            type="button"
+                            onClick={() => { setScheduleForm({ ...attendanceSchedule }); setIsScheduleOpen(true); }}
+                            style={{ border: '1px solid #bfdbfe', background: '#eff6ff', color: '#1d4ed8', borderRadius: '8px', padding: '7px 12px', fontSize: '12px', fontWeight: 700, cursor: 'pointer' }}
+                        >
+                            Timings: {attendanceSchedule.expected_login}–{attendanceSchedule.expected_logout} · {attendanceSchedule.grace_period_min}m grace
+                        </button>
+                    )}
+
                     {/* + Add Attendance Button */}
+                    <button
+                        type="button"
+                        disabled={!canMarkLeave}
+                        onClick={() => {
+                            const target = canManageAttendance ? (staffList[0] || userName) : userName;
+                            setLeaveForm(current => ({ ...current, staff_name: target, start_date: selectedDate, end_date: selectedDate }));
+                            setIsLeaveModalOpen(true);
+                        }}
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '8px', padding: '7px 16px', fontSize: '13px', fontWeight: 700, cursor: 'pointer' }}
+                    >
+                        <Calendar size={16} /> Mark On Leave
+                    </button>
                     <button
                         type="button"
                         disabled={!canManageAttendance || !canPunch}
@@ -488,8 +557,31 @@ export function Attendance() {
                 padding: '10px 14px',
                 boxShadow: '0 1px 3px rgba(0,0,0,0.03)'
             }}>
-                {/* 4 Quick Punch Action Buttons */}
-                <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', flex: '1 1 720px' }}>
+                    <select
+                        aria-label="Staff member for attendance action"
+                        value={punchStaff}
+                        onChange={e => setPunchStaff(e.target.value)}
+                        disabled={!canManageAttendance}
+                        style={{ minWidth: '190px', padding: '7px 10px', borderRadius: '7px', border: '1px solid var(--card-border, #cbd5e1)', background: 'var(--card-bg, #fff)', color: 'var(--text-main)', fontSize: '12.5px', fontWeight: 700 }}
+                    >
+                        {canManageAttendance && <option value="__all__">All Staff ({allStaffMembers.length})</option>}
+                        {allStaffMembers.map(name => <option key={name} value={name}>{name}</option>)}
+                    </select>
+                    {canManageAttendance && (
+                        <button
+                            type="button"
+                            onClick={() => setPunchStaff('__all__')}
+                            aria-pressed={punchStaff === '__all__'}
+                            style={{
+                                padding: '7px 12px', borderRadius: '7px', fontSize: '12.5px', fontWeight: 800,
+                                border: punchStaff === '__all__' ? '1px solid #1d4ed8' : '1px solid #93c5fd',
+                                background: punchStaff === '__all__' ? '#dbeafe' : '#eff6ff', color: '#1d4ed8', cursor: 'pointer'
+                            }}
+                        >
+                            Select All
+                        </button>
+                    )}
                     <button
                         type="button"
                         onClick={() => handleDirectAction('LOGIN')}
@@ -509,17 +601,17 @@ export function Attendance() {
                             transition: 'all 0.15s ease'
                         }}
                     >
-                        <LogIn size={15} /> Punch In
+                        <LogIn size={15} /> Login
                     </button>
                     <button
                         type="button"
-                        onClick={() => handleDirectAction('BREAK START')}
+                        onClick={() => handleDirectAction('LUNCH START')}
                         disabled={punchLoading || !canPunch}
                         style={{
                             display: 'inline-flex',
                             alignItems: 'center',
                             gap: '6px',
-                            background: '#f97316',
+                            background: '#d97706',
                             color: '#ffffff',
                             border: 'none',
                             borderRadius: '7px',
@@ -530,11 +622,11 @@ export function Attendance() {
                             transition: 'all 0.15s ease'
                         }}
                     >
-                        <Coffee size={15} /> Break
+                        <Utensils size={15} /> Lunch In
                     </button>
                     <button
                         type="button"
-                        onClick={() => handleDirectAction('BREAK END')}
+                        onClick={() => handleDirectAction('LUNCH END')}
                         disabled={punchLoading || !canPunch}
                         style={{
                             display: 'inline-flex',
@@ -551,7 +643,23 @@ export function Attendance() {
                             transition: 'all 0.15s ease'
                         }}
                     >
-                        <Play size={14} /> Resume
+                        <Play size={14} /> Lunch Out
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => handleDirectAction('BREAK START')}
+                        disabled={punchLoading || !canPunch}
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', background: '#f97316', color: '#fff', border: 'none', borderRadius: '7px', padding: '6px 14px', fontSize: '12.5px', fontWeight: 700, cursor: 'pointer' }}
+                    >
+                        <Coffee size={15} /> Break In
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => handleDirectAction('BREAK END')}
+                        disabled={punchLoading || !canPunch}
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', background: '#7c3aed', color: '#fff', border: 'none', borderRadius: '7px', padding: '6px 14px', fontSize: '12.5px', fontWeight: 700, cursor: 'pointer' }}
+                    >
+                        <Play size={14} /> Break Out
                     </button>
                     <button
                         type="button"
@@ -572,7 +680,7 @@ export function Attendance() {
                             transition: 'all 0.15s ease'
                         }}
                     >
-                        <LogOut size={15} /> Punch Out
+                        <LogOut size={15} /> Logout
                     </button>
                 </div>
 
@@ -593,7 +701,7 @@ export function Attendance() {
                         <Search size={14} color="var(--text-muted)" />
                         <input
                             type="text"
-                            placeholder="Search staff by name or department..."
+                            placeholder="Search staff by name or role..."
                             value={searchTerm}
                             onChange={e => setSearchTerm(e.target.value)}
                             style={{
@@ -622,7 +730,7 @@ export function Attendance() {
                             outline: 'none'
                         }}
                     >
-                        <option value="All">All Departments</option>
+                        <option value="All">All Roles</option>
                         {availableDepts.filter(d => d !== 'All').map(dept => (
                             <option key={dept} value={dept}>{dept}</option>
                         ))}
@@ -644,7 +752,7 @@ export function Attendance() {
                             <tr style={{ background: 'var(--bg-app, #f8fafc)', borderBottom: '1px solid var(--card-border, #e2e8f0)', textAlign: 'left' }}>
                                 <th style={{ padding: '12px 14px', fontWeight: 700, color: 'var(--text-muted)', width: '40px' }}>#</th>
                                 <th style={{ padding: '12px 14px', fontWeight: 700, color: 'var(--text-muted)' }}>Staff Name</th>
-                                <th style={{ padding: '12px 14px', fontWeight: 700, color: 'var(--text-muted)' }}>Department</th>
+                                <th style={{ padding: '12px 14px', fontWeight: 700, color: 'var(--text-muted)' }}>Role</th>
                                 <th style={{ padding: '12px 14px', fontWeight: 700, color: 'var(--text-muted)' }}>Date</th>
                                 <th style={{ padding: '12px 14px', fontWeight: 700, color: 'var(--text-muted)' }}>Login Time</th>
                                 <th style={{ padding: '12px 14px', fontWeight: 700, color: 'var(--text-muted)' }}>Logout Time</th>
@@ -977,6 +1085,69 @@ export function Attendance() {
                     )}
                 </div>
             </div>
+
+            {isScheduleOpen && (
+                <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 10000, padding: '16px' }}>
+                    <div style={{ width: '100%', maxWidth: '500px', background: 'var(--card-bg, #fff)', borderRadius: '14px', padding: '22px', boxShadow: '0 10px 30px rgba(0,0,0,.2)' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '16px' }}><h3 style={{ margin: 0 }}>Attendance Timing Defaults</h3><button type="button" onClick={() => setIsScheduleOpen(false)} style={{ border: 0, background: 'transparent', cursor: 'pointer' }}><X size={19} /></button></div>
+                        <form onSubmit={saveSchedule} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                            <label style={{ fontSize: '12px', fontWeight: 700 }}>Expected Login<input required type="time" value={scheduleForm.expected_login} onChange={e => setScheduleForm({ ...scheduleForm, expected_login: e.target.value })} style={{ width: '100%', marginTop: '5px', padding: '9px', border: '1px solid var(--card-border)', borderRadius: '8px' }} /></label>
+                            <label style={{ fontSize: '12px', fontWeight: 700 }}>Expected Logout<input required type="time" value={scheduleForm.expected_logout} onChange={e => setScheduleForm({ ...scheduleForm, expected_logout: e.target.value })} style={{ width: '100%', marginTop: '5px', padding: '9px', border: '1px solid var(--card-border)', borderRadius: '8px' }} /></label>
+                            <label style={{ fontSize: '12px', fontWeight: 700 }}>Grace Time (minutes)<input required type="number" min="0" max="120" value={scheduleForm.grace_period_min} onChange={e => setScheduleForm({ ...scheduleForm, grace_period_min: e.target.value })} style={{ width: '100%', marginTop: '5px', padding: '9px', border: '1px solid var(--card-border)', borderRadius: '8px' }} /></label>
+                            <label style={{ fontSize: '12px', fontWeight: 700 }}>Expected Work (minutes)<input required type="number" min="60" max="1440" value={scheduleForm.expected_work_min} onChange={e => setScheduleForm({ ...scheduleForm, expected_work_min: e.target.value })} style={{ width: '100%', marginTop: '5px', padding: '9px', border: '1px solid var(--card-border)', borderRadius: '8px' }} /></label>
+                            <div style={{ gridColumn: '1 / -1', fontSize: '12px', color: 'var(--text-muted)' }}>Login after expected time plus grace is Late. Logout before expected time minus grace is Early Leaving.</div>
+                            <div style={{ gridColumn: '1 / -1', display: 'flex', justifyContent: 'flex-end', gap: '8px' }}><button type="button" onClick={() => setIsScheduleOpen(false)} style={{ padding: '8px 14px', borderRadius: '8px', border: '1px solid var(--card-border)', background: 'transparent' }}>Cancel</button><button type="submit" disabled={punchLoading} style={{ padding: '8px 14px', borderRadius: '8px', border: 0, background: '#2563eb', color: '#fff', fontWeight: 700 }}>{punchLoading ? 'Saving...' : 'Save Defaults'}</button></div>
+                        </form>
+                    </div>
+                </div>
+            )}
+
+            {isLeaveModalOpen && (
+                <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999, padding: '16px' }}>
+                    <div style={{ background: 'var(--card-bg, #fff)', border: '1px solid var(--card-border, #e2e8f0)', borderRadius: '14px', padding: '22px', width: '100%', maxWidth: '680px', maxHeight: '88vh', overflowY: 'auto', boxShadow: '0 10px 30px rgba(0,0,0,.2)' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                            <h3 style={{ margin: 0, fontSize: '17px', fontWeight: 800 }}>Mark Staff On Leave</h3>
+                            <button type="button" onClick={() => setIsLeaveModalOpen(false)} style={{ border: 0, background: 'transparent', cursor: 'pointer', color: 'var(--text-muted)' }}><X size={19} /></button>
+                        </div>
+                        <form onSubmit={submitLeave} style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '12px' }}>
+                            <label style={{ fontSize: '12px', fontWeight: 700 }}>Staff Member
+                                <select required value={leaveForm.staff_name} onChange={e => setLeaveForm({ ...leaveForm, staff_name: e.target.value })} style={{ width: '100%', marginTop: '5px', padding: '9px', borderRadius: '8px', border: '1px solid var(--card-border)' }}>
+                                    {allStaffMembers.map(name => <option key={name} value={name}>{name}</option>)}
+                                </select>
+                            </label>
+                            <label style={{ fontSize: '12px', fontWeight: 700 }}>Leave Type
+                                <select value={leaveForm.leave_type} onChange={e => setLeaveForm({ ...leaveForm, leave_type: e.target.value })} style={{ width: '100%', marginTop: '5px', padding: '9px', borderRadius: '8px', border: '1px solid var(--card-border)' }}>
+                                    {['Casual', 'Sick', 'Earned', 'Unpaid', 'Other'].map(type => <option key={type}>{type}</option>)}
+                                </select>
+                            </label>
+                            <label style={{ fontSize: '12px', fontWeight: 700 }}>From Date
+                                <input required type="date" value={leaveForm.start_date} onChange={e => setLeaveForm({ ...leaveForm, start_date: e.target.value })} style={{ width: '100%', marginTop: '5px', padding: '9px', borderRadius: '8px', border: '1px solid var(--card-border)' }} />
+                            </label>
+                            <label style={{ fontSize: '12px', fontWeight: 700 }}>To Date
+                                <input required type="date" min={leaveForm.start_date} value={leaveForm.end_date} onChange={e => setLeaveForm({ ...leaveForm, end_date: e.target.value })} style={{ width: '100%', marginTop: '5px', padding: '9px', borderRadius: '8px', border: '1px solid var(--card-border)' }} />
+                            </label>
+                            <label style={{ gridColumn: '1 / -1', fontSize: '12px', fontWeight: 700 }}>Reason
+                                <textarea required minLength={3} value={leaveForm.reason} onChange={e => setLeaveForm({ ...leaveForm, reason: e.target.value })} rows={3} placeholder="Reason for leave" style={{ width: '100%', marginTop: '5px', padding: '9px', borderRadius: '8px', border: '1px solid var(--card-border)', resize: 'vertical' }} />
+                            </label>
+                            <div style={{ gridColumn: '1 / -1', display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+                                <button type="button" onClick={() => setIsLeaveModalOpen(false)} style={{ padding: '8px 15px', borderRadius: '8px', border: '1px solid var(--card-border)', background: 'transparent' }}>Close</button>
+                                <button type="submit" disabled={punchLoading || !canMarkLeave} style={{ padding: '8px 15px', borderRadius: '8px', border: 0, background: '#2563eb', color: '#fff', fontWeight: 700 }}>{punchLoading ? 'Saving...' : 'Mark On Leave'}</button>
+                            </div>
+                        </form>
+                        <div style={{ borderTop: '1px solid var(--card-border)', marginTop: '18px', paddingTop: '14px' }}>
+                            <h4 style={{ margin: '0 0 10px', fontSize: '14px' }}>Active Leave Records</h4>
+                            {leaveRequests.filter(item => item.status === 'Approved').length === 0 ? (
+                                <div style={{ color: 'var(--text-muted)', fontSize: '12.5px' }}>No active leave records.</div>
+                            ) : leaveRequests.filter(item => item.status === 'Approved').map(item => (
+                                <div key={item.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', padding: '9px 0', borderBottom: '1px solid var(--card-border)' }}>
+                                    <div><strong>{item.staff_name}</strong><div style={{ color: 'var(--text-muted)', fontSize: '11.5px' }}>{item.leave_type} · {item.start_date} to {item.end_date} · {item.reason}</div></div>
+                                    <button type="button" disabled={punchLoading} onClick={() => cancelLeave(item.id)} style={{ border: '1px solid #fecaca', background: '#fef2f2', color: '#dc2626', borderRadius: '7px', padding: '6px 10px', fontWeight: 700, cursor: 'pointer' }}>Cancel Leave</button>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {/* MODAL 1: Add Attendance / Manual Punch */}
             {isAddModalOpen && (

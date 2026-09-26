@@ -100,6 +100,7 @@ class PermissionCode(str, Enum):
     ATTENDANCE_VIEW = "attendance.view"
     ATTENDANCE_MANAGE = "attendance.manage"
     ATTENDANCE_PUNCH = "attendance.punch"
+    ATTENDANCE_LEAVE = "attendance.leave"
 
     # Costs & Financials
     COSTS_CUSTOMER_PRICE = "costs.customer_price"

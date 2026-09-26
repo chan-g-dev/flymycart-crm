@@ -18,7 +18,7 @@ from sqlalchemy import desc, func, or_, case
 from app.database import get_db
 from app.models import Shipment, ReconciliationBatch, ReconciliationItem, AuditLog, AccountingEntry
 from app.schemas import ReconciliationProcessRequest, ReconciliationBatchOut
-from app.finance_engine import calculate_gross_profit, match_provider_bill_entries
+from app.finance_engine import calculate_gross_profit, match_provider_bill_entries, shipment_billed_total
 from app.auth import create_audit_log
 from app.dependencies import require_permission
 from app.permissions import PermissionCode
@@ -235,7 +235,7 @@ def apply_reconciliation(
             ship.cost_reconciled = True
             ship.carrier_payment_status = "Paid" if (ship.provider_type == "prepaid" or is_fully_paid) else "Reconciled"
             ship.gross_profit = calculate_gross_profit(
-                selling_price=ship.price,
+                billed_amount=shipment_billed_total(ship),
                 provider_cost=ship.provider_cost,
                 actual_provider_cost=act_cost,
                 cost_reconciled=True

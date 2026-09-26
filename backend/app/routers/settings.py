@@ -152,8 +152,8 @@ def get_kyc_storage_stats(
     db: Session = Depends(get_db)
 ):
     """Returns statistics and records for stored KYC / Aadhaar images."""
-    from app.models import Shipment, Customer
-    from sqlalchemy import or_, func, cast, String, literal, union_all, select
+    from app.models import Shipment
+    from sqlalchemy import or_, func, cast, String
     from app.business_dates import business_today
 
     for value in (date_from, date_to):
@@ -168,42 +168,28 @@ def get_kyc_storage_stats(
     cutoff_3m = (today - datetime.timedelta(days=90)).isoformat()
     cutoff_6m = (today - datetime.timedelta(days=180)).isoformat()
     shipment_date = func.coalesce(func.nullif(Shipment.date, ''), func.substr(cast(Shipment.created_at, String), 1, 10))
-    customer_date = func.substr(cast(Customer.created_at, String), 1, 10)
     sq = db.query(Shipment).filter(or_(*[
         column.isnot(None) & (column != '') for column in
         (Shipment.id_proof_front, Shipment.id_proof_back, Shipment.receiver_id_proof_front, Shipment.receiver_id_proof_back)
     ]))
-    cq = db.query(Customer).filter(or_(*[
-        column.isnot(None) & (column != '') for column in (Customer.id_proof_front, Customer.id_proof_back)
-    ]))
-    count_total = sq.count() + cq.count()
-    count_3m = sq.filter(shipment_date < cutoff_3m).count() + cq.filter(customer_date < cutoff_3m).count()
-    count_6m = sq.filter(shipment_date < cutoff_6m).count() + cq.filter(customer_date < cutoff_6m).count()
+    count_total = sq.count()
+    count_3m = sq.filter(shipment_date < cutoff_3m).count()
+    count_6m = sq.filter(shipment_date < cutoff_6m).count()
     if search.strip():
         pattern = search.strip()
         sq = sq.filter(or_(*[column.icontains(pattern, autoescape=True) for column in (
             Shipment.awb, Shipment.sender_name, Shipment.customer_name, Shipment.sender_phone,
             Shipment.sender_id_proof, Shipment.receiver_name, Shipment.receiver_phone, Shipment.receiver_id_proof)]))
-        cq = cq.filter(or_(*[column.icontains(pattern, autoescape=True) for column in (Customer.name, Customer.mobile, Customer.id_proof)]))
     if date_from:
-        sq, cq = sq.filter(shipment_date >= date_from), cq.filter(customer_date >= date_from)
+        sq = sq.filter(shipment_date >= date_from)
     if date_to:
-        sq, cq = sq.filter(shipment_date <= date_to), cq.filter(customer_date <= date_to)
-    filtered_total = sq.count() + cq.count()
-    references = union_all(
-        sq.with_entities(Shipment.id.label('id'), literal('shipment').label('kind'), shipment_date.label('date')).statement,
-        cq.with_entities(Customer.id.label('id'), literal('customer').label('kind'), customer_date.label('date')).statement,
-    ).subquery()
-    page = db.execute(select(references).order_by(references.c.date.desc(), references.c.kind, references.c.id).offset(offset).limit(limit)).all()
-    shipments_with_kyc = db.query(Shipment).filter(Shipment.id.in_([r.id for r in page if r.kind == 'shipment'])).all()
-    customers_with_kyc = db.query(Customer).filter(Customer.id.in_([r.id for r in page if r.kind == 'customer'])).all()
+        sq = sq.filter(shipment_date <= date_to)
+    filtered_total = sq.count()
+    shipments_with_kyc = sq.order_by(shipment_date.desc(), Shipment.id).offset(offset).limit(limit).all()
     records = []
 
     for s in shipments_with_kyc:
         s_date = str(s.date or "")[:10]
-        sender_img = s.id_proof_front or s.id_proof_back
-        receiver_img = s.receiver_id_proof_front or s.receiver_id_proof_back
-
         records.append({
             "id": s.id,
             "raw_id": s.id,
@@ -217,41 +203,15 @@ def get_kyc_storage_stats(
             "receiver_phone": s.receiver_phone,
             "receiver_email": s.receiver_email,
             "receiver_id_proof": s.receiver_id_proof,
-            "sender_image": sender_img,
-            "receiver_image": receiver_img,
-            "has_sender_image": bool(sender_img),
-            "has_receiver_image": bool(receiver_img),
+            "sender_front": s.id_proof_front,
+            "sender_back": s.id_proof_back,
+            "receiver_front": s.receiver_id_proof_front,
+            "receiver_back": s.receiver_id_proof_back,
+            "has_sender_image": bool(s.id_proof_front or s.id_proof_back),
+            "has_receiver_image": bool(s.receiver_id_proof_front or s.receiver_id_proof_back),
             "date": s_date or str(s.created_at or "")[:10],
             "center": s.center
         })
-
-    for c in customers_with_kyc:
-        c_date = str(c.created_at or "")[:10]
-        cust_img = c.id_proof_front or c.id_proof_back
-
-        records.append({
-            "id": c.id,
-            "raw_id": c.id,
-            "type": "customer",
-            "awb": f"Customer: {c.name}",
-            "sender_name": c.name,
-            "sender_phone": c.mobile,
-            "sender_email": c.email,
-            "sender_id_proof": c.id_proof,
-            "receiver_name": "—",
-            "receiver_phone": "—",
-            "receiver_email": None,
-            "receiver_id_proof": "—",
-            "sender_image": cust_img,
-            "receiver_image": None,
-            "has_sender_image": bool(cust_img),
-            "has_receiver_image": False,
-            "date": c_date,
-            "center": c.center
-        })
-
-    ordering = {(r.kind, r.id): index for index, r in enumerate(page)}
-    records.sort(key=lambda record: ordering[(record["type"], record["id"])])
 
     return {
         "total_documents": count_total,

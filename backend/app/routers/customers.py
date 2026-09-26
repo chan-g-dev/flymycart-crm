@@ -275,7 +275,7 @@ def get_customer_360(
         billed_val = getattr(s, "total_amount", None)
         if billed_val is None:
             billed_val = (s.price or 0.0) + (getattr(s, "gst_amount", 0.0) or 0.0)
-        base_gp = calculate_gross_profit(s.price or 0, s.provider_cost, s.actual_provider_cost, s.cost_reconciled)
+        base_gp = calculate_gross_profit(billed_val, s.provider_cost, s.actual_provider_cost, s.cost_reconciled)
         s_dict = {
             "id": s.id,
             "awb": s.awb,

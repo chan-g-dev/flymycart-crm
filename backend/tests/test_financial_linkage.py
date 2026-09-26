@@ -110,8 +110,9 @@ class FinancialLinkageTests(unittest.TestCase):
             self.assertAlmostEqual(actual, pending)
         for actual in (dashboard['total_provider_cost'], accounts['total_courier_cost'], overview['cost'], monthly['total_actual_cost']):
             self.assertAlmostEqual(actual, cost)
-        for actual in (overview['net'], eod['net_profit'], monthly['net_profit']):
-            self.assertAlmostEqual(actual, sales - cost - expenses - refunds)
+        self.assertAlmostEqual(overview['net'], sales - cost - expenses - refunds)
+        for actual in (eod['net_profit'], monthly['net_profit']):
+            self.assertAlmostEqual(actual, billed - cost - expenses - refunds)
 
     def test_partial_full_b2b_payments_and_retry_link_all_modules(self):
         self.booking(payment_status='Partial', amount_received=200)
@@ -158,7 +159,8 @@ class FinancialLinkageTests(unittest.TestCase):
         self.assertEqual(summary['postpaid_accounts'][0]['net_payable'], 0)
         self.assertEqual(summary['postpaid_accounts'][0]['deposit'], 75)
         ledger = self.call('GET', '/api/accounts/shipment-ledger')['items'][0]
-        self.assertEqual(ledger['value'], 300)
+        self.assertEqual(ledger['value'], 505)
+        self.assertEqual(ledger['refund_amount'], 25)
         self.assertEqual(ledger['courier_status'], 'Paid')
 
     def test_carrier_status_consistent_before_reconciliation(self):
@@ -257,13 +259,13 @@ class FinancialLinkageTests(unittest.TestCase):
             _b2b_summary(100, 0, {'is_super_admin': True}, db)
         self.assertEqual(raised.exception.status_code, 503)
 
-    def test_shipment_profit_matches_customer_and_dashboard_excluding_gst(self):
+    def test_shipment_profit_matches_final_billed_amount_across_sections(self):
         ship = self.booking(awb='PROFIT-CONSISTENCY', price=1000, cost=600)
-        self.assertEqual(ship['gross_profit'], 400)
+        self.assertEqual(ship['gross_profit'], 580)
         listed = next(s for s in self.call('GET', '/api/shipments') if s['id'] == ship['id'])
-        self.assertEqual(listed['gross_profit'], 400)
+        self.assertEqual(listed['gross_profit'], 580)
         customer = self.call('GET', f"/api/customers/{self.customer['id']}/360")
-        self.assertEqual(customer['shipments'][0]['gross_profit'], 400)
+        self.assertEqual(customer['shipments'][0]['gross_profit'], 580)
         dashboard = self.call('GET', '/api/dashboard/summary')
-        self.assertEqual(dashboard['recent_shipments'][0]['gross_profit'], 400)
-        self.assertEqual(dashboard['total_gross_profit'], 400)
+        self.assertEqual(dashboard['recent_shipments'][0]['gross_profit'], 580)
+        self.assertEqual(dashboard['total_gross_profit'], 580)

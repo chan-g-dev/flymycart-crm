@@ -294,12 +294,13 @@ const CustomerDrawer = ({
                                                 {(() => {
                                                     const billed = Number(s.total_amount ?? (Number(s.price || 0) + Number(s.gst_amount || 0)));
                                                     const cost = s.cost_reconciled ? (s.actual_provider_cost ?? s.provider_cost) : s.provider_cost;
-                                                    const profit = s.gross_profit !== undefined && s.gross_profit !== null ? s.gross_profit : (Number(s.price || 0) - (cost || 0) - Number(s.refund_amount || 0));
+                                                    const refund = Number(s.refund_amount || 0);
+                                                    const profit = s.gross_profit !== undefined && s.gross_profit !== null ? s.gross_profit : (billed - (cost || 0) - refund);
                                                     return (
                                                         <>
                                                             {canViewCustomerPrice && (
                                                                 <span style={{ fontWeight: 800, color: 'var(--text-main)' }}>
-                                                                    Sale: {formatCurrency(billed)} {s.is_gst_applicable !== false && (s.gst_amount > 0 || s.gst_rate > 0) ? <span style={{ fontSize: '10px', fontWeight: 600, color: '#2563eb' }}>(Incl. {s.gst_rate || 18}% GST)</span> : <span style={{ fontSize: '10px', fontWeight: 600, color: '#64748b' }}>(Non-GST)</span>}
+                                                                    Customer Price: {formatCurrency(billed)} {s.is_gst_applicable !== false && (s.gst_amount > 0 || s.gst_rate > 0) ? <span style={{ fontSize: '10px', fontWeight: 600, color: '#2563eb' }}>(GST {s.gst_rate || 18}%)</span> : <span style={{ fontSize: '10px', fontWeight: 600, color: '#64748b' }}>(Non-GST)</span>}
                                                                 </span>
                                                             )}
                                                             {canViewCarrierCost && (
@@ -309,9 +310,10 @@ const CustomerDrawer = ({
                                                             )}
                                                             {canViewNetValue && (
                                                                 <span style={{ fontWeight: 700, color: (profit >= 0) ? 'var(--emerald)' : 'var(--rose)' }}>
-                                                                    Profit (Excl. GST): {formatCurrency(profit)}
+                                                                    Profit: {formatCurrency(profit)}
                                                                 </span>
                                                             )}
+                                                            {refund > 0 && <span style={{ fontWeight: 700, color: '#dc2626' }}>Refund: -{formatCurrency(refund)}</span>}
                                                         </>
                                                     );
                                                 })()}

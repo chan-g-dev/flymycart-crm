@@ -256,12 +256,6 @@ export const Users = ({ settings, onDataMutated }) => {
             showFeedback('Access Denied: Only Super Admin can assign staff roles.', 'error');
             return;
         }
-        const targetStaff = staffList.find(u => u.id === userId);
-        if (targetStaff?.email === 'admin@flymycart.com') {
-            showFeedback('Master Super Admin role cannot be modified.', 'error');
-            return;
-        }
-
         setActionLoadingId(userId);
 
         setStaffList(prev => prev.map(u => u.id === userId ? { ...u, role: newRole } : u));
@@ -270,8 +264,9 @@ export const Users = ({ settings, onDataMutated }) => {
             await apiClient.updateUserRoles(userId, [newRole]);
             showFeedback(`Role updated to ${getRoleConfig(newRole).label}.`, 'success');
             if (onDataMutated) onDataMutated();
-        } catch {
-            showFeedback(`Role updated to ${getRoleConfig(newRole).label} (saved).`, 'success');
+        } catch (err) {
+            await fetchUsers();
+            showFeedback(err.response?.data?.detail || 'Unable to update this role.', 'error');
         } finally {
             setActionLoadingId(null);
         }
@@ -316,13 +311,7 @@ export const Users = ({ settings, onDataMutated }) => {
             showFeedback('Access Denied: Only Super Admin can delete staff records.', 'error');
             return;
         }
-        const targetStaff = staffList.find(u => u.id === userId);
-        if (targetStaff?.email === 'admin@flymycart.com') {
-            showFeedback('Cannot remove Master Super Admin account.', 'error');
-            return;
-        }
-
-        if (!window.confirm(`Permanently remove staff record for "${staffName}"? This action cannot be undone.`)) return;
+        if (!window.confirm(`Permanently remove account for "${staffName}"? This action cannot be undone. The final active Super Admin is protected.`)) return;
         setActionLoadingId(userId);
 
         setStaffList(prev => prev.filter(u => u.id !== userId));
@@ -331,8 +320,9 @@ export const Users = ({ settings, onDataMutated }) => {
             await apiClient.deleteUser(userId);
             showFeedback(`Removed staff "${staffName}".`, 'warning');
             if (onDataMutated) onDataMutated();
-        } catch {
-            showFeedback(`Removed staff "${staffName}" from directory.`, 'warning');
+        } catch (err) {
+            await fetchUsers();
+            showFeedback(err.response?.data?.detail || `Unable to remove "${staffName}".`, 'error');
         } finally {
             setActionLoadingId(null);
         }
@@ -790,7 +780,7 @@ export const Users = ({ settings, onDataMutated }) => {
                                                     </td>
 
                                                     <td>
-                                                        {isSuperAdmin && !isStaffSuperAdmin && !isPending ? (
+                                                        {isSuperAdmin && !isPending ? (
                                                             <select
                                                                 className="table-role-select"
                                                                 value={staff.role}
@@ -840,21 +830,17 @@ export const Users = ({ settings, onDataMutated }) => {
                                                                         <Lock size={11} /> Approval Pending
                                                                     </span>
                                                                 )
-                                                            ) : isStaffSuperAdmin ? (
-                                                                <span className="super-admin-lock-tag">
-                                                                    <ShieldCheck size={12} color="#10b981" /> Master Root
-                                                                </span>
                                                             ) : isSuperAdmin ? (
                                                                 <>
-                                                                    <button
-                                                                        type="button"
-                                                                        className={`action-btn-status-toggle ${isUserActive ? 'btn-suspend' : 'btn-activate'}`}
-                                                                        disabled={actionLoadingId === staff.id}
-                                                                        onClick={() => handleToggleActive(staff)}
-                                                                        title={isUserActive ? 'Suspend Account Access' : 'Reactivate Account Access'}
-                                                                    >
-                                                                        {isUserActive ? 'Suspend' : 'Activate'}
-                                                                    </button>
+                                                                    {!isYou && <button
+                                                                            type="button"
+                                                                            className={`action-btn-status-toggle ${isUserActive ? 'btn-suspend' : 'btn-activate'}`}
+                                                                            disabled={actionLoadingId === staff.id}
+                                                                            onClick={() => handleToggleActive(staff)}
+                                                                            title={isUserActive ? 'Suspend Account Access' : 'Reactivate Account Access'}
+                                                                        >
+                                                                            {isUserActive ? 'Suspend' : 'Activate'}
+                                                                        </button>}
 
                                                                     <button
                                                                         type="button"
@@ -917,12 +903,19 @@ export const Users = ({ settings, onDataMutated }) => {
                                                 <h4 className="grid-card-name">{isSuperAdmin ? <button type="button" className="member-activity-link" onClick={() => setActivityUser(staff)} title="View member activity">{staff.name}</button> : staff.name}</h4>
                                                 {isYou && <span className="member-you-badge">YOU</span>}
                                             </div>
-                                            <div 
-                                                className="grid-card-role-chip"
-                                                style={{ background: roleCfg.bgLight, color: roleCfg.color, border: `1px solid ${roleCfg.border}` }}
-                                            >
-                                                {roleCfg.label}
-                                            </div>
+                                            {isSuperAdmin && !isPending ? (
+                                                <select className="table-role-select" value={staff.role} disabled={actionLoadingId === staff.id} onChange={e => handleRoleChange(staff.id, e.target.value)}>
+                                                    <option value="super_admin">Super Admin</option>
+                                                    <option value="manager">Manager</option>
+                                                    <option value="supervisor">Supervisor</option>
+                                                    <option value="account_executive">Account Executive</option>
+                                                    <option value="operation_executive">Operation Executive</option>
+                                                </select>
+                                            ) : (
+                                                <div className="grid-card-role-chip" style={{ background: roleCfg.bgLight, color: roleCfg.color, border: `1px solid ${roleCfg.border}` }}>
+                                                    {roleCfg.label}
+                                                </div>
+                                            )}
 
                                             <div className="grid-card-contact-list">
                                                 <div className="grid-contact-item">
@@ -960,21 +953,16 @@ export const Users = ({ settings, onDataMutated }) => {
                                                         <span>Super Admin Approval Required</span>
                                                     </div>
                                                 )
-                                            ) : isStaffSuperAdmin ? (
-                                                <div className="grid-footer-master">
-                                                    <ShieldCheck size={13} color="#10b981" />
-                                                    <span>Executive Master Root</span>
-                                                </div>
                                             ) : isSuperAdmin ? (
                                                 <div className="grid-footer-actions">
-                                                    <button 
+                                                    {!isYou && <button
                                                         type="button" 
                                                         className={`grid-action-toggle ${isUserActive ? 'btn-suspend' : 'btn-activate'}`}
                                                         disabled={actionLoadingId === staff.id}
                                                         onClick={() => handleToggleActive(staff)}
                                                     >
                                                         {isUserActive ? 'Suspend' : 'Activate'}
-                                                    </button>
+                                                    </button>}
                                                     <button 
                                                         type="button" 
                                                         className="grid-action-delete"

@@ -85,7 +85,7 @@ def _dashboard_summary(ctx, db):
         func.sum(case((active, 1), else_=0)).label("in_transit_count"),
         func.sum(case((Shipment.status == "Delivered", 1), else_=0)).label("delivered_count"),
         func.sum(case((Shipment.cost_reconciled.is_(True), func.coalesce(Shipment.actual_provider_cost, Shipment.provider_cost)), else_=Shipment.provider_cost)).label("total_provider_cost"),
-        func.sum(Shipment.price - case((Shipment.cost_reconciled.is_(True), func.coalesce(Shipment.actual_provider_cost, Shipment.provider_cost)), else_=Shipment.provider_cost)).label("total_gross_profit"),
+        func.sum(billed - case((Shipment.cost_reconciled.is_(True), func.coalesce(Shipment.actual_provider_cost, Shipment.provider_cost)), else_=Shipment.provider_cost)).label("total_gross_profit"),
     ).outerjoin(paid, paid.c.shipment_id == Shipment.id).group_by(Shipment.center).all()
     centers = {row.center: dict(row._mapping) for row in rows}
     totals = {key: sum(float(row.get(key) or 0) for row in centers.values()) for key in (
@@ -133,13 +133,28 @@ def _dashboard_summary(ctx, db):
         .group_by(func.lower(Refund.awb))
         .all()
     )
+    shipment_refunds_total = float(
+        db.query(func.coalesce(func.sum(Refund.amount), 0))
+        .join(Shipment, func.lower(Refund.awb) == func.lower(Shipment.awb))
+        .filter(Refund.status.in_(["Approved", "Refunded"]))
+        .scalar() or 0
+    )
+    totals["total_gross_profit"] = round(totals["total_gross_profit"] - shipment_refunds_total, 2)
+    refunds_by_center = dict(
+        db.query(Shipment.center, func.sum(Refund.amount))
+        .join(Refund, func.lower(Refund.awb) == func.lower(Shipment.awb))
+        .filter(Refund.status.in_(["Approved", "Refunded"]))
+        .group_by(Shipment.center).all()
+    )
+    for center_name, values in centers.items():
+        values["total_gross_profit"] = round(float(values.get("total_gross_profit") or 0) - float(refunds_by_center.get(center_name, 0) or 0), 2)
     recent_shipments_raw = db.query(Shipment).order_by(desc(Shipment.created_at)).limit(10).all()
     recent_shipments = []
     for s in recent_shipments_raw:
         s_awb = (s.awb or "").lower().strip()
         s_refund = float(refunds_by_awb.get(s_awb, 0) or 0)
         billed_val = getattr(s, "total_amount", None) or ((s.price or 0.0) + (getattr(s, "gst_amount", 0.0) or 0.0))
-        base_gp = calculate_gross_profit(s.price or 0, s.provider_cost, s.actual_provider_cost, s.cost_reconciled)
+        base_gp = calculate_gross_profit(billed_val, s.provider_cost, s.actual_provider_cost, s.cost_reconciled)
         s_dict = {
             "id": s.id,
             "awb": s.awb,

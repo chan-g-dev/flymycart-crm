@@ -387,7 +387,7 @@ export const Reports = ({ activeTab, refreshKey, settings, initialScope = '', in
 
                                 <div className="fmc-kpi-card" style={{ borderTop: '3px solid #6366f1' }}>
                                     <div className="fmc-kpi-card-header">
-                                        <span className="fmc-kpi-tag">Customer Sales</span>
+                                        <span className="fmc-kpi-tag">Customer Price</span>
                                         <div className="fmc-kpi-badge-icon" style={{ background: 'rgba(99, 102, 241, 0.15)', color: '#6366f1' }}>💵</div>
                                     </div>
                                     <div className="fmc-kpi-val" style={{ color: '#6366f1' }}>
@@ -396,7 +396,7 @@ export const Reports = ({ activeTab, refreshKey, settings, initialScope = '', in
                                     <small style={{ display: 'block', fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
                                         {formatCurrency(eodReport.total_sales)} Base + {formatCurrency(eodReport.gst_total)} GST
                                     </small>
-                                    <div className="fmc-kpi-sub">Total Billed with GST</div>
+                                    <div className="fmc-kpi-sub">Final billed amount</div>
                                 </div>
 
                                 <div className="fmc-kpi-card" style={{ borderTop: '3px solid #10b981' }}>
@@ -420,7 +420,7 @@ export const Reports = ({ activeTab, refreshKey, settings, initialScope = '', in
                                 {canViewNetValue && (
                                     <div className="fmc-kpi-card" style={{ borderTop: '3px solid #10b981', background: 'rgba(16, 185, 129, 0.05)' }}>
                                         <div className="fmc-kpi-card-header">
-                                            <span className="fmc-kpi-tag" style={{ color: '#10b981', fontWeight: 800 }}>Profit (Incl. GST)</span>
+                                            <span className="fmc-kpi-tag" style={{ color: '#10b981', fontWeight: 800 }}>Net Profit</span>
                                             <div className="fmc-kpi-badge-icon" style={{ background: 'rgba(16, 185, 129, 0.2)', color: '#10b981' }}>📈</div>
                                         </div>
                                         <div className="fmc-kpi-val" style={{ color: '#10b981' }}>
@@ -460,7 +460,7 @@ export const Reports = ({ activeTab, refreshKey, settings, initialScope = '', in
                                             return (
                                                 <>
                                                     <ProgressItem
-                                                        label="Gross Invoiced Sales"
+                                                        label="Customer Price"
                                                         value={totalBilled}
                                                         total={totalBilled}
                                                         color="#6366f1"
@@ -479,7 +479,7 @@ export const Reports = ({ activeTab, refreshKey, settings, initialScope = '', in
                                                     />
                                                     {canViewFinancials && (
                                                         <ProgressItem
-                                                            label="Profit (Incl. GST)"
+                                                            label="Net Profit"
                                                             value={eodReport.net_profit_with_gst ?? eodReport.net_profit}
                                                             total={totalBilled}
                                                             color="#10b981"
@@ -608,7 +608,7 @@ export const Reports = ({ activeTab, refreshKey, settings, initialScope = '', in
                                     <div className="weekly-table-panel">
                                         <div className="weekly-panel-title"><strong>Daily Operations & Collections Ledger</strong><span>Day-by-day audit</span></div>
                                         <div className="table-container reports-table-scroll" tabIndex={0} role="region" aria-label="Daily Operations Ledger">
-                                            <table className="data-table weekly-data-table" style={{ minWidth: '760px' }}>
+                                            <table className="data-table weekly-data-table" style={{ minWidth: '860px' }}>
                                                 <thead>
                                                     <tr>
                                                         <th style={{ textAlign: 'left', width: '15%' }}>Date</th>
@@ -616,9 +616,10 @@ export const Reports = ({ activeTab, refreshKey, settings, initialScope = '', in
                                                         <th style={{ textAlign: 'right', width: '14%' }}>Collections</th>
                                                         {weeklyReport.financials_visible && (
                                                             <>
-                                                                <th style={{ textAlign: 'right', width: '18%' }}>Revenue (Billed)</th>
+                                                                <th style={{ textAlign: 'right', width: '18%' }}>Customer Price</th>
                                                                 <th style={{ textAlign: 'right', width: '16%' }}>Provider Cost</th>
-                                                                <th style={{ textAlign: 'right', width: '16%' }}>Profit (Incl. GST)</th>
+                                                                <th style={{ textAlign: 'right', width: '14%' }}>Refunds</th>
+                                                                <th style={{ textAlign: 'right', width: '16%' }}>Profit</th>
                                                             </>
                                                         )}
                                                     </tr>
@@ -633,6 +634,7 @@ export const Reports = ({ activeTab, refreshKey, settings, initialScope = '', in
                                                                 <>
                                                                     <td style={{ textAlign: 'right', fontWeight: 700, color: 'var(--primary-blue)' }}>{formatCurrency(day.revenue_with_gst ?? ((day.revenue || 0) + (day.gst_total || 0)))}</td>
                                                                     <td style={{ textAlign: 'right', color: 'var(--rose)' }}>{formatCurrency(day.provider_cost)}</td>
+                                                                    <td style={{ textAlign: 'right', color: 'var(--rose)' }}>{Number(day.refunds_total || 0) > 0 ? `- ${formatCurrency(day.refunds_total)}` : formatCurrency(0)}</td>
                                                                     <td style={{ textAlign: 'right' }} className="weekly-profit">
                                                                         <strong style={{ color: (day.gross_profit_with_gst ?? day.gross_profit) >= 0 ? 'var(--emerald)' : 'var(--rose)' }}>
                                                                             {formatCurrency(day.gross_profit_with_gst ?? day.gross_profit)}
@@ -697,7 +699,7 @@ export const Reports = ({ activeTab, refreshKey, settings, initialScope = '', in
                             <div className="fmc-kpi-grid" style={{ marginBottom: '18px', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))' }}>
                                 <div className="fmc-kpi-card" style={{ borderTop: '3px solid #6366f1' }}>
                                     <div className="fmc-kpi-card-header">
-                                        <span className="fmc-kpi-tag">Gross Sales (Incl. GST)</span>
+                                        <span className="fmc-kpi-tag">Customer Price</span>
                                         <div className="fmc-kpi-badge-icon" style={{ background: 'rgba(99, 102, 241, 0.15)', color: '#6366f1' }}>💵</div>
                                     </div>
                                     <div className="fmc-kpi-val" style={{ color: '#6366f1' }}>
@@ -719,7 +721,7 @@ export const Reports = ({ activeTab, refreshKey, settings, initialScope = '', in
 
                                 <div className="fmc-kpi-card" style={{ borderTop: '3px solid #10b981' }}>
                                     <div className="fmc-kpi-card-header">
-                                        <span className="fmc-kpi-tag">Gross Profit (Incl. GST)</span>
+                                        <span className="fmc-kpi-tag">Shipment Profit</span>
                                         <div className="fmc-kpi-badge-icon" style={{ background: 'rgba(16, 185, 129, 0.15)', color: '#10b981' }}>📊</div>
                                     </div>
                                     <div className="fmc-kpi-val" style={{ color: '#10b981' }}>
@@ -730,7 +732,7 @@ export const Reports = ({ activeTab, refreshKey, settings, initialScope = '', in
 
                                 <div className="fmc-kpi-card" style={{ borderTop: '3px solid #059669', background: 'rgba(16, 185, 129, 0.05)' }}>
                                     <div className="fmc-kpi-card-header">
-                                        <span className="fmc-kpi-tag" style={{ color: '#059669', fontWeight: 800 }}>Margin (Incl. GST)</span>
+                                        <span className="fmc-kpi-tag" style={{ color: '#059669', fontWeight: 800 }}>Net Profit Margin</span>
                                         <div className="fmc-kpi-badge-icon" style={{ background: 'rgba(5, 150, 105, 0.2)', color: '#059669' }}>📈</div>
                                     </div>
                                     <div className="fmc-kpi-val" style={{ color: '#059669', fontSize: '26px', fontWeight: 900 }}>
@@ -815,7 +817,7 @@ export const Reports = ({ activeTab, refreshKey, settings, initialScope = '', in
                                 </h4>
                                 <div style={{ minWidth: '500px' }}>
                                     <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid var(--card-border)', fontSize: '13px', fontWeight: 700 }}>
-                                        <span>1. Customer Sales (Gross Invoiced with GST)</span>
+                                        <span>1. Customer Price (Final Billed Amount)</span>
                                         <span style={{ color: 'var(--primary-blue)', fontSize: '14px' }}>{formatCurrency(monthlyReport.invoice_total || monthlyReport.revenue_with_gst || ((monthlyReport.revenue || 0) + (monthlyReport.gst_total || 0)))}</span>
                                     </div>
                                     <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', fontSize: '12px', color: 'var(--text-muted)' }}>
@@ -836,20 +838,20 @@ export const Reports = ({ activeTab, refreshKey, settings, initialScope = '', in
                                             <strong style={{ color: 'var(--text-main)' }}>{formatCurrency(monthlyReport.postpaid_carrier_payments)}</strong>
                                         </div>
                                     )}
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderTop: '1px solid var(--card-border)', fontSize: '13.5px', fontWeight: 800 }}>
-                                        <span>3. Gross Profit (Incl. GST &minus; Carrier Cost)</span>
-                                        <span style={{ color: 'var(--emerald)' }}>{formatCurrency(monthlyReport.gross_profit_with_gst ?? monthlyReport.gross_profit)}</span>
-                                    </div>
                                     <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', fontSize: '12px', color: 'var(--text-muted)' }}>
-                                        <span>4. Customer Refunds Deducted</span>
+                                        <span>3. Customer Refunds</span>
                                         <span style={{ color: 'var(--rose)' }}>- {formatCurrency(monthlyReport.refunds_total)}</span>
+                                    </div>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderTop: '1px solid var(--card-border)', fontSize: '13.5px', fontWeight: 800 }}>
+                                        <span>4. Shipment Profit (Customer Price &minus; Carrier Cost &minus; Refunds)</span>
+                                        <span style={{ color: 'var(--emerald)' }}>{formatCurrency(monthlyReport.gross_profit_with_gst ?? monthlyReport.gross_profit)}</span>
                                     </div>
                                     <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', fontSize: '12px', color: 'var(--text-muted)' }}>
                                         <span>5. Operating Expenses</span>
                                         <span style={{ color: 'var(--rose)' }}>- {formatCurrency(monthlyReport.operational_expenses)}</span>
                                     </div>
                                     <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 0 4px', borderTop: '2px solid var(--primary-blue)', fontSize: '16px', fontWeight: 900, color: 'var(--primary-blue)' }}>
-                                        <span>6. Profit (Incl. GST)</span>
+                                        <span>6. Net Profit</span>
                                         <span style={{ color: '#10b981' }}>{formatCurrency(monthlyReport.net_profit_with_gst ?? monthlyReport.net_profit)} ({Number(monthlyReport.invoice_total || monthlyReport.revenue_with_gst || monthlyReport.revenue) > 0 ? (((monthlyReport.net_profit_with_gst ?? monthlyReport.net_profit) / Number(monthlyReport.invoice_total || monthlyReport.revenue_with_gst || monthlyReport.revenue)) * 100).toFixed(1) : (monthlyReport.net_profit_margin ?? '0')}%)</span>
                                     </div>
                                 </div>

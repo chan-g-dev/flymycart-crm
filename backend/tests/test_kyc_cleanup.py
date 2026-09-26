@@ -7,7 +7,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 from app.database import Base, get_db
 from app.dependencies import get_current_session_context
-from app.models import Customer
+from app.models import Customer, Shipment
 from app.routers.settings import settings_router
 
 
@@ -69,21 +69,29 @@ class KycCleanupTests(unittest.TestCase):
     def test_paginated_search_reaches_records_beyond_first_hundred(self):
         with self.sessions() as db:
             for index in range(120):
-                db.add(Customer(id=f'cust_page_{index:03}', name=f'Paged customer {index:03}',
-                    mobile=f'900000{index:04}', id_proof_front='test-image'))
+                db.add(Shipment(
+                    id=f'ship_page_{index:03}', awb=f'PAGE{index:03}', date='2026-09-25',
+                    customer_name=f'Paged customer {index:03}', sender_name=f'Paged customer {index:03}',
+                    receiver_name='Receiver', receiver_city='Bengaluru', receiver_country='India',
+                    courier='Test', provider_name='Test', price=100, provider_cost=50,
+                    actual_provider_cost=50, id_proof_front='front-image', id_proof_back='back-image'
+                ))
             db.commit()
         seen = set()
         for offset in (0, 50, 100):
             response = self.client.get('/settings/kyc-storage', params={'limit': 50, 'offset': offset})
             self.assertEqual(response.status_code, 200, response.text)
             data = response.json()
-            self.assertEqual(data['filtered_total'], 121)
+            self.assertEqual(data['filtered_total'], 120)
             self.assertLessEqual(len(data['records']), 50)
             ids = {r['id'] for r in data['records']}
             self.assertFalse(seen & ids)
             seen.update(ids)
-        self.assertEqual(len(seen), 121)
+        self.assertEqual(len(seen), 120)
         data = self.client.get('/settings/kyc-storage', params={'search': 'Paged customer 119'}).json()
         self.assertEqual(data['filtered_total'], 1)
-        self.assertEqual(data['records'][0]['id'], 'cust_page_119')
+        self.assertEqual(data['records'][0]['id'], 'ship_page_119')
+        self.assertEqual(data['records'][0]['sender_front'], 'front-image')
+        self.assertEqual(data['records'][0]['sender_back'], 'back-image')
+        self.assertNotIn('sender_image', data['records'][0])
         self.assertEqual(self.client.get('/settings/kyc-storage', params={'date_from': 'bad'}).status_code, 422)

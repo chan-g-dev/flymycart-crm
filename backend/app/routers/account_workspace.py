@@ -205,6 +205,11 @@ def get_shipment_ledger(date_from: dt.date | None = None, date_to: dt.date | Non
     rows = query.order_by(Shipment.date.desc(), Shipment.created_at.desc(), Shipment.id).offset(offset).limit(limit).all()
     ids = [s.id for s in rows]
     expenses = dict(db.query(AccountingEntry.shipment_id, func.sum(AccountingEntry.amount)).filter(AccountingEntry.kind == 'expense', AccountingEntry.shipment_id.in_(ids)).group_by(AccountingEntry.shipment_id)) if financial and ids else {}
+    refunds_by_awb = dict(
+        db.query(func.lower(Refund.awb), func.sum(Refund.amount))
+        .filter(Refund.status.in_(['Approved', 'Refunded']))
+        .group_by(func.lower(Refund.awb)).all()
+    )
     can_view_price = can_view_customer_price(ctx)
     can_view_cost = can_view_costs(ctx)
     can_view_profit = can_view_values(ctx) and can_view_cost and can_view_price
@@ -225,6 +230,7 @@ def get_shipment_ledger(date_from: dt.date | None = None, date_to: dt.date | Non
         cost = s.actual_provider_cost if s.cost_reconciled and s.actual_provider_cost is not None else s.provider_cost
         expense = money(expenses.get(s.id, 0))
         gross_sale = money(s.total_amount if s.total_amount is not None else money(s.price) + money(s.gst_amount))
+        refund = money(refunds_by_awb.get((s.awb or '').lower().strip(), 0))
         p_name = (s.provider_name or s.courier or '').lower().strip()
         p_reconciled = float(reconciled_totals.get(p_name, 0) or 0)
         p_paid = float(provider_payments.get(p_name, 0) or 0)
@@ -241,8 +247,9 @@ def get_shipment_ledger(date_from: dt.date | None = None, date_to: dt.date | Non
         result.append({'id': s.id, 'date': s.date, 'awb': s.awb, 'courier': s.courier, 'customer_name': s.customer_name,
             'customer_id': s.customer_id, 'destination': s.receiver_country or s.receiver_city,
             'sale': money(s.price) if can_view_price else None, 'gross_sale': gross_sale if can_view_price else None, 'cost': money(cost) if can_view_cost else None, 'expense': expense if can_view_cost else None,
-            'value': money(money(s.price) - money(cost) - expense) if can_view_profit else None,
-            'value_with_gst': money(gross_sale - money(cost) - expense) if can_view_profit else None,
+            'value': money(gross_sale - money(cost) - refund) if can_view_profit else None,
+            'value_with_gst': money(gross_sale - money(cost) - refund) if can_view_profit else None,
+            'refund_amount': refund if can_view_price else None,
             'payment_mode': s.payment_method, 'collection_status': s.payment_status,
             'courier_status': courier_status})
     return {'items': result, 'total_count': count}

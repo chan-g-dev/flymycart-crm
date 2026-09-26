@@ -791,3 +791,22 @@ class AttendanceRecord(Base):
     ip_address = Column(String(60), nullable=True)
     notes = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+
+class LeaveRequest(Base):
+    __tablename__ = "leave_requests"
+
+    id = Column(String(50), primary_key=True, default=lambda: f"leave_{uuid.uuid4().hex[:16]}")
+    user_id = Column(String(50), nullable=True, index=True)
+    staff_name = Column(String(150), nullable=False, index=True)
+    leave_type = Column(String(30), nullable=False, default="Casual")
+    start_date = Column(String(10), nullable=False, index=True)
+    end_date = Column(String(10), nullable=False, index=True)
+    reason = Column(Text, nullable=False)
+    status = Column(String(20), nullable=False, default="Pending", index=True)
+    reviewed_by_user_id = Column(String(50), nullable=True)
+    reviewed_by_name = Column(String(150), nullable=True)
+    review_notes = Column(Text, nullable=True)
+    reviewed_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow, index=True)
+    updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)

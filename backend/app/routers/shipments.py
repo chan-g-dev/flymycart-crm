@@ -22,9 +22,7 @@ from app.models import (
     Refund, AuditLog, SystemSettings, AccountingEntry
 )
 from app.schemas import ShipmentCreate, ShipmentOut
-from app.finance_engine import (
-    calculate_gross_profit
-)
+from app.finance_engine import calculate_gross_profit, shipment_billed_total
 from app.auth import create_audit_log, mask_shipment_financials
 from app.dependencies import require_permission
 from app.permissions import PermissionCode
@@ -121,8 +119,7 @@ def get_shipments(
         awb_key = (shipment.awb or "").lower().strip()
         ref_amt = float(refunds_by_awb.get(awb_key, 0) or 0)
         row.refund_amount = ref_amt
-        base_gp = calculate_gross_profit(shipment.price or 0, shipment.provider_cost, shipment.actual_provider_cost, shipment.cost_reconciled)
-        row.gross_profit = round(base_gp - ref_amt, 2)
+        row.gross_profit = round(calculate_gross_profit(shipment_billed_total(shipment), shipment.provider_cost, shipment.actual_provider_cost, shipment.cost_reconciled) - ref_amt, 2)
         p_name = (shipment.provider_name or shipment.courier or "").lower().strip()
         p_cost = float(provider_costs.get(p_name, 0) or 0)
         p_paid = float(provider_payments.get(p_name, 0) or 0)
@@ -302,8 +299,6 @@ def create_shipment(
             whatsapp=customer_mobile.strip(),
             email=payload.sender.email.strip() if payload.sender and payload.sender.email else None,
             id_proof=payload.sender.id_proof.strip() if payload.sender and payload.sender.id_proof else None,
-            id_proof_front=payload.sender.id_proof_front if payload.sender else None,
-            id_proof_back=payload.sender.id_proof_back if payload.sender else None,
             b2b_company_id=payload.b2b_company_id,
             credit_limit=company.credit_limit if company else 0,
             credit_period_days=company.credit_period_days if company else 30,
@@ -315,10 +310,6 @@ def create_shipment(
         db.add(customer)
         db.flush()
     else:
-        if payload.sender and payload.sender.id_proof_front:
-            customer.id_proof_front = payload.sender.id_proof_front
-        if payload.sender and payload.sender.id_proof_back:
-            customer.id_proof_back = payload.sender.id_proof_back
         if payload.sender and payload.sender.id_proof:
             customer.id_proof = payload.sender.id_proof.strip()
 
@@ -334,7 +325,7 @@ def create_shipment(
         payload.parcel.packages_count = len(payload.parcel.boxes)
     cost_reconciled = (payload.provider_type == "prepaid")
     gross_profit = calculate_gross_profit(
-        selling_price=payload.price,
+        billed_amount=invoice_total,
         provider_cost=payload.provider_cost,
         actual_provider_cost=payload.provider_cost,
         cost_reconciled=cost_reconciled
@@ -359,8 +350,10 @@ def create_shipment(
         sender_name=payload.sender.name if payload.sender else customer.name,
         sender_email=payload.sender.email if payload.sender else customer.email,
         sender_id_proof=payload.sender.id_proof if payload.sender else customer.id_proof,
-        id_proof_front=payload.sender.id_proof_front if (payload.sender and payload.sender.id_proof_front) else getattr(customer, 'id_proof_front', None),
-        id_proof_back=payload.sender.id_proof_back if (payload.sender and payload.sender.id_proof_back) else getattr(customer, 'id_proof_back', None),
+        # Shipment KYC has one canonical owner. Do not duplicate the same large
+        # image payload on the linked customer record.
+        id_proof_front=payload.sender.id_proof_front if payload.sender else None,
+        id_proof_back=payload.sender.id_proof_back if payload.sender else None,
         receiver_email=payload.receiver.email,
         receiver_state=payload.receiver.state,
         boxes=[box.model_dump() for box in payload.parcel.boxes],
@@ -499,7 +492,7 @@ def create_shipment(
         or ctx.get("permissions", {}).get("reports.view_financial")
     )
     s_out = ShipmentOut.model_validate(new_shipment)
-    s_out.gross_profit = calculate_gross_profit(new_shipment.price or 0, new_shipment.provider_cost, new_shipment.actual_provider_cost, new_shipment.cost_reconciled)
+    s_out.gross_profit = calculate_gross_profit(invoice_total, new_shipment.provider_cost, new_shipment.actual_provider_cost, new_shipment.cost_reconciled)
     if not can_view_customer_price(ctx):
         s_out.price = None
         s_out.total_amount = None
