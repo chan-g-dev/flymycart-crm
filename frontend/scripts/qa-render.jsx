@@ -30,6 +30,7 @@ export function run() {
             try {
                 const html=renderToStaticMarkup(<AuthContext.Provider value={context}><Component {...props}/></AuthContext.Provider>);
                 if(!html.length) throw new Error('Empty render');
+                if (name === 'Settings' && role === 'super_admin' && (!html.includes('Default invoice logo') || !html.includes('Upload custom logo') || !html.includes('Restore default'))) throw new Error('Invoice branding controls missing from business settings');
                 if(role==='manager' && name==='Dashboard' && html.includes('Carrier Cost &amp; Value')) throw new Error('Financial card visible to manager');
                 if(role==='manager' && name==='Shipments' && html.includes('Value After Courier Cost')) throw new Error('Financial column visible to manager');
                 results.push({screen:name,role,passed:true});
@@ -49,7 +50,9 @@ export function run() {
             const html = renderToStaticMarkup(<AuthContext.Provider value={context}><Component {...{ [key]: rows, settings: data.settings }} /></AuthContext.Provider>);
             const body = html.match(/<tbody>([\s\S]*?)<\/tbody>/)?.[1] || '';
             if ((body.match(/<tr[ >]/g) || []).length !== 50) throw new Error('Expected exactly 50 rendered rows');
-            if (!html.includes('of 1200') || !html.includes('Page ') || !html.includes('Next')) throw new Error('Remaining records are not reachable through pagination');
+            const pagination = html.match(/<nav[^>]*aria-label="Table pagination"[^>]*>([\s\S]*?)<\/nav>/)?.[1] || '';
+            const paginationText = pagination.replace(/<[^>]*>/g, '').replace(/\s+/g, ' ');
+            if (!paginationText.includes('of 1200') || !paginationText.includes('Page 1 of 24') || !/<button(?![^>]*disabled)[^>]*>\s*Next\s*<\/button>/.test(pagination)) throw new Error('Remaining records are not reachable through pagination');
             if (rows.length !== 1200) throw new Error('Pagination mutated the complete directory');
             results.push({ screen: name, dataset: 1200, renderedRows: 50, passed: true, renderMs: Math.round(performance.now() - start) });
         } catch (error) { results.push({ screen: name, dataset: 1200, passed: false, error: error.message }); }

@@ -73,9 +73,9 @@ export default function AccountsOverview({ data, selectedCenter, activeSection, 
                 if (!result.items.length) break;
             }
             if (!financial) {
-                exportRows([['Date', 'AWB', 'Courier', 'Customer', 'Destination', 'Customer Price', ...(costAccess ? ['Carrier Cost'] : []), 'Payment Mode', 'Collection Status', 'Payment to Courier'], ...rows.map(s => [s.date, s.awb, s.courier, s.customer_name, s.destination, s.gross_sale, ...(costAccess ? [s.cost] : []), s.payment_mode, s.collection_status, s.courier_status])], `Shipment_Accounts_${businessDate()}.csv`);
+                await exportRows([['Date', 'AWB', 'Courier', 'Customer', 'Destination', 'Customer Price', ...(costAccess ? ['Carrier Cost'] : []), 'Payment Mode', 'Collection Status', 'Payment to Courier'], ...rows.map(s => [s.date, s.awb, s.courier, s.customer_name, s.destination, s.gross_sale, ...(costAccess ? [s.cost] : []), s.payment_mode, s.collection_status, s.courier_status])], `Shipment_Accounts_${businessDate()}.csv`);
             } else {
-            exportRows([['Date', 'AWB', 'Courier', 'Customer', 'Destination', 'Customer Price INR', 'Carrier Cost INR', 'Refund INR', 'Profit INR', 'Payment Mode', 'Collection Status', 'Courier Status'], ...rows.map(s => [s.date, s.awb, s.courier, s.customer_name, s.destination, s.gross_sale, s.cost, s.refund_amount || 0, s.value, s.payment_mode, s.collection_status, s.courier_status])], `Shipment_Accounts_${businessDate()}.csv`);
+            await exportRows([['Date', 'AWB', 'Courier', 'Customer', 'Destination', 'Customer Price INR', 'Carrier Cost INR', 'Refund INR', 'Profit INR', 'Payment Mode', 'Collection Status', 'Courier Status'], ...rows.map(s => [s.date, s.awb, s.courier, s.customer_name, s.destination, s.gross_sale, s.cost, s.refund_amount || 0, s.value, s.payment_mode, s.collection_status, s.courier_status])], `Shipment_Accounts_${businessDate()}.csv`);
             }
         } catch { setNotice('Export failed. Please try again.'); }
         finally { setExporting(false); }

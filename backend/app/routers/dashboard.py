@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import desc, func, case
 
 from app.database import get_db
-from app.models import Shipment, Followup, Refund, Invoice, B2BCompany, AccountingEntry
+from app.models import Shipment, Followup, Refund, Invoice, AccountingEntry
 from app.collections import collection_totals, shipment_payments_query
 from app.auth import mask_shipment_financials
 from app.dependencies import require_permission
@@ -116,9 +116,11 @@ def _dashboard_summary(ctx, db):
     courier_breakdown = " | ".join(f"{courier} {count}" for courier, count in courier_counts.items()) or "No bookings today yet"
 
     # Pending follow-ups, refund requests & overdue B2B accounts
-    followups_due = db.query(Followup).filter(Followup.status == "Pending", Followup.due_date <= today_str).count()
-    followups_pending = db.query(Followup).filter(Followup.status == "Pending").count()
-    followups_upcoming = db.query(Followup).filter(Followup.status == "Pending", Followup.due_date > today_str).count()
+    followups_pending, followups_due, followups_upcoming = db.query(
+        func.count(Followup.id),
+        func.coalesce(func.sum(case((Followup.due_date <= today_str, 1), else_=0)), 0),
+        func.coalesce(func.sum(case((Followup.due_date > today_str, 1), else_=0)), 0),
+    ).filter(Followup.status == "Pending").one()
     refunds_pending = db.query(Refund).filter(Refund.status.in_(["Requested", "Under Review"])).count()
     b2b_overdue_count = db.query(Invoice).filter(
         Invoice.balance > 0,
@@ -196,8 +198,6 @@ def _dashboard_summary(ctx, db):
         }
         recent_shipments.append(mask_shipment_financials(s_dict, ctx))
 
-    entity_summaries = entity_totals(db, today_str, ctx)
-
     for values in centers.values():
         if not can_view_cost:
             values["total_provider_cost"] = None
@@ -209,16 +209,8 @@ def _dashboard_summary(ctx, db):
             for key in ('total_sales_with_gst', 'today_sales_with_gst', 'pending_collection', 'total_collected', 'today_collected', 'b2b_outstanding'):
                 values[key] = None
 
-    if not can_view_price:
-        for values in entity_summaries.values():
-            for key in ('today_sales', 'today_sales_with_gst', 'today_gst', 'total_sales', 'total_sales_with_gst', 'total_gst'):
-                values[key] = None
-
-    billed = func.coalesce(Shipment.total_amount, Shipment.price + func.coalesce(Shipment.gst_amount, 0))
-    today_sales_with_gst, total_sales_with_gst = db.query(
-        func.coalesce(func.sum(case((today, billed), else_=0)), 0),
-        func.coalesce(func.sum(billed), 0)).one()
-    today_sales_with_gst, total_sales_with_gst = float(today_sales_with_gst), float(total_sales_with_gst)
+    today_sales_with_gst = totals["today_sales_with_gst"]
+    total_sales_with_gst = totals["total_sales_with_gst"]
     today_gst = round(today_sales_with_gst - today_sales, 2)
     total_gst = round(total_sales_with_gst - total_sales, 2)
 
@@ -254,7 +246,6 @@ def _dashboard_summary(ctx, db):
         "collections_by_center": daily_collections["by_center"] if can_view_price else {},
         "pending_collection": totals["pending_collection"] if can_view_price else None,
         "center_summaries": centers,
-        "entity_summaries": entity_summaries,
         "b2b_outstanding": b2b_outstanding if can_view_price else None,
         "b2b_overdue_count": b2b_overdue_count,
         "followups_due": followups_due,

@@ -1,7 +1,6 @@
 import { useRemoteData } from '../utils/useRemoteData';
 import React, { useState, useMemo, useCallback } from 'react';
 import { apiClient } from '../api/client';
-import JSZip from 'jszip';
 import { 
     ShieldCheck, 
     Trash2, 
@@ -231,6 +230,7 @@ export default function KycStorageSettings({ canManage }) {
         setZipProgress(0);
 
         try {
+            const { default: JSZip } = await import('jszip');
             const zip = new JSZip();
             const folder = zip.folder(`KYC_Documents_${new Date().toISOString().slice(0, 10)}`);
 

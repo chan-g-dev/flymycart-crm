@@ -34,11 +34,11 @@ export const Followups = ({ followups = [], customers = [], onRefresh, onComplet
         
         let matchesFilter = true;
         if (filterVal === 'dueToday') {
-            matchesFilter = f.status !== 'Done' && (f.due_date === todayStr || dueToday.some(d => d.id === f.id));
+            matchesFilter = dueToday.some(d => d.id === f.id);
         } else if (filterVal === 'overdue') {
-            matchesFilter = f.status !== 'Done' && (f.due_date < todayStr || overdue.some(o => o.id === f.id));
+            matchesFilter = overdue.some(o => o.id === f.id);
         } else if (filterVal === 'upcoming') {
-            matchesFilter = f.status !== 'Done' && upcoming.some(u => u.id === f.id);
+            matchesFilter = upcoming.some(u => u.id === f.id);
         } else if (filterVal === 'Done') {
             matchesFilter = f.status === 'Done';
         } else if (filterVal === 'High') {

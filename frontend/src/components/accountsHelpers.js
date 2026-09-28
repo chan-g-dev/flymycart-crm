@@ -42,5 +42,5 @@ export function exportRows(rows, name) {
     if (!rows || rows.length < 1) return;
     const headers = rows[0] || [];
     const dataRows = rows.slice(1);
-    exportToExcel(headers, dataRows, name.replace(/\.csv$/, '.xlsx'), 'Accounts');
+    return exportToExcel(headers, dataRows, name.replace(/\.csv$/, '.xlsx'), 'Accounts');
 }

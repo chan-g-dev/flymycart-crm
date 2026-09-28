@@ -11,6 +11,7 @@ from app.database import get_db
 from app.models import Customer, Shipment, Invoice
 from app.dependencies import require_permission
 from app.permissions import PermissionCode
+from app.access_policy import can_view_customer_price
 
 search_router = APIRouter(prefix="/api/search", tags=["Global Search"])
 
@@ -24,6 +25,7 @@ def global_search(
     Unified multi-entity global search across Shipments, Customers, and Invoices.
     """
     term = f"%{q.strip().lower()}%"
+    show_prices = can_view_customer_price(ctx)
 
     # Search Shipments
     shipments = db.query(Shipment).filter(
@@ -66,7 +68,7 @@ def global_search(
                 "customer_name": s.customer_name,
                 "courier": s.courier,
                 "destination": f"{s.receiver_city}, {s.receiver_country}",
-                "price": s.price,
+                "price": s.price if show_prices else None,
                 "status": s.status,
                 "payment_status": s.payment_status
             } for s in shipments
@@ -88,9 +90,9 @@ def global_search(
                 "date": i.date,
                 "customer_name": i.customer_name,
                 "awb": i.awb,
-                "total": i.total,
-                "paid": i.paid,
-                "balance": i.balance,
+                "total": i.total if show_prices else None,
+                "paid": i.paid if show_prices else None,
+                "balance": i.balance if show_prices else None,
                 "status": i.status
             } for i in invoices
         ]

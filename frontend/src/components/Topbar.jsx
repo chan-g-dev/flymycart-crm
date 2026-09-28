@@ -317,7 +317,7 @@ const Topbar = ({
                                                 <span className="fmc-search-name">{i.customer_name}</span>
                                             </div>
                                             <div className="fmc-search-row-badges">
-                                                <strong className="fmc-invoice-amount">₹{Number(i.total).toLocaleString('en-IN')}</strong>
+                                                {i.total != null && <strong className="fmc-invoice-amount">₹{Number(i.total).toLocaleString('en-IN')}</strong>}
                                                 <span className={`status-pill ${i.status === 'Paid' ? 'delivered' : 'delayed'}`}>
                                                     {i.status}
                                                 </span>

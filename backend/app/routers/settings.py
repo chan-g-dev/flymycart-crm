@@ -97,7 +97,7 @@ def update_settings(
         payload["paymentAccounts"] = before_cfg["paymentAccounts"]
     if 'weightRules' not in payload and 'weightRules' in before_cfg:
         payload['weightRules'] = before_cfg['weightRules']
-    # Invoice branding is edited in the invoice preview. A stale settings form
+    # Invoice branding uses its own editor in Settings and invoice previews. A stale settings form
     # must not overwrite the independently saved logo selection.
     payload['companyRolePolicyV1'] = before_cfg.get('companyRolePolicyV1', False)
     for policy_key in ('companyRolePolicyV2', 'companyRolePolicyV3', 'companyRolePolicyV4'):

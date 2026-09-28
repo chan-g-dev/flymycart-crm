@@ -16,17 +16,41 @@ from app.database import get_db
 from app.models import Invoice, Shipment, AuditLog, PaymentCollection, SystemSettings
 from app.cache import cache_engine
 from app.schemas import InvoiceOut, InvoicePaymentCreate
-from app.auth import get_current_user_context, create_audit_log
+from app.auth import create_audit_log
 from app.dependencies import require_permission, require_super_admin
-from pydantic import BaseModel
-from typing import Literal
+from pydantic import BaseModel, Field, field_validator
+import base64
+import binascii
 from app.permissions import PermissionCode
 
 invoices_router = APIRouter(prefix="/invoices", tags=["Invoices"])
 
 
 class InvoiceBrandingUpdate(BaseModel):
-    logo: Literal['original', 'express-wing', 'global-orbit', 'parcel-flight', 'swift-arrow', 'fmc-monogram']
+    logo: str = Field(max_length=700000)
+
+    @field_validator('logo')
+    @classmethod
+    def validate_logo(cls, value):
+        if value in {'original', 'express-wing', 'global-orbit', 'parcel-flight', 'swift-arrow', 'fmc-monogram'}:
+            return value
+        header, separator, encoded = value.partition(',')
+        if not separator or header not in {'data:image/png;base64', 'data:image/jpeg;base64', 'data:image/webp;base64'}:
+            raise ValueError('Choose a logo design or upload a PNG, JPG or WebP image.')
+        try:
+            image = base64.b64decode(encoded, validate=True)
+        except (ValueError, binascii.Error) as exc:
+            raise ValueError('Invalid logo image.') from exc
+        if not image or len(image) > 512 * 1024:
+            raise ValueError('Logo image must be at most 512 KB.')
+        valid = (
+            (header == 'data:image/png;base64' and image.startswith(b'\x89PNG\r\n\x1a\n')) or
+            (header == 'data:image/jpeg;base64' and image.startswith(b'\xff\xd8\xff')) or
+            (header == 'data:image/webp;base64' and image.startswith(b'RIFF') and image[8:12] == b'WEBP')
+        )
+        if not valid:
+            raise ValueError('The image content does not match its file type.')
+        return value
 
 
 @invoices_router.get('/branding')
@@ -45,7 +69,8 @@ def update_invoice_branding(payload: InvoiceBrandingUpdate, ctx=Depends(require_
     previous = config.get('invoiceLogo', 'original')
     rec.config_json = {**config, 'invoiceLogo': payload.logo}
     create_audit_log(db, ctx['user_id'], ctx['display_name'], 'invoices.branding', 'settings', 'change_invoice_logo',
-        resource_id='system_settings', before_data={'logo': previous}, after_data={'logo': payload.logo}, auto_commit=False)
+        resource_id='system_settings', before_data={'logo': 'custom image' if previous.startswith('data:') else previous},
+        after_data={'logo': 'custom image' if payload.logo.startswith('data:') else payload.logo}, auto_commit=False)
     db.commit()
     cache_engine.delete('global_system_settings')
     return {'logo': payload.logo}

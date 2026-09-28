@@ -24,6 +24,8 @@ class IndividualAccessTests(unittest.TestCase):
         app = FastAPI()
         app.include_router(users_router)
         app.include_router(shipments_router)
+        from app.routers.search import search_router
+        app.include_router(search_router)
         app.include_router(workspace_router, prefix='/workspace')
         from app.routers.attendance import attendance_router
         from app.routers.customers import customers_router
@@ -312,6 +314,15 @@ class IndividualAccessTests(unittest.TestCase):
         profile = self.client.get('/api/customers/main-customer/360', headers=headers).json()
         self.assertIsNone(profile['total_spent'])
         self.assertIsNone(profile['invoices'][0]['total'])
+        search = self.client.get('/api/search/?q=Customer', headers=headers)
+        self.assertEqual(search.status_code, 200, search.text)
+        self.assertTrue(search.json()['shipments'])
+        self.assertTrue(search.json()['invoices'])
+        self.assertTrue(all(row['price'] is None for row in search.json()['shipments']))
+        for row in search.json()['invoices']:
+            self.assertIsNone(row['total'])
+            self.assertIsNone(row['paid'])
+            self.assertIsNone(row['balance'])
         dashboard = self.client.get('/api/dashboard/summary', headers=headers).json()
         self.assertIsNone(dashboard['center_summaries']['Main']['total_sales_with_gst'])
         self.assertEqual(self.client.get('/workspace/overview', headers=headers).status_code, 403)
@@ -325,3 +336,6 @@ class IndividualAccessTests(unittest.TestCase):
         self.assertEqual(overview['totals']['sales'], 100)
         self.assertIsNone(overview['totals']['cost'])
         self.assertIsNone(overview['totals']['net'])
+        search = self.client.get('/api/search/?q=Customer', headers=headers).json()
+        self.assertEqual(search['shipments'][0]['price'], 100)
+        self.assertEqual(search['invoices'][0]['total'], 118)

@@ -21,5 +21,14 @@
 .invoice-logo-original-preview { width: 160px; height: 40px; object-fit: contain; margin-top: 10px; background: white; }
 .invoice-logo-controls[role=status], .invoice-logo-controls[role=alert] { font-size: 11px; color: var(--text-muted); }
 .invoice-logo-customizer :focus-visible { outline: 2px solid #0755ee; outline-offset: 3px; }
+.invoice-logo-upload { margin-top: 16px; display: grid; gap: 8px; }
+.invoice-logo-upload label { display: grid; gap: 8px; font-size: 13px; font-weight: 600; }
+.invoice-logo-upload input { max-width: 100%; }
+.invoice-logo-upload small { display: block; color: var(--text-muted); font-size: 12px; }
+.invoice-logo-custom-preview { width: 235px; max-width: 100%; height: 80px; object-fit: contain; background: white; margin-bottom: 8px; }
+.invoice-logo-settings { margin-bottom: 20px; gap: 16px; }
+.invoice-logo-settings > div > p { color: var(--text-muted); font-size: 13px; }
+.invoice-logo-settings .invoice-logo-picker { position: static; width: 100%; box-sizing: border-box; box-shadow: none; max-height: none; }
+.invoice-logo-settings .invoice-logo-options { grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); }
 @media (max-width: 480px) { .invoice-logo-picker { position: fixed; top: 10%; left: 12px; width: calc(100vw - 24px); max-height: 80dvh; overflow: auto; }.invoice-logo-picker-footer { flex-wrap: wrap; } }
 @media print { .invoice-logo-controls, .invoice-logo-picker { display: none !important; }.invoice-selected-logo { height: 48px !important; max-width: 235px !important; } }

@@ -1,3 +1,4 @@
+import { exportToCSVFallback } from '../utils/excelExport';
 import MemberActivity from '../components/MemberActivity';
 import RoleAccessMatrix from '../components/RoleAccessMatrix';
 import UserAccessEditor from '../components/UserAccessEditor';
@@ -192,9 +193,11 @@ export const Users = ({ settings, onDataMutated }) => {
             const data = await apiClient.getUsers();
             const records = Array.isArray(data) ? data : (data?.data || []);
             setStaffList(records.map(normalizeStaffRecord));
+            setFeedbackMessage(null);
         } catch (err) {
             console.error('Unable to load the staff directory:', err);
             setStaffList([]);
+            setFeedbackMessage({ text: 'Unable to load staff. Please refresh.', type: 'error' });
         } finally {
             setIsRefreshing(false);
         }
@@ -285,22 +288,20 @@ export const Users = ({ settings, onDataMutated }) => {
         const nextActive = !user.is_active;
         setActionLoadingId(user.id);
 
-        setStaffList(prev => prev.map(u => u.id === user.id ? {
-            ...u,
-            is_active: nextActive,
-            status: nextActive ? 'Active' : 'Suspended'
-        } : u));
-
         try {
             if (nextActive) {
                 await apiClient.reactivateUser(user.id);
             } else {
                 await apiClient.suspendUser(user.id);
             }
+            setStaffList(prev => prev.map(u => u.id === user.id ? {
+                ...u, is_active: nextActive, status: nextActive ? 'Active' : 'Suspended'
+            } : u));
             showFeedback(`Staff "${user.name}" is now ${nextActive ? 'Active' : 'Suspended'}.`, 'success');
             if (onDataMutated) onDataMutated();
-        } catch {
-            showFeedback(`Staff "${user.name}" status updated to ${nextActive ? 'Active' : 'Suspended'}.`, 'success');
+        } catch (error) {
+            const detail = error.response?.data?.detail;
+            showFeedback(typeof detail === 'string' ? detail : `Unable to change status for "${user.name}". Please retry.`, 'error');
         } finally {
             setActionLoadingId(null);
         }
@@ -332,23 +333,11 @@ export const Users = ({ settings, onDataMutated }) => {
     const handleExportCSV = () => {
         const headers = ['Staff Name', 'Email', 'Phone', 'Role', 'Operating Center', 'Status', 'Approved By', 'Created Date'];
         const rows = staffList.map(s => [
-            `"${s.name}"`,
-            `"${s.email}"`,
-            `"${s.phone || '-'}"`,
-            `"${getRoleConfig(s.role).label}"`,
-            `"${s.center}"`,
-            `"${s.status}"`,
-            `"${s.approved_by || '-'}"`,
-            `"${s.created_at ? new Date(s.created_at).toLocaleDateString('en-IN') : '-'}"`
+            s.name, s.email, s.phone || '-', getRoleConfig(s.role).label,
+            s.center, s.status, s.approved_by || '-',
+            s.created_at ? new Date(s.created_at).toLocaleDateString('en-IN') : '-'
         ]);
-        const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
-        const encodedUri = encodeURI(csvContent);
-        const link = document.createElement('a');
-        link.setAttribute('href', encodedUri);
-        link.setAttribute('download', `flymycart_staff_directory_${businessDate()}.csv`);
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
+        exportToCSVFallback(headers, rows, `flymycart_staff_directory_${businessDate()}.csv`);
         showFeedback('Staff directory exported as CSV file.', 'success');
     };
 

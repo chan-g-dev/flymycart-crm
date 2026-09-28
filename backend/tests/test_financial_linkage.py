@@ -259,6 +259,61 @@ class FinancialLinkageTests(unittest.TestCase):
             _b2b_summary(100, 0, {'is_super_admin': True}, db)
         self.assertEqual(raised.exception.status_code, 503)
 
+    def test_reports_scope_collections_expenses_and_prior_booking_refunds(self):
+        import datetime as dt
+        from sqlalchemy.orm import Session
+        from app.models import AccountingEntry, Refund
+        older = (business_today().replace(day=1) - dt.timedelta(days=1)).isoformat()
+        ships = [
+            self.booking(awb='REPORT-DOM', price=100, cost=20, center='Main Hub (Bangalore)',
+                         entity='Globe Courier', domestic_international='Domestic', payment_status='Unpaid'),
+            self.booking(awb='REPORT-INTL', price=200, cost=30, center='Main Hub (Bangalore)',
+                         entity='USU Enterprises', domestic_international='International', payment_status='Unpaid'),
+            self.booking(awb='REPORT-OTHER', price=300, cost=40, center='Delhi Regional Hub',
+                         entity='Globe Courier', domestic_international='Domestic', payment_status='Unpaid'),
+            self.booking(awb='REPORT-OLDER', price=400, cost=50, date=older, center='Main Hub (Bangalore)',
+                         entity='Globe Courier', domestic_international='Domestic', payment_status='Unpaid'),
+        ]
+        invoices = self.call('GET', '/api/invoices')
+        for ship, amount in zip(ships, (10, 20, 30, 40)):
+            invoice = next(i for i in invoices if i['shipment_id'] == ship['id'])
+            self.call('POST', f"/api/invoices/{invoice['id']}/payments", {
+                'amount': amount, 'payment_method': 'Cash', 'payment_details': self.cash,
+                'paid_to': 'QA Cash', 'collected_by': 'QA Admin'})
+        with Session(self.engine) as db:
+            for ship, amount in zip(ships[:3], (2, 3, 5)):
+                db.add(AccountingEntry(date=self.today, kind='expense', amount=amount,
+                    reference=ship['awb'], account='QA Cash', created_by='qa-admin',
+                    center=ship['center'], shipment_id=ship['id']))
+            db.add(Refund(customer='Link Test', awb=ships[3]['awb'], amount=4, reason='Prior booking',
+                request_date=self.today, approval_date=self.today, status='Approved'))
+            db.commit()
+        filters = {'center': 'Main Hub (Bangalore)', 'scope': 'Domestic', 'entity': 'Globe Courier'}
+        eod = self.call('GET', '/api/reports/eod', params={'date': self.today, **filters})
+        self.assertEqual(eod['total_sales'], 100)
+        self.assertEqual(eod['refunds_amount'], 4)
+        self.assertEqual(eod['total_collected'], 50)
+        self.assertEqual(eod['collections_by_method'], {'Cash': 50})
+        self.assertEqual(eod['operational_expenses'], 2)
+        weekly = self.call('GET', '/api/reports/weekly', params={'end_date': self.today, 'start_date': self.today, **filters})
+        self.assertEqual(weekly['total_collected'], 50)
+        self.assertEqual(weekly['refunds_total'], 4)
+        self.assertEqual(weekly['operational_expenses'], 2)
+        monthly = self.call('GET', '/api/reports/monthly', params={'month': self.today[:7], **filters})
+        self.assertEqual(monthly['refunds_total'], 4)
+        self.assertEqual(monthly['operational_expenses'], 2)
+        center = self.call('GET', '/api/reports/eod', params={'date': self.today, 'center': 'Main Hub (Bangalore)'})
+        self.assertEqual(center['operational_expenses'], 5)
+        all_centers = self.call('GET', '/api/reports/weekly', params={'end_date': self.today, 'start_date': self.today})
+        self.assertEqual(all_centers['total_collected'], 100)
+        self.assertEqual(all_centers['operational_expenses'], 10)
+
+    def test_reports_reject_invalid_dates_and_scopes(self):
+        for path in ('eod?date=2026-02-30', 'monthly?month=2026', 'monthly?month=2026-13'):
+            self.call('GET', '/api/reports/' + path, expected=400)
+        for path in ('eod', 'weekly', 'monthly'):
+            self.call('GET', '/api/reports/' + path + '?scope=unknown', expected=422)
+
     def test_shipment_profit_matches_final_billed_amount_across_sections(self):
         ship = self.booking(awb='PROFIT-CONSISTENCY', price=1000, cost=600)
         self.assertEqual(ship['gross_profit'], 580)

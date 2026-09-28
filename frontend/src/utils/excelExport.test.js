@@ -8,11 +8,11 @@ import * as fs from 'node:fs';
 XLSX.set_fs(fs);
 import { exportToExcel } from './excelExport.js';
 
-test('Excel export preserves negative monetary amounts and treats formula-like names as text', () => {
+test('Excel export preserves negative monetary amounts and treats formula-like names as text', async () => {
     const directory = mkdtempSync(join(tmpdir(), 'fmc-export-test-'));
     const filename = join(directory, 'report.xlsx');
     try {
-        exportToExcel(['Amount', 'Customer'], [[-125.5, '=1+1'], [200, '+Customer']], filename);
+        await exportToExcel(['Amount', 'Customer'], [[-125.5, '=1+1'], [200, '+Customer']], filename);
         const workbook = XLSX.read(readFileSync(filename));
         const sheet = workbook.Sheets.Report;
         assert.equal(sheet.A2.t, 'n');

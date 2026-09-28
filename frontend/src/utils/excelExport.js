@@ -1,5 +1,3 @@
-import * as XLSX from 'xlsx';
-
 /**
  * Clean cell values and prevent formula injection
  */
@@ -20,8 +18,9 @@ function sanitizeCell(val) {
  * @param {string} filename - Output filename (e.g. 'Customers_Export.xlsx')
  * @param {string} [sheetName='Data'] - Name of the worksheet
  */
-export function exportToExcel(headers, rows, filename, sheetName = 'Report') {
+export async function exportToExcel(headers, rows, filename, sheetName = 'Report') {
     try {
+        const XLSX = await import('./excelWorkbook.js');
         const cleanFilename = filename.endsWith('.xlsx') ? filename : `${filename.replace(/\.csv$/, '')}.xlsx`;
         
         // Prepare rows with sanitized values

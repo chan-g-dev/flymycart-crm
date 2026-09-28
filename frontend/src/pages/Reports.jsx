@@ -3,7 +3,7 @@ import { businessDate, formatBusinessDate, shiftCalendarDate } from '../utils/bu
 import { providerCostLabel } from '../utils/costLabels';
 import { useState, useCallback, useMemo } from 'react';
 import { Globe, Plane, Truck, Building2, X } from 'lucide-react';
-import { getEntityOptions, getEntityMeta, DEFAULT_ENTITY } from '../utils/entityConstants';
+import { getEntityOptions } from '../utils/entityConstants';
 import { Printer, Calendar, FileText, TrendingUp } from 'lucide-react';
 import { useAuth } from '../context/authSession';
 import { apiClient } from '../api/client';
@@ -12,7 +12,7 @@ import { ContentShimmer } from '../components/ContentShimmer';
 import { CourierDonutChart, ProgressItem, DailyTrendChart, MonthlyWaterfallChart } from '../components/ReportCharts';
 import { printElement } from '../utils/printHelper';
 
-export const Reports = ({ activeTab, refreshKey, settings, initialScope = '', initialEntity = '', shipments = [] }) => {
+export const Reports = ({ activeTab, refreshKey, settings, initialScope = '', initialEntity = '', selectedCenter = 'All Centers' }) => {
     const { hasPermission } = useAuth();
     const canViewFinancials = hasPermission('viewFinancials');
     const canViewNetValue = hasPermission('costs.net_value') || canViewFinancials;
@@ -44,43 +44,10 @@ export const Reports = ({ activeTab, refreshKey, settings, initialScope = '', in
 
     const entityOptions = useMemo(() => getEntityOptions(settings), [settings]);
 
-    const scopeCounts = useMemo(() => {
-        let total = 0;
-        let intl = 0;
-        let dom = 0;
-        (shipments || []).forEach(s => {
-            const ent = s.entity || DEFAULT_ENTITY;
-            const meta = getEntityMeta(ent, settings);
-            if (reportEntity && reportEntity !== 'all' && meta.name !== reportEntity && ent !== reportEntity) return;
-
-            total += 1;
-            const isDom = s.domestic_international === 'Domestic' || (s.receiver_country && s.receiver_country.toLowerCase() === 'india' && s.domestic_international !== 'International');
-            if (isDom) dom += 1;
-            else intl += 1;
-        });
-        return { all: total, intl, dom };
-    }, [shipments, reportEntity, settings]);
-
-    const entityCounts = useMemo(() => {
-        const counts = { total: 0 };
-        entityOptions.forEach(e => { counts[e.name] = 0; });
-        (shipments || []).forEach(s => {
-            const isDom = s.domestic_international === 'Domestic' || (s.receiver_country && s.receiver_country.toLowerCase() === 'india' && s.domestic_international !== 'International');
-            if (reportScope === 'International' && isDom) return;
-            if (reportScope === 'Domestic' && !isDom) return;
-
-            counts.total += 1;
-            const ent = s.entity || DEFAULT_ENTITY;
-            const meta = getEntityMeta(ent, settings);
-            const key = meta.name;
-            counts[key] = (counts[key] || 0) + 1;
-        });
-        return counts;
-    }, [shipments, reportScope, entityOptions, settings]);
-
     const loadReport = useCallback(() => {
         if (!tab) return Promise.resolve(null);
         const params = {};
+        if (selectedCenter !== 'All Centers') params.center = selectedCenter;
         if (reportScope) params.scope = reportScope;
         if (reportEntity) params.entity = reportEntity;
 
@@ -88,10 +55,10 @@ export const Reports = ({ activeTab, refreshKey, settings, initialScope = '', in
             : tab === 'weekly' ? apiClient.getWeeklyReport(eodDate, params)
             : tab === 'custom' ? apiClient.getDateRangeReport(rangeStart, rangeEnd, params)
             : apiClient.getMonthlyPLReport(monthVal, params);
-    }, [tab, eodDate, monthVal, rangeStart, rangeEnd, reportScope, reportEntity]);
+    }, [tab, eodDate, monthVal, rangeStart, rangeEnd, reportScope, reportEntity, selectedCenter]);
     // Remount the request when an explicit refresh or financial access changes.
     const requestReport = useCallback(() => loadReport({ refreshKey, canViewFinancials }), [loadReport, refreshKey, canViewFinancials]);
-    const { data: report, error, loading } = useRemoteData(requestReport);
+    const { data: report, error, loading, reload } = useRemoteData(requestReport);
     const reportError = error ? (typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Unable to load this report. Check the dates and try again.') : '';
     const eodReport = tab === 'eod' ? report : null;
     const weeklyReport = tab === 'weekly' || tab === 'custom' ? report : null;
@@ -147,7 +114,7 @@ export const Reports = ({ activeTab, refreshKey, settings, initialScope = '', in
                             } : {}}
                         >
                             <Globe size={15} color={!reportScope ? '#1d4ed8' : '#64748b'} />
-                            <span>Both: <strong>{scopeCounts.all}</strong></span>
+                            <span>Both</span>
                         </button>
                         <button
                             type="button"
@@ -161,7 +128,7 @@ export const Reports = ({ activeTab, refreshKey, settings, initialScope = '', in
                             } : {}}
                         >
                             <Plane size={15} color={reportScope === 'International' ? '#1d4ed8' : '#64748b'} />
-                            <span>Intl: <strong>{scopeCounts.intl}</strong></span>
+                            <span>International</span>
                         </button>
                         <button
                             type="button"
@@ -175,7 +142,7 @@ export const Reports = ({ activeTab, refreshKey, settings, initialScope = '', in
                             } : {}}
                         >
                             <Truck size={15} color={reportScope === 'Domestic' ? '#b45309' : '#64748b'} />
-                            <span>Dom: <strong>{scopeCounts.dom}</strong></span>
+                            <span>Domestic</span>
                         </button>
                     </div>
                 </div>
@@ -198,10 +165,9 @@ export const Reports = ({ activeTab, refreshKey, settings, initialScope = '', in
                             } : {}}
                         >
                             <Building2 size={15} color={!reportEntity ? '#1d4ed8' : '#64748b'} />
-                            <span>All: <strong>{entityCounts.total}</strong></span>
+                            <span>All entities</span>
                         </button>
                         {entityOptions.map(ent => {
-                            const count = entityCounts[ent.name] ?? 0;
                             const isSelected = reportEntity === ent.name;
                             const activeStyle = isSelected ? {
                                 background: ent.bg || '#eff6ff',
@@ -219,7 +185,7 @@ export const Reports = ({ activeTab, refreshKey, settings, initialScope = '', in
                                     style={activeStyle}
                                     title={`Filter by ${ent.name}`}
                                 >
-                                    <span>{ent.shortName || ent.name}: <strong>{count}</strong></span>
+                                    <span>{ent.shortName || ent.name}</span>
                                 </button>
                             );
                         })}
@@ -337,7 +303,7 @@ export const Reports = ({ activeTab, refreshKey, settings, initialScope = '', in
                 )}
             </div>
 
-            {reportError ? <p role="alert">{reportError}</p> : loading ? (
+            {reportError ? <p role="alert">{reportError} <button type="button" className="btn btn-outline" onClick={reload}>Retry report</button></p> : loading ? (
                 <ContentShimmer
                     message={tab === 'eod' ? 'Loading daily report...'
                         : tab === 'weekly' ? 'Loading weekly report...'

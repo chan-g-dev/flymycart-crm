@@ -2,12 +2,14 @@ import CustomerTypesSettings from '../components/CustomerTypesSettings';
 import '../components/SettingsWorkspace.css';
 import WeightSettings from '../components/WeightSettings';
 import BusinessDefaults from '../components/BusinessDefaults';
+import InvoiceLogo from '../components/InvoiceLogo';
 import PaymentAccounts from '../components/PaymentAccounts';
 import KycStorageSettings from '../components/KycStorageSettings';
 import MessageTemplatesSettings from '../components/MessageTemplatesSettings';
 import CreditPaymentAlertsSettings from '../components/CreditPaymentAlertsSettings';
 import { formatRecordTime } from '../utils/businessDates';
-import { useState, useEffect, useRef } from 'react';
+import { useState, useCallback, useRef } from 'react';
+import { useRemoteData } from '../utils/useRemoteData';
 import { useAuth } from '../context/authSession';
 import { apiClient } from '../api/client';
 import { CourierLogo } from '../components/CourierLogos';
@@ -77,17 +79,36 @@ export const Settings = ({ settings, onUpdateSettings, activeSubPage }) => {
     const [newEntityTagline, setNewEntityTagline] = useState('');
     const [newEntityColor, setNewEntityColor] = useState('#2563eb');
     const [showEntityModal, setShowEntityModal] = useState(false);
-    const [auditLogs, setAuditLogs] = useState([]);
     const [logoUploadError, setLogoUploadError] = useState('');
     
     const fileInputRef = useRef(null);
+    const saveInFlight = useRef(false);
+    const [savingConfiguration, setSavingConfiguration] = useState(false);
+    const [configurationError, setConfigurationError] = useState('');
+    const saveConfiguration = async updated => {
+        if (saveInFlight.current) return false;
+        saveInFlight.current = true;
+        setSavingConfiguration(true);
+        setConfigurationError('');
+        try {
+            await onUpdateSettings(updated);
+            return true;
+        } catch (error) {
+            const detail = error.response?.data?.detail;
+            setConfigurationError(typeof detail === 'string' ? detail : 'Unable to save settings. Your changes have not been saved. Please retry.');
+            return false;
+        } finally {
+            saveInFlight.current = false;
+            setSavingConfiguration(false);
+        }
+    };
+
 
     const canViewFinancials = hasPermission('viewFinancials');
-    useEffect(() => {
-        if (canViewFinancials) {
-            apiClient.getAuditLogs().then(setAuditLogs).catch(() => {});
-        }
-    }, [canViewFinancials]);
+    const loadAuditLogs = useCallback(() => canViewFinancials && settingsView === 'audit'
+        ? apiClient.getAuditLogs() : Promise.resolve([]), [canViewFinancials, settingsView]);
+    const audit = useRemoteData(loadAuditLogs);
+    const auditLogs = audit.data || [];
 
     const handleLogoFileUpload = (e) => {
         setLogoUploadError('');
@@ -112,7 +133,7 @@ export const Settings = ({ settings, onUpdateSettings, activeSubPage }) => {
         reader.readAsDataURL(file);
     };
 
-    const handleAddCourier = () => {
+    const handleAddCourier = async () => {
         const name = newCourier.trim();
         if (!name) return;
         if (visibleCouriers.some(c => c.toLowerCase() === name.toLowerCase())) {
@@ -149,15 +170,7 @@ export const Settings = ({ settings, onUpdateSettings, activeSubPage }) => {
             prepaidWallets: updatedWallets
         };
 
-        if (typeof window !== 'undefined') {
-            window.__FMC_SETTINGS__ = updated;
-            try {
-                localStorage.setItem('fmc_courier_logos', JSON.stringify(updatedLogos));
-                localStorage.setItem('fmc_courier_tracking_urls', JSON.stringify(updatedTrackingUrls));
-            } catch {}
-        }
-
-        onUpdateSettings(updated);
+        if (!await saveConfiguration(updated)) return;
         setNewCourier('');
         setNewCourierLogo('');
         setNewCourierTrackingUrl('');
@@ -166,7 +179,7 @@ export const Settings = ({ settings, onUpdateSettings, activeSubPage }) => {
         setShowCourierModal(false);
     };
 
-    const handleRemoveCourier = (courierName) => {
+    const handleRemoveCourier = async (courierName) => {
         if (visibleCouriers.length <= 1) {
             alert('At least one courier partner must remain configured.');
             return;
@@ -193,18 +206,10 @@ export const Settings = ({ settings, onUpdateSettings, activeSubPage }) => {
             prepaidWallets: updatedWallets
         };
 
-        if (typeof window !== 'undefined') {
-            window.__FMC_SETTINGS__ = updated;
-            try {
-                localStorage.setItem('fmc_courier_logos', JSON.stringify(updatedLogos));
-                localStorage.setItem('fmc_courier_tracking_urls', JSON.stringify(updatedTrackingUrls));
-            } catch {}
-        }
-
-        onUpdateSettings(updated);
+        if (!await saveConfiguration(updated)) return;
     };
 
-    const handleAddCenter = () => {
+    const handleAddCenter = async () => {
         const name = newCenter.trim();
         if (!name) return;
         if (visibleCenters.some(c => c.toLowerCase() === name.toLowerCase())) {
@@ -216,11 +221,11 @@ export const Settings = ({ settings, onUpdateSettings, activeSubPage }) => {
             ...settings,
             centers: [...visibleCenters, name]
         };
-        onUpdateSettings(updated);
+        if (!await saveConfiguration(updated)) return;
         setNewCenter('');
     };
 
-    const handleRemoveCenter = (centerName) => {
+    const handleRemoveCenter = async (centerName) => {
         if (visibleCenters.length <= 1) {
             alert('At least one business hub / center must remain configured.');
             return;
@@ -233,20 +238,20 @@ export const Settings = ({ settings, onUpdateSettings, activeSubPage }) => {
             ...settings,
             centers: visibleCenters.filter(c => c !== centerName)
         };
-        onUpdateSettings(updated);
+        if (!await saveConfiguration(updated)) return;
     };
 
-    const handleAddEmployee = () => {
+    const handleAddEmployee = async () => {
         if (!newEmployee.trim() || visibleEmployees.includes(newEmployee.trim())) return;
         const updated = {
             ...settings,
             employees: [...visibleEmployees, newEmployee.trim()]
         };
-        onUpdateSettings(updated);
+        if (!await saveConfiguration(updated)) return;
         setNewEmployee('');
     };
 
-    const handleRemoveEmployee = (empName) => {
+    const handleRemoveEmployee = async (empName) => {
         if (visibleEmployees.length <= 1) {
             alert('At least one collector / staff member must remain configured.');
             return;
@@ -255,10 +260,10 @@ export const Settings = ({ settings, onUpdateSettings, activeSubPage }) => {
             ...settings,
             employees: visibleEmployees.filter(e => e !== empName)
         };
-        onUpdateSettings(updated);
+        if (!await saveConfiguration(updated)) return;
     };
 
-    const handleAddEntity = () => {
+    const handleAddEntity = async () => {
         const name = newEntityName.trim();
         if (!name) return;
         if (visibleEntities.some(e => e.name.toLowerCase() === name.toLowerCase())) {
@@ -291,7 +296,7 @@ export const Settings = ({ settings, onUpdateSettings, activeSubPage }) => {
             operatingEntities: [...currentList, newEntity]
         };
 
-        onUpdateSettings(updated);
+        if (!await saveConfiguration(updated)) return;
         setNewEntityName('');
         setNewEntityShortName('');
         setNewEntityCode('');
@@ -299,7 +304,7 @@ export const Settings = ({ settings, onUpdateSettings, activeSubPage }) => {
         setShowEntityModal(false);
     };
 
-    const handleRemoveEntity = (entityId) => {
+    const handleRemoveEntity = async (entityId) => {
         if (visibleEntities.length <= 1) {
             alert('At least one operating entity must remain configured.');
             return;
@@ -316,28 +321,28 @@ export const Settings = ({ settings, onUpdateSettings, activeSubPage }) => {
             ...settings,
             operatingEntities: currentList.filter(e => (e.id || e.name || e) !== entityId)
         };
-        onUpdateSettings(updated);
+        if (!await saveConfiguration(updated)) return;
     };
 
-    const handleAddPaidTo = () => {
+    const handleAddPaidTo = async () => {
         if (!newPaidTo.trim() || visiblePaidToAccounts.includes(newPaidTo.trim())) return;
         const updated = {
             ...settings,
             paidToAccounts: [...visiblePaidToAccounts, newPaidTo.trim()]
         };
-        onUpdateSettings(updated);
+        if (!await saveConfiguration(updated)) return;
         setNewPaidTo('');
     };
 
-    const handleRemovePaidTo = (accName) => {
+    const handleRemovePaidTo = async (accName) => {
         const updated = {
             ...settings,
             paidToAccounts: visiblePaidToAccounts.filter(a => a !== accName)
         };
-        onUpdateSettings(updated);
+        if (!await saveConfiguration(updated)) return;
     };
 
-    const handleAddWallet = () => {
+    const handleAddWallet = async () => {
         if (!newWalletName.trim()) return;
         const name = newWalletName.trim();
         const exists = visiblePrepaidWallets.some(w => w.name.toLowerCase() === name.toLowerCase());
@@ -362,20 +367,20 @@ export const Settings = ({ settings, onUpdateSettings, activeSubPage }) => {
             prepaidWallets: updatedWallets,
             postpaidProviders: updatedPostpaid
         };
-        onUpdateSettings(updated);
+        if (!await saveConfiguration(updated)) return;
         setNewWalletName('');
         setNewWalletOpening('');
     };
 
-    const handleRemoveWallet = (walletName) => {
+    const handleRemoveWallet = async (walletName) => {
         const updated = {
             ...settings,
             prepaidWallets: visiblePrepaidWallets.filter(w => w.name.toLowerCase() !== walletName.toLowerCase())
         };
-        onUpdateSettings(updated);
+        if (!await saveConfiguration(updated)) return;
     };
 
-    const handleAddPostpaid = () => {
+    const handleAddPostpaid = async () => {
         if (!newPostpaidName.trim()) return;
         const name = newPostpaidName.trim();
         const exists = visiblePostpaidProviders.some(p => p.name.toLowerCase() === name.toLowerCase());
@@ -400,34 +405,38 @@ export const Settings = ({ settings, onUpdateSettings, activeSubPage }) => {
             postpaidProviders: updatedPostpaid,
             prepaidWallets: updatedWallets
         };
-        onUpdateSettings(updated);
+        if (!await saveConfiguration(updated)) return;
         setNewPostpaidName('');
         setNewPostpaidDeposit('');
         setNewPostpaidTerms('30 Days');
     };
 
-    const handleUpdatePostpaid = (providerName, updates) => {
+    const handleUpdatePostpaid = async (providerName, updates) => {
         const updated = {
             ...settings,
             postpaidProviders: visiblePostpaidProviders.map(p => 
                 p.name === providerName ? { ...p, ...updates } : p
             )
         };
-        onUpdateSettings(updated);
+        if (!await saveConfiguration(updated)) return;
     };
 
-    const handleRemovePostpaid = (providerName) => {
+    const handleRemovePostpaid = async (providerName) => {
         const updated = {
             ...settings,
             postpaidProviders: visiblePostpaidProviders.filter(p => p.name.toLowerCase() !== providerName.toLowerCase())
         };
-        onUpdateSettings(updated);
+        if (!await saveConfiguration(updated)) return;
     };
 
     return (
         <div className="settings-workspace" style={{ paddingTop: '4px' }}>
+            {configurationError && <div role="alert" className="alert alert-danger">{configurationError}</div>}
+            {savingConfiguration && <p role="status">Saving settings...</p>}
+            <fieldset disabled={savingConfiguration} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
             <div hidden={settingsView !== 'business'}>
                 <BusinessDefaults settings={settings} onSave={onUpdateSettings} canManage={canManageSettings} />
+                {settingsView === 'business' && <InvoiceLogo settingsMode />}
                 <CustomerTypesSettings settings={settings} onSave={onUpdateSettings} canManage={canManageSettings} />
             </div>
             <div hidden={settingsView !== 'credit_alerts'}><CreditPaymentAlertsSettings settings={settings} onSave={onUpdateSettings} canManage={canManageSettings} /></div>
@@ -1141,7 +1150,7 @@ export const Settings = ({ settings, onUpdateSettings, activeSubPage }) => {
                                     {!auditLogs.length && (
                                         <tr>
                                             <td colSpan={5} style={{ textAlign: 'center', padding: '32px', color: 'var(--text-muted)' }}>
-                                                No configuration audit events logged yet.
+                                                {audit.error ? <span role="alert">Unable to load the activity log. <button type="button" onClick={audit.reload}>Retry activity log</button></span> : audit.loading ? 'Loading activity log...' : 'No configuration audit events logged yet.'}
                                             </td>
                                         </tr>
                                     )}
@@ -1151,6 +1160,7 @@ export const Settings = ({ settings, onUpdateSettings, activeSubPage }) => {
                     </div>
                 </div>
             )}
+            </fieldset>
         </div>
     );
 };

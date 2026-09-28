@@ -87,6 +87,7 @@ function AppWorkspace() {
     const pageKey = `${currentPage}:${selectedCenter}:${selectedScope}:${selectedEntity}`;
     const isLoading = manualLoading || loadedPage !== pageKey;
     const [dashboardData, setDashboardData] = useState(null);
+    const [reportRevision, setReportRevision] = useState(0);
     const [customers, setCustomers] = useState([]);
     const [shipments, setShipments] = useState([]);
     const [invoices, setInvoices] = useState([]);
@@ -230,7 +231,10 @@ function AppWorkspace() {
                 setSettings(value);
                 window.__FMC_SETTINGS__ = value;
                 if (value?.courierLogos) {
-                    try { localStorage.setItem('fmc_courier_logos', JSON.stringify(value.courierLogos)); } catch {}
+                    try {
+                        localStorage.setItem('fmc_courier_logos', JSON.stringify(value.courierLogos));
+                        localStorage.setItem('fmc_courier_tracking_urls', JSON.stringify(value.courierTrackingUrls || {}));
+                    } catch {}
                 }
             }],
         };
@@ -244,19 +248,25 @@ function AppWorkspace() {
             refunds: ['refunds', 'shipments'],
             followups: ['followups', 'customers'],
         };
-        await Promise.all(['dashboard', 'settings', ...(pages[currentPage] || [])].map(async key => {
-            try {
-                const [fetch, publish] = resources[key];
-                const value = await fetch();
-                if (generation === loadGeneration.current) publish(value);
-            } catch (error) {
-                if (generation === loadGeneration.current) {
-                    const empty = ['dashboard', 'accounts', 'b2b', 'settings'].includes(key) ? null : [];
-                    resources[key][1](empty);
-                    if (error.response?.status !== 403) nextError = 'Some data could not be loaded. Please retry.';
+        const requests = ['dashboard', 'settings', ...(pages[currentPage] || [])].map(key => {
+            const request = (async () => {
+                try {
+                    const [fetch, publish] = resources[key];
+                    const value = await fetch();
+                    if (generation === loadGeneration.current) publish(value);
+                } catch (error) {
+                    if (generation === loadGeneration.current) {
+                        const empty = ['dashboard', 'accounts', 'b2b', 'settings'].includes(key) ? null : [];
+                        resources[key][1](empty);
+                        if (error.response?.status !== 403 && (key !== 'dashboard' || currentPage === 'dashboard')) nextError = 'Some data could not be loaded. Please retry.';
+                    }
                 }
-            }
-        }));
+            })();
+            // Sidebar badges refresh in the background; only the dashboard needs
+            // to wait for analytics before its main content can be displayed.
+            return key === 'dashboard' && currentPage !== 'dashboard' ? undefined : request;
+        });
+        await Promise.all(requests);
         if (generation === loadGeneration.current) {
             setLoadError(nextError);
             setLoadedPage(pageKey);
@@ -267,6 +277,7 @@ function AppWorkspace() {
     const refreshAll = async (silent = false) => {
         if (silent !== true) setIsLoading(true);
         await loadPage();
+        setReportRevision(value => value + 1);
         if (isDrawerOpen && drawerData?.customer?.id) {
             const customerId = drawerData.customer.id;
             const profile = await apiClient.getCustomer360(customerId);
@@ -657,7 +668,7 @@ function AppWorkspace() {
                     )}
 
                     {currentPage === 'reports' && (
-                        <Reports activeTab={activeSubPage} refreshKey={dashboardData} settings={settings} shipments={shipments} />
+                        <Reports activeTab={activeSubPage} refreshKey={reportRevision} settings={settings} selectedCenter={selectedCenter} />
                     )}
 
                     {currentPage === 'attendance' && (
@@ -681,6 +692,7 @@ function AppWorkspace() {
                                 const saved = await apiClient.updateSettings(newSetts);
                                 setSettings(saved);
                                 await refreshAll(true);
+                                return saved;
                             }}
                         />
                     )}
