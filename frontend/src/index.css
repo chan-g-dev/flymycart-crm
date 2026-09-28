@@ -6466,7 +6466,7 @@ table.data-table.reconciliation-table :is(th, td):last-child {
     }
 
     .shipment-directory-table-card {
-        flex: 1 1 0;
+        flex: 0 1 auto;
         min-height: 0;
         display: flex;
         flex-direction: column;
@@ -6476,11 +6476,15 @@ table.data-table.reconciliation-table :is(th, td):last-child {
     }
 
     .shipment-directory-table-card .shipment-directory-scroll {
-        flex: 1 1 0;
+        flex: 0 1 auto;
         min-height: 0;
         max-height: none;
         overflow: auto;
         overscroll-behavior: contain;
+    }
+
+    .shipment-directory-table-card .shipment-table-wrapper-relative {
+        flex: 0 1 auto;
     }
 
     .shipment-directory-table-card .table-pagination {
